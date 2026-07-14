@@ -6,6 +6,12 @@ RUN go install github.com/londek/ipadecrypt/cmd/ipadecrypt@latest
 FROM oven/bun:1-slim
 WORKDIR /app
 
+# The slim base image ships without a CA bundle at all (no /etc/ssl/certs),
+# so ipadecrypt's outbound HTTPS calls (App Store, device helper download)
+# fail TLS verification without this.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ipadecrypt /go/bin/ipadecrypt /usr/local/bin/ipadecrypt
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile
