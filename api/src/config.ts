@@ -18,6 +18,11 @@ function optionalInt(name: string, fallback: number): number {
 
 export const config = {
   port: optionalInt('PORT', 8080),
+  // With network_mode: host (needed to reach the device's iproxy'd SSH
+  // port), the app would otherwise bind 0.0.0.0 and be reachable from the
+  // whole LAN. Bind to loopback explicitly to keep the old "localhost
+  // only, reached via Caddy" boundary.
+  bindHost: optional('BIND_HOST', '127.0.0.1'),
 
   // auth
   apiKey: required('API_KEY'),

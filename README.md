@@ -40,16 +40,19 @@ can only run one `ipadecrypt decrypt` at a time.
 
 ## Fronting with Caddy
 
-The `api` service publishes to `127.0.0.1:8080` only. Point a Caddy
-instance at it - see `Caddyfile.example`. Whether Caddy runs directly on
-the host or as its own container both work:
+`api` runs with `network_mode: host` (needed so it can reach the jailbroken
+device's SSH port - typically a USB-tethered `iproxy ... 2222:22` bound to
+127.0.0.1 on the host, which a container on the default bridge network
+can't see at all). `BIND_HOST` defaults to `127.0.0.1` so the app itself
+still only listens on loopback, not the whole LAN. Point a Caddy instance
+at `127.0.0.1:8080` - see `Caddyfile.example`. Whether Caddy runs directly
+on the host or as its own container both work:
 
 - **Caddy on the host**: use `reverse_proxy 127.0.0.1:8080` as-is, no
   compose changes needed.
 - **Caddy as a container**: uncomment the `caddy` service in
-  `docker-compose.yml`, drop the `ports:` block from `api` (so it's only
-  reachable inside the compose network), and use `reverse_proxy api:8080`
-  in the Caddyfile instead.
+  `docker-compose.yml` (also given `network_mode: host`, for the same
+  reason as `api`) and use `reverse_proxy 127.0.0.1:8080` in the Caddyfile.
 
 Caddy's `reverse_proxy` has no request timeout by default, so long-running
 decrypts won't get cut off mid-request.

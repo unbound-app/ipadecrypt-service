@@ -20,6 +20,6 @@ app.use((_req, res) => {
 startJobSweeper();
 startScheduler();
 
-app.listen(config.port, () => {
-  log.info(`ipadecrypt-service listening on :${config.port}`);
+app.listen(config.port, config.bindHost, () => {
+  log.info(`ipadecrypt-service listening on ${config.bindHost}:${config.port}`);
 });
