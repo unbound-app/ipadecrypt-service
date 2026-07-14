@@ -20,6 +20,7 @@ app.use(express.json());
 // exceptions are the static dashboard shell itself (a login form with no
 // data in it), and the login/OAuth routes needed to establish a session.
 app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+app.get('/favicon.svg', (_req, res) => res.sendFile(path.join(publicDir, 'favicon.svg')));
 
 app.use(healthRouter);
 app.use(decryptRouter);

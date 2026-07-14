@@ -65,13 +65,24 @@ dashboardRouter.get('/v1/dashboard/keys/mine', (_req, res) => {
   res.json({ keys: listApiKeysForOwner(sub) });
 });
 
+/**
+ * Admins get their key instantly (they're already fully trusted - there's
+ * no one else to approve it); everyone else lands as 'pending' until an
+ * admin approves it on this same tab.
+ */
 dashboardRouter.post('/v1/dashboard/keys/request', (req, res) => {
-  const { sub } = res.locals.session;
+  const { sub, role } = res.locals.session;
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
   if (!name) {
     res.status(400).json({ error: 'name is required' });
     return;
   }
+
+  if (role === 'admin') {
+    res.status(201).json(createApiKey(name, sub));
+    return;
+  }
+
   res.status(201).json(requestApiKey(name, sub));
 });
 
@@ -131,16 +142,6 @@ dashboardRouter.post('/v1/dashboard/keys/:id/deny', requireAdmin, (req, res) => 
     return;
   }
   res.json({ ok: true });
-});
-
-dashboardRouter.post('/v1/dashboard/keys', requireAdmin, (req, res) => {
-  const { sub } = res.locals.session;
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-  if (!name) {
-    res.status(400).json({ error: 'name is required' });
-    return;
-  }
-  res.status(201).json(createApiKey(name, sub));
 });
 
 // --- admin-only: scheduler settings ---

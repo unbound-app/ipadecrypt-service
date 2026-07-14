@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ipadecrypt-service</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <style>
   :root {
     color-scheme: dark;
@@ -45,6 +46,14 @@
     padding: 18px; margin-bottom: 16px;
   }
   .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 12px; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .panel-head h2 { margin: 0; }
+  button.refresh { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px;
+    padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  button.refresh:hover { color: var(--text); border-color: var(--accent); }
+  pre.code-block { background: #0d0f13; border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px;
+    font-size: 12.5px; overflow-x: auto; line-height: 1.6; }
+  pre.code-block .cmt { color: var(--muted); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-weight: 500; }
@@ -120,7 +129,7 @@
 
     <section id="tab-overview">
       <div class="panel">
-        <h2>Status</h2>
+        <div class="panel-head"><h2>Status</h2><button class="refresh" onclick="loadOverview()">Refresh</button></div>
         <div class="stat-row">
           <div><div class="stat" id="ov-scheduler">-</div><div class="stat-label">Scheduler</div></div>
           <div><div class="stat" id="ov-active">-</div><div class="stat-label">Active jobs</div></div>
@@ -143,43 +152,52 @@
 
     <section id="tab-jobs" class="hidden">
       <div class="panel">
-        <h2>Job history</h2>
+        <div class="panel-head"><h2>Job history</h2><button class="refresh" onclick="loadJobs()">Refresh</button></div>
         <table id="jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Size</th><th>Finished</th><th>Error</th></tr></thead><tbody></tbody></table>
       </div>
     </section>
 
     <section id="tab-keys" class="hidden">
       <div class="panel">
-        <h2 id="request-key-heading">Request a key</h2>
+        <h2 id="request-key-heading">Get a key</h2>
+        <div id="request-key-hint" class="muted" style="margin-bottom:10px;"></div>
         <label for="key-name">Name</label>
         <input id="key-name" placeholder="e.g. laptop, ci-runner" />
         <button class="action" id="request-key-btn" onclick="requestKey()">Request</button>
         <div id="key-reveal" class="key-reveal hidden"></div>
       </div>
       <div class="panel">
-        <h2>My keys</h2>
+        <div class="panel-head"><h2>My keys</h2><button class="refresh" onclick="loadKeys()">Refresh</button></div>
         <table id="mine-keys-table"><thead><tr><th>Name</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table>
-        <div class="muted" style="margin-top:10px;">Pending keys need admin approval before they work.</div>
       </div>
       <div id="admin-keys-panels" class="hidden">
         <div class="panel">
-          <h2>Pending requests</h2>
+          <div class="panel-head"><h2>Pending requests</h2><button class="refresh" onclick="loadKeys()">Refresh</button></div>
           <table id="pending-keys-table"><thead><tr><th>Name</th><th>Requested by</th><th>Requested</th><th></th></tr></thead><tbody></tbody></table>
           <div id="pending-keys-empty" class="muted hidden">Nothing pending.</div>
         </div>
         <div class="panel">
-          <h2>Create a key directly</h2>
-          <div class="muted" style="margin-bottom:10px;">Auto-approved, e.g. for a CI runner or yourself.</div>
-          <label for="admin-key-name">Name</label>
-          <input id="admin-key-name" placeholder="e.g. ci-runner" />
-          <button class="action" onclick="createKeyDirect()">Create</button>
-          <div id="admin-key-reveal" class="key-reveal hidden"></div>
-        </div>
-        <div class="panel">
-          <h2>All keys</h2>
+          <div class="panel-head"><h2>All keys</h2><button class="refresh" onclick="loadKeys()">Refresh</button></div>
           <table id="all-keys-table"><thead><tr><th>Name</th><th>Owner</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table>
         </div>
         <div class="muted" style="margin-top:-6px;">The root <code>API_KEY</code> from <code>.env</code> always works too and isn't listed here.</div>
+      </div>
+    </section>
+
+    <section id="tab-docs" class="hidden">
+      <div class="panel">
+        <h2>Using an API key</h2>
+        <div class="muted" style="margin-bottom:10px;">Every request needs <code>Authorization: Bearer &lt;key&gt;</code> - get a key from the API Keys tab first.</div>
+        <pre class="code-block" id="docs-decrypt"></pre>
+      </div>
+      <div class="panel">
+        <h2>Check job status</h2>
+        <div class="muted" style="margin-bottom:10px;">If a decrypt is still running when the request above times out, it responds with a job id instead of the file.</div>
+        <pre class="code-block" id="docs-status"></pre>
+      </div>
+      <div class="panel">
+        <h2>Download once ready</h2>
+        <pre class="code-block" id="docs-file"></pre>
       </div>
     </section>
 
@@ -216,7 +234,7 @@
         <button class="action" onclick="addUser()">Add</button>
       </div>
       <div class="panel">
-        <h2>Allowlist</h2>
+        <div class="panel-head"><h2>Allowlist</h2><button class="refresh" onclick="loadUsers()">Refresh</button></div>
         <table id="users-table"><thead><tr><th>Username</th><th>Role</th><th>Added</th><th></th></tr></thead><tbody></tbody></table>
       </div>
     </section>
@@ -264,6 +282,7 @@ function tabsForRole(role) {
     ['overview', 'Overview'],
     ['jobs', 'Jobs'],
     ['keys', 'API Keys'],
+    ['docs', 'Docs'],
   ];
   if (role === 'admin') {
     base.push(['settings', 'Settings'], ['users', 'Users'], ['apple', 'Apple Auth']);
@@ -276,7 +295,11 @@ function showApp() {
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('whoami').textContent = `${me.sub} (${me.role})`;
   document.getElementById('admin-keys-panels').classList.toggle('hidden', me.role !== 'admin');
-  document.getElementById('request-key-heading').textContent = me.role === 'admin' ? 'Request a key (for yourself)' : 'Request a key';
+  document.getElementById('request-key-heading').textContent = me.role === 'admin' ? 'Get a key' : 'Request a key';
+  document.getElementById('request-key-hint').textContent = me.role === 'admin'
+    ? 'You get it instantly - no approval needed.'
+    : 'Needs approval from an admin before it works.';
+  document.getElementById('request-key-btn').textContent = me.role === 'admin' ? 'Create' : 'Request';
 
   const nav = document.getElementById('tab-nav');
   nav.innerHTML = tabsForRole(me.role).map(([id, label], i) =>
@@ -305,9 +328,29 @@ function showTab(name) {
   if (name === 'overview') loadOverview();
   if (name === 'jobs') loadJobs();
   if (name === 'keys') loadKeys();
+  if (name === 'docs') loadDocs();
   if (name === 'settings') loadSettings();
   if (name === 'users') loadUsers();
   if (name === 'apple') startAppleAuthPolling(); else stopAppleAuthPolling();
+}
+
+function loadDocs() {
+  const base = me.publicBaseUrl || location.origin;
+  document.getElementById('docs-decrypt').textContent =
+`# decrypts (or joins an in-flight decrypt of) the given bundle ID,
+# streaming the .ipa back once it's ready
+curl -H "Authorization: Bearer <YOUR_API_KEY>" \\
+  "${base}/v1/decrypt?bundleId=com.hammerandchisel.discord" \\
+  -o discord.ipa`;
+
+  document.getElementById('docs-status').textContent =
+`curl -H "Authorization: Bearer <YOUR_API_KEY>" \\
+  "${base}/v1/jobs/<JOB_ID>"`;
+
+  document.getElementById('docs-file').textContent =
+`curl -H "Authorization: Bearer <YOUR_API_KEY>" \\
+  "${base}/v1/jobs/<JOB_ID>/file" \\
+  -o discord.ipa`;
 }
 
 function fmtTime(ms) { return ms ? new Date(ms).toLocaleString() : '-'; }
@@ -409,20 +452,18 @@ async function loadKeys() {
 async function requestKey() {
   const name = document.getElementById('key-name').value.trim();
   if (!name) return;
-  await api('/v1/dashboard/keys/request', { method: 'POST', body: JSON.stringify({ name }) });
-  document.getElementById('key-name').value = '';
-  loadKeys();
-}
-
-async function createKeyDirect() {
-  const name = document.getElementById('admin-key-name').value.trim();
-  if (!name) return;
-  const res = await api('/v1/dashboard/keys', { method: 'POST', body: JSON.stringify({ name }) });
+  const res = await api('/v1/dashboard/keys/request', { method: 'POST', body: JSON.stringify({ name }) });
   const data = await res.json();
-  const reveal = document.getElementById('admin-key-reveal');
-  reveal.classList.remove('hidden');
-  reveal.innerHTML = `Save this now, it won't be shown again:<br><code>${escapeHtml(data.key)}</code>`;
-  document.getElementById('admin-key-name').value = '';
+  document.getElementById('key-name').value = '';
+
+  // Admins get the plaintext key back immediately (auto-approved); members
+  // get a pending record with no key yet - they'll reveal it once approved.
+  if (data.key) {
+    const reveal = document.getElementById('key-reveal');
+    reveal.classList.remove('hidden');
+    reveal.innerHTML = `Save this now, it won't be shown again:<br><code>${escapeHtml(data.key)}</code>`;
+  }
+
   loadKeys();
 }
 

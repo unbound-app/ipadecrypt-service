@@ -9,7 +9,13 @@ export const authRouter = Router();
 
 authRouter.get('/v1/auth/session', (req, res) => {
   const session = getSession(req);
-  res.json({ loggedIn: !!session, sub: session?.sub, role: session?.role, githubOauthEnabled });
+  res.json({
+    loggedIn: !!session,
+    sub: session?.sub,
+    role: session?.role,
+    githubOauthEnabled,
+    publicBaseUrl: config.publicBaseUrl,
+  });
 });
 
 authRouter.post('/v1/auth/login', (req, res) => {
