@@ -52,7 +52,6 @@ dashboardRouter.get('/v1/dashboard/overview', (_req, res) => {
       progress: j.progress,
       createdAt: j.createdAt,
     })),
-    recentHistory: getJobHistory().slice(0, 10),
   });
 });
 
