@@ -240,58 +240,66 @@
     </section>
 
     <section id="tab-settings" class="hidden">
-      <div class="panel">
-        <h2>Automated watch → GitHub dispatch</h2>
-        <label>Watch bundle ID</label>
-        <input id="s-watchBundleId" />
-        <label>Watch app repo (releases tracked here)</label>
-        <input id="s-watchAppRepo" />
-        <label>GitHub dispatch repo (owns the workflow)</label>
-        <input id="s-ghDispatchRepo" />
-        <label>Workflow file</label>
-        <input id="s-ghWorkflowFile" />
-        <label>Poll cron</label>
-        <input id="s-pollCron" />
-        <label>Notification webhook URL (Discord-compatible, optional)</label>
-        <input id="s-notifyWebhookUrl" />
-        <button class="action" onclick="saveSettings()">Save</button>
-      </div>
-    </section>
+      <nav id="settings-subnav" style="margin-bottom: 16px;">
+        <button class="tab active" data-subtab="scheduler" onclick="showSettingsSubtab('scheduler')">Scheduler</button>
+        <button class="tab" data-subtab="users" onclick="showSettingsSubtab('users')">Users</button>
+        <button class="tab" data-subtab="apple" onclick="showSettingsSubtab('apple')">Apple Auth</button>
+      </nav>
 
-    <section id="tab-users" class="hidden">
-      <div class="panel">
-        <h2>Add an allowed GitHub user</h2>
-        <label for="user-username">GitHub username</label>
-        <input id="user-username" placeholder="e.g. octocat" />
-        <label for="user-role">Role</label>
-        <select id="user-role">
-          <option value="member">member (read-only + own API keys)</option>
-          <option value="admin">admin (full access)</option>
-        </select>
-        <button class="action" onclick="addUser()">Add</button>
+      <div id="settings-sub-scheduler">
+        <div class="panel">
+          <h2>Automated watch → GitHub dispatch</h2>
+          <label>Watch bundle ID</label>
+          <input id="s-watchBundleId" />
+          <label>Watch app repo (releases tracked here)</label>
+          <input id="s-watchAppRepo" />
+          <label>GitHub dispatch repo (owns the workflow)</label>
+          <input id="s-ghDispatchRepo" />
+          <label>Workflow file</label>
+          <input id="s-ghWorkflowFile" />
+          <label>Poll cron</label>
+          <input id="s-pollCron" />
+          <label>Notification webhook URL (Discord-compatible, optional)</label>
+          <input id="s-notifyWebhookUrl" />
+          <button class="action" onclick="saveSettings()">Save</button>
+        </div>
       </div>
-      <div class="panel">
-        <h2>Allowlist</h2>
-        <table id="users-table"><thead><tr><th>Username</th><th>Role</th><th>Added</th><th></th></tr></thead><tbody></tbody></table>
-      </div>
-    </section>
 
-    <section id="tab-apple" class="hidden">
-      <div class="panel">
-        <h2>Apple ID re-authentication</h2>
-        <div class="muted" style="margin-bottom:10px;">
-          Redoes the App Store sign-in step only (email, password, and a 2FA code if Apple asks for one).
-          The device SSH connection isn't touched. This can't drive the device-setup wizard's interactive
-          menu, so it's only useful for refreshing an expired Apple session.
+      <div id="settings-sub-users" class="hidden">
+        <div class="panel">
+          <h2>Add an allowed GitHub user</h2>
+          <label for="user-username">GitHub username</label>
+          <input id="user-username" placeholder="e.g. octocat" />
+          <label for="user-role">Role</label>
+          <select id="user-role">
+            <option value="member">member (read-only + own API keys)</option>
+            <option value="admin">admin (full access)</option>
+          </select>
+          <button class="action" onclick="addUser()">Add</button>
         </div>
-        <div class="row">
-          <button class="action" id="apple-start-btn" onclick="startAppleAuth()">Start re-authentication</button>
-          <button class="action secondary" id="apple-cancel-btn" onclick="cancelAppleAuth()" disabled>Cancel</button>
+        <div class="panel">
+          <h2>Allowlist</h2>
+          <table id="users-table"><thead><tr><th>Username</th><th>Role</th><th>Added</th><th></th></tr></thead><tbody></tbody></table>
         </div>
-        <pre class="log" id="apple-log" style="margin-top:14px;"></pre>
-        <div id="apple-input-row" class="row hidden" style="margin-top:10px;">
-          <input id="apple-input" placeholder="type the requested value and press Enter" />
-          <button class="action small" onclick="submitAppleInput()">Send</button>
+      </div>
+
+      <div id="settings-sub-apple" class="hidden">
+        <div class="panel">
+          <h2>Apple ID re-authentication</h2>
+          <div class="muted" style="margin-bottom:10px;">
+            Redoes the App Store sign-in step only (email, password, and a 2FA code if Apple asks for one).
+            The device SSH connection isn't touched. This can't drive the device-setup wizard's interactive
+            menu, so it's only useful for refreshing an expired Apple session.
+          </div>
+          <div class="row">
+            <button class="action" id="apple-start-btn" onclick="startAppleAuth()">Start re-authentication</button>
+            <button class="action secondary" id="apple-cancel-btn" onclick="cancelAppleAuth()" disabled>Cancel</button>
+          </div>
+          <pre class="log" id="apple-log" style="margin-top:14px;"></pre>
+          <div id="apple-input-row" class="row hidden" style="margin-top:10px;">
+            <input id="apple-input" placeholder="type the requested value and press Enter" />
+            <button class="action small" onclick="submitAppleInput()">Send</button>
+          </div>
         </div>
       </div>
     </section>
@@ -335,7 +343,7 @@ function tabsForRole(role) {
     ['docs', 'Docs'],
   ];
   if (role === 'admin') {
-    base.push(['settings', 'Settings'], ['users', 'Users'], ['apple', 'Apple Auth']);
+    base.push(['settings', 'Settings']);
   }
   return base;
 }
@@ -373,15 +381,28 @@ async function logout() {
   await init();
 }
 
+let currentSettingsSubtab = 'scheduler';
+
 function showTab(name) {
   document.querySelectorAll('nav .tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
-  document.querySelectorAll('main section').forEach((s) => s.classList.toggle('hidden', s.id !== `tab-${name}`));
+  document.querySelectorAll('main > section').forEach((s) => s.classList.toggle('hidden', s.id !== `tab-${name}`));
   if (name === 'overview') loadOverview();
   if (name === 'decrypt') renderMyDecrypts();
   if (name === 'jobs') loadJobs();
   if (name === 'keys') loadKeys();
   if (name === 'docs') loadDocs();
-  if (name === 'settings') loadSettings();
+  if (name === 'settings') showSettingsSubtab(currentSettingsSubtab);
+
+  // Only keep the Apple Auth log polling alive while that subtab is actually visible.
+  if (!(name === 'settings' && currentSettingsSubtab === 'apple')) stopAppleAuthPolling();
+}
+
+function showSettingsSubtab(name) {
+  currentSettingsSubtab = name;
+  document.querySelectorAll('#settings-subnav .tab').forEach((b) => b.classList.toggle('active', b.dataset.subtab === name));
+  document.querySelectorAll('#tab-settings > div').forEach((s) => s.classList.toggle('hidden', s.id !== `settings-sub-${name}`));
+
+  if (name === 'scheduler') loadSettings();
   if (name === 'users') loadUsers();
   if (name === 'apple') startAppleAuthPolling(); else stopAppleAuthPolling();
 }
