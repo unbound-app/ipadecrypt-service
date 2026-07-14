@@ -21,6 +21,12 @@ services:
       - ipadecrypt-config:/root/.ipadecrypt
       # Scratch space for decrypted IPAs in flight. Safe to wipe.
       - ipa-tmp:/data/tmp
+      # The device-dedicated key already trusted by the jailbroken device
+      # (see the host's `Host ipad` entry in ~/.ssh/config) - mounted at
+      # ipadecrypt's default key path so SSH-key auth in `bootstrap` finds
+      # it without a custom path. Read-only; this key is scoped to the
+      # device only, not the host's general-purpose SSH identity.
+      - ${HOME}/.ssh/id_ed25519_ipad:/root/.ssh/id_ed25519:ro
 
   # Optional: uncomment to run Caddy as a container instead of on the host.
   # `api` uses network_mode: host (see above), so there's no compose
