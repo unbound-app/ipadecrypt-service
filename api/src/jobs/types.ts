@@ -1,8 +1,11 @@
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
 
+export type JobSource = 'manual' | 'scheduler';
+
 export interface Job {
   id: string;
   bundleId: string;
+  source: JobSource;
   status: JobStatus;
   /** Last line emitted by the ipadecrypt CLI, surfaced for polling clients. */
   progress: string;

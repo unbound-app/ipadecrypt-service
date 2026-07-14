@@ -29,9 +29,12 @@ can only run one `ipadecrypt decrypt` at a time.
    docker compose build
    ```
 4. **Bootstrap ipadecrypt once, interactively** (App Store login + device
-   SSH details - persisted in the `ipadecrypt-config` volume):
+   SSH details - persisted in the `ipadecrypt-config` volume). The `api`
+   service has a fixed `container_name`, so if it's already running,
+   `docker compose run` needs an explicit different name to avoid clashing
+   with it:
    ```sh
-   docker compose run --rm -it api ipadecrypt bootstrap
+   docker compose run --rm -it --name ipadecrypt-service-bootstrap api ipadecrypt bootstrap
    ```
 5. Start the service:
    ```sh
@@ -79,6 +82,36 @@ deleted from disk immediately after a successful download, or after
 
 ### `GET /v1/health`
 Liveness + whether the scheduler is enabled. Still requires the API key.
+
+## Admin dashboard
+
+`GET /admin` - a single static page (no build step, no external
+dependencies), gated by its own session login using `ADMIN_PASSWORD` (a
+separate secret from `API_KEY`, so either can be rotated independently).
+The static shell and `POST /v1/admin/login` are the only unauthenticated
+routes; every other `/v1/admin/*` route requires the session cookie set on
+login.
+
+- **Overview** - scheduler on/off, active jobs, recent history, and a
+  banner if a decrypt failure looked like an App Store auth issue.
+- **Jobs** - full bounded history (last 100) of finished/failed jobs.
+- **API Keys** - issue/revoke additional bearer keys (stored hashed, shown
+  in full only once at creation). The root `API_KEY` from `.env` always
+  works too and can't be revoked from here - it's your recovery key if you
+  ever lock yourself out.
+- **Settings** - edit the watch bundle ID, watch/dispatch repos, workflow
+  file, poll cron, and notification webhook URL live, no restart needed.
+  `GH_TOKEN` and `API_KEY` stay env-only, not editable here.
+
+**Auth-failure detection**: there's no headless way to proactively check
+whether the App Store session is still valid - `ipadecrypt versions` is an
+interactive TUI, not scriptable. Instead, any decrypt job failure is
+pattern-matched against common re-auth error text (`login failed`,
+`reauthenticate`, `invalid credentials`, etc.); a match sets a persistent
+alert (cleared automatically by the next successful decrypt) and, if
+`NOTIFY_WEBHOOK_URL` is set, posts a Discord-webhook-shaped notification.
+If it turns out ipadecrypt sessions expire more/less often than expected,
+this is the place to tighten the detection (`api/src/util/appleAuth.ts`).
 
 ## Notes / limitations
 

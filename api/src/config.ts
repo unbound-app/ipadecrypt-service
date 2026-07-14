@@ -29,6 +29,11 @@ export const config = {
   downloadSigningSecret: required('DOWNLOAD_SIGNING_SECRET'),
   publicBaseUrl: optional('PUBLIC_BASE_URL', 'http://localhost:8080'),
 
+  // admin dashboard - separate password from API_KEY so dashboard access
+  // and programmatic API access can be rotated independently.
+  adminPassword: required('ADMIN_PASSWORD'),
+  stateDir: optional('STATE_DIR', '/data/state'),
+
   // ipadecrypt
   ipadecryptBin: optional('IPADECRYPT_BIN', 'ipadecrypt'),
   outputDir: optional('OUTPUT_DIR', '/data/tmp'),
@@ -47,7 +52,5 @@ export const config = {
   pollCron: optional('POLL_CRON', '0 * * * *'),
   runPollIntervalSeconds: optionalInt('RUN_POLL_INTERVAL_SECONDS', 15),
   runPollTimeoutMinutes: optionalInt('RUN_POLL_TIMEOUT_MINUTES', 30),
+  notifyWebhookUrl: optional('NOTIFY_WEBHOOK_URL', ''),
 };
-
-export const schedulerEnabled =
-  config.watchBundleId !== '' && config.watchAppRepo !== '' && config.ghDispatchRepo !== '' && config.ghToken !== '';

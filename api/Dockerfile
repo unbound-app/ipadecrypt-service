@@ -16,6 +16,7 @@ COPY --from=ipadecrypt /go/bin/ipadecrypt /usr/local/bin/ipadecrypt
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile
 COPY src ./src
+COPY public ./public
 
 ENV NODE_ENV=production
 EXPOSE 8080

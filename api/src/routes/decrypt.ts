@@ -42,7 +42,7 @@ decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
     return;
   }
 
-  const job = enqueueDecryptJob(bundleId);
+  const job = enqueueDecryptJob(bundleId, 'manual');
   const finished = await waitForJob(job, config.jobMaxWaitSeconds * 1000);
 
   if (finished.status === 'queued' || finished.status === 'running') {

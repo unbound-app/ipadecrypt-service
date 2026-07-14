@@ -25,9 +25,9 @@ export async function listReleaseVersions(repo: string): Promise<Set<string>> {
   return new Set(releases.map((r) => normalizeVersion(r.tag_name)));
 }
 
-/** Fires a repository_dispatch event of type "ipa-update" against ghDispatchRepo. */
-export async function dispatchIpaUpdate(ipaUrl: string, isTestflight: boolean): Promise<void> {
-  const res = await fetch(`${GITHUB_API}/repos/${config.ghDispatchRepo}/dispatches`, {
+/** Fires a repository_dispatch event of type "ipa-update" against dispatchRepo. */
+export async function dispatchIpaUpdate(dispatchRepo: string, ipaUrl: string, isTestflight: boolean): Promise<void> {
+  const res = await fetch(`${GITHUB_API}/repos/${dispatchRepo}/dispatches`, {
     method: 'POST',
     headers: { ...headers(), 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -53,8 +53,12 @@ interface WorkflowRunsResponse {
 }
 
 /** Finds the workflow run that repository_dispatch just triggered, by taking the newest run created after `since`. */
-export async function findDispatchedRun(since: Date): Promise<WorkflowRun | undefined> {
-  const url = `${GITHUB_API}/repos/${config.ghDispatchRepo}/actions/workflows/${config.ghWorkflowFile}/runs?event=repository_dispatch&per_page=10`;
+export async function findDispatchedRun(
+  dispatchRepo: string,
+  workflowFile: string,
+  since: Date,
+): Promise<WorkflowRun | undefined> {
+  const url = `${GITHUB_API}/repos/${dispatchRepo}/actions/workflows/${workflowFile}/runs?event=repository_dispatch&per_page=10`;
   const res = await fetch(url, { headers: headers() });
   if (!res.ok) throw new Error(`list workflow runs failed: HTTP ${res.status}`);
 
@@ -66,8 +70,8 @@ export async function findDispatchedRun(since: Date): Promise<WorkflowRun | unde
   return candidates[0];
 }
 
-export async function getRun(runId: number): Promise<WorkflowRun> {
-  const res = await fetch(`${GITHUB_API}/repos/${config.ghDispatchRepo}/actions/runs/${runId}`, {
+export async function getRun(dispatchRepo: string, runId: number): Promise<WorkflowRun> {
+  const res = await fetch(`${GITHUB_API}/repos/${dispatchRepo}/actions/runs/${runId}`, {
     headers: headers(),
   });
   if (!res.ok) throw new Error(`get run failed: HTTP ${res.status}`);

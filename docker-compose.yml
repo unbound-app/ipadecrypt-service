@@ -1,6 +1,7 @@
 services:
   api:
     build: ./api
+    container_name: ipadecrypt-service
     restart: unless-stopped
     # Host networking so the container can reach the jailbroken device's
     # SSH port the same way the host does - typically a USB-tethered
@@ -21,6 +22,9 @@ services:
       - ipadecrypt-config:/root/.ipadecrypt
       # Scratch space for decrypted IPAs in flight. Safe to wipe.
       - ipa-tmp:/data/tmp
+      # Admin dashboard state: issued API keys, dashboard-editable scheduler
+      # settings, job history, the Apple-auth alert flag.
+      - ipadecrypt-state:/data/state
       # The device-dedicated key already trusted by the jailbroken device
       # (see the host's `Host ipad` entry in ~/.ssh/config) - mounted at
       # ipadecrypt's default key path so SSH-key auth in `bootstrap` finds
@@ -47,5 +51,6 @@ services:
 volumes:
   ipadecrypt-config:
   ipa-tmp:
+  ipadecrypt-state:
   # caddy-data:
   # caddy-config:
