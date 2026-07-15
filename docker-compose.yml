@@ -1,6 +1,7 @@
 services:
   api:
     build: ./api
+    image: ipadecrypt-service
     container_name: ipadecrypt-service
     restart: unless-stopped
     # Needed to reach the device's iproxy'd SSH port on 127.0.0.1; BIND_HOST
