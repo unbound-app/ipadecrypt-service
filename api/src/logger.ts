@@ -16,7 +16,6 @@ function record(entry: LogEntry): void {
   if (recentLogs.length > MAX_LOG_ENTRIES) recentLogs.shift();
 }
 
-/** Most recent first, matching the ordering used elsewhere in the dashboard (job history, etc). */
 export function getRecentLogs(): LogEntry[] {
   return [...recentLogs].reverse();
 }
@@ -42,7 +41,6 @@ function makeLogger(scope: string) {
   };
 }
 
-/** Tags every entry from this logger with `scope`, so the dashboard's Logs tab can filter by it. */
 export function scopedLogger(scope: string) {
   return makeLogger(scope);
 }

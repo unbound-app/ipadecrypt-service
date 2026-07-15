@@ -24,7 +24,6 @@ export function jobSummary(job: Job) {
   };
 }
 
-/** Streams a finished job's IPA to the response, then reclaims the file from disk. */
 export async function streamJobFile(job: Job, req: Request, res: Response): Promise<void> {
   if (job.status !== 'done' || !job.filePath) {
     res.status(409).json(jobSummary(job));
@@ -50,6 +49,5 @@ export async function streamJobFile(job: Job, req: Request, res: Response): Prom
     stream.pipe(res);
   });
 
-  // Reclaim immediately rather than waiting for the TTL sweeper.
   await reclaimJobFile(job);
 }

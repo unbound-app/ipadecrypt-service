@@ -16,7 +16,6 @@ interface Release {
   created_at: string;
 }
 
-/** Fetches the release tags (e.g. "v334.0") for a repo like "unbound-app/loader-ios". */
 export async function listReleaseVersions(repo: string): Promise<Set<string>> {
   const res = await fetch(`${GITHUB_API}/repos/${repo}/releases?per_page=100`, { headers: headers() });
   if (!res.ok) throw new Error(`list releases failed for ${repo}: HTTP ${res.status}`);
@@ -25,7 +24,6 @@ export async function listReleaseVersions(repo: string): Promise<Set<string>> {
   return new Set(releases.map((r) => normalizeVersion(r.tag_name)));
 }
 
-/** Fires a repository_dispatch event of type "ipa-update" against dispatchRepo. */
 export async function dispatchIpaUpdate(dispatchRepo: string, ipaUrl: string, isTestflight: boolean): Promise<void> {
   const res = await fetch(`${GITHUB_API}/repos/${dispatchRepo}/dispatches`, {
     method: 'POST',
@@ -52,7 +50,6 @@ interface WorkflowRunsResponse {
   workflow_runs: WorkflowRun[];
 }
 
-/** Finds the workflow run that repository_dispatch just triggered, by taking the newest run created after `since`. */
 export async function findDispatchedRun(
   dispatchRepo: string,
   workflowFile: string,

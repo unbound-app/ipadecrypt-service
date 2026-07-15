@@ -1,7 +1,6 @@
 import { log } from './logger.js';
 import { getEffectiveSettings } from './store/state.js';
 
-/** POSTs a Discord-webhook-shaped payload if NOTIFY_WEBHOOK_URL / the dashboard setting is configured. */
 export async function notify(message: string): Promise<void> {
   const url = getEffectiveSettings().notifyWebhookUrl;
   if (!url) return;

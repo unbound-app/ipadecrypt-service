@@ -4,8 +4,6 @@ services:
     image: ipadecrypt-service
     container_name: ipadecrypt-service
     restart: unless-stopped
-    # Needed to reach the device's iproxy'd SSH port on 127.0.0.1; BIND_HOST
-    # below claws back the loopback-only exposure this would otherwise lose.
     network_mode: host
     env_file:
       - .env
@@ -13,13 +11,9 @@ services:
       PORT: 8080
       BIND_HOST: 127.0.0.1
     volumes:
-      # ipadecrypt App Store login + device SSH config. Bootstrap once with:
-      #   docker compose run --rm -it api ipadecrypt bootstrap
       - ipadecrypt-config:/root/.ipadecrypt
       - ipa-tmp:/data/tmp
       - ipadecrypt-state:/data/state
-      # Device-dedicated key already trusted by the jailbroken device,
-      # read-only, mounted at ipadecrypt's default key path.
       - ${HOME}/.ssh/id_ed25519_ipad:/root/.ssh/id_ed25519:ro
 
 volumes:

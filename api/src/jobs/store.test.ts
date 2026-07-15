@@ -1,11 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
 
-// runDecrypt is mocked to hang forever so the worker's synchronous drain
-// suspends at its first await, before anything actually "finishes" and
-// touches job history / disk state. jobs/store.ts holds module-level
-// singleton state (one job can ever be "running"), so this is a single
-// test rather than several - splitting it up would let one test's
-// permanently-running job leak into the next.
 mock.module('./runner.js', () => ({
   runDecrypt: () => new Promise<void>(() => {}),
 }));

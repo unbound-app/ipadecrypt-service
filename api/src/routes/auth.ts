@@ -7,10 +7,6 @@ import { getUserRole } from '../store/state.js';
 
 export const authRouter = Router();
 
-// Per-IP login lockout: after LOCKOUT_AFTER consecutive failures, each
-// further attempt is rejected with a growing delay instead of being
-// checked at all. Entries reset on success or after FAILURE_WINDOW_MS of
-// no attempts; a periodic sweep bounds the map's size.
 const LOCKOUT_AFTER = 5;
 const MAX_LOCKOUT_MS = 5 * 60_000;
 const FAILURE_WINDOW_MS = 15 * 60_000;

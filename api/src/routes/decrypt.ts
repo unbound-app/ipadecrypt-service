@@ -8,11 +8,6 @@ export const decryptRouter = Router();
 
 const BUNDLE_ID_RE = /^[A-Za-z0-9.-]{3,200}$/;
 
-/**
- * Enqueues (or joins an in-flight) decrypt job and streams the IPA back
- * directly once ready. Falls back to a 202 with a status/file URL to poll
- * if it isn't done within JOB_MAX_WAIT_SECONDS.
- */
 decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
   const bundleId = req.query.bundleId;
   if (typeof bundleId !== 'string' || !BUNDLE_ID_RE.test(bundleId)) {
@@ -36,7 +31,6 @@ decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
   await streamJobFile(finished, req, res);
 });
 
-/** GET /v1/jobs/:id - poll job status. */
 decryptRouter.get('/v1/jobs/:id', requireApiKey, (req, res) => {
   const job = getJob(req.params.id);
   if (!job) {
@@ -46,7 +40,6 @@ decryptRouter.get('/v1/jobs/:id', requireApiKey, (req, res) => {
   res.json(jobSummary(job));
 });
 
-/** Streams the decrypted IPA; see requireApiKeyOrSignedToken for the dual-auth reasoning. */
 decryptRouter.get('/v1/jobs/:id/file', requireApiKeyOrSignedToken, async (req, res) => {
   const job = getJob(req.params.id);
   if (!job) {

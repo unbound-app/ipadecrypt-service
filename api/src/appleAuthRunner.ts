@@ -4,14 +4,6 @@ import { config } from './config.js';
 import { log } from './logger.js';
 import { clearAppleAuthAlert, setAppleAuthAlert } from './store/state.js';
 
-/**
- * Drives `ipadecrypt bootstrap` headlessly to redo just the Apple ID
- * sign-in step: its prompts fall back to plain stdin reads when stdin isn't
- * a TTY. The device-connection step uses an interactive widget that can't
- * be driven this way, but it's never reached because only the `apple.*`
- * config fields are cleared, leaving `device.*` populated so bootstrap
- * skips straight past it.
- */
 interface RunnerState {
   child: ChildProcessWithoutNullStreams;
   lines: string[];

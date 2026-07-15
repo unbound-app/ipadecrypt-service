@@ -15,7 +15,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Never let a decrypt hang the scheduler forever - well past any real decrypt, just a safety net. */
 const SCHEDULER_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 async function pollRunToCompletion(dispatchRepo: string, workflowFile: string, dispatchedAt: Date): Promise<void> {
@@ -112,7 +111,6 @@ async function tick(): Promise<void> {
 let currentTask: cron.ScheduledTask | undefined;
 let currentCronExpr: string | undefined;
 
-/** (Re)registers the cron task if the effective POLL_CRON changed since the last call - safe to call anytime settings are updated. */
 export function applySchedule(): void {
   if (!isSchedulerEnabled()) {
     if (currentTask) {

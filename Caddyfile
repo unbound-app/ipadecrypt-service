@@ -1,9 +1,3 @@
-# Reference fragment for this service's site block. Caddy itself is shared
-# homelab infrastructure, not part of this repo's compose stack - drop this
-# into your Caddy's Caddyfile.d/ (or equivalent import) rather than running
-# it standalone. Plain http:// (no automatic HTTPS attempt) since this is
-# expected to sit behind something that terminates TLS at the edge, like a
-# Cloudflare Tunnel.
 http://ipa.dylib.dev {
 	reverse_proxy 127.0.0.1:8080
 }

@@ -49,6 +49,11 @@
   header h1 { font-size: 16px; margin: 0; font-weight: 600; }
   header h1 span { color: var(--muted); font-weight: 400; }
   main { max-width: 960px; margin: 0 auto; padding: 24px; }
+  .home-grid { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+  @media (min-width: 860px) {
+    main { max-width: 1120px; }
+    .home-grid { grid-template-columns: minmax(0, 1fr) 340px; }
+  }
   nav { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   nav button {
     background: none; border: none; color: var(--muted); padding: 10px 14px;
@@ -169,8 +174,9 @@
 
   .log-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; align-items: center; }
   .log-filter-group { display: flex; gap: 4px; }
+  button.log-filter, #log-level-filter { height: 26px; }
   button.log-filter.active { border-color: var(--accent); color: var(--text); }
-  #log-level-filter { width: auto; }
+  #log-level-filter { width: auto; padding: 4px 10px; font-size: 12px; }
   .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 560px; overflow-y: auto; }
   .log-entry { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 8px 10px;
     background: #0d0f13; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; }
@@ -243,42 +249,46 @@
     <nav id="tab-nav"></nav>
 
     <section id="tab-home">
-      <div class="panel">
-        <h2>Decrypt an app</h2>
-        <div class="muted" style="margin-bottom:10px;">Search the App Store, then hit Decrypt on any free result.</div>
-        <div class="row">
-          <input id="search-term" placeholder="Search the App Store to decrypt… (press / to focus)" oninput="handleSearchInput()" />
-          <button class="action" style="margin-top:0;" onclick="searchAppsUI()">Search</button>
+      <div class="home-grid">
+        <div class="home-main">
+          <div class="panel">
+            <h2>Decrypt an app</h2>
+            <div class="row">
+              <input id="search-term" placeholder="Search the App Store to decrypt… (press / to focus)" oninput="handleSearchInput()" />
+              <button class="action" style="margin-top:0;" onclick="searchAppsUI()">Search</button>
+            </div>
+            <div id="search-results" style="margin-top:14px;"></div>
+          </div>
+          <div class="panel">
+            <h2>My requests</h2>
+            <table id="my-decrypts-table"><thead><tr><th>App</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+            <div id="my-decrypts-empty" class="muted hidden">Nothing queued yet - search above.</div>
+          </div>
+          <div class="panel">
+            <h2>Active jobs</h2>
+            <div class="table-wrap"><table id="active-jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Progress</th><th>Job ID</th></tr></thead><tbody></tbody></table></div>
+            <div id="active-jobs-empty" class="muted hidden">Nothing running.</div>
+          </div>
+          <div class="panel">
+            <h2>Job history</h2>
+            <div class="table-wrap"><table id="jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Size</th><th>Finished</th><th>Error</th></tr></thead><tbody></tbody></table></div>
+            <div class="row" style="justify-content:center;">
+              <button class="action small secondary hidden" id="jobs-load-more" onclick="loadMoreJobHistory()" style="margin-top:12px;"></button>
+            </div>
+          </div>
         </div>
-        <div id="search-results" style="margin-top:14px;"></div>
-      </div>
-      <div class="panel">
-        <h2>My requests</h2>
-        <table id="my-decrypts-table"><thead><tr><th>App</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
-        <div id="my-decrypts-empty" class="muted hidden">Nothing queued yet - search above.</div>
-        <div class="muted" style="margin-top:10px;">Shares the same queue as the API and the scheduler - only one decrypt runs at a time, and scheduler jobs jump ahead of anything queued here.</div>
-      </div>
-      <div class="panel">
-        <h2>Status</h2>
-        <div class="stat-row">
-          <div><div class="stat" id="ov-scheduler">-</div><div class="stat-label">Scheduler</div></div>
-          <div><div class="stat" id="ov-active">-</div><div class="stat-label">Active jobs</div></div>
-        </div>
-        <dl class="config-list">
-          <div><dt>Watching</dt><dd id="ov-bundle">-</dd></div>
-          <div><dt>Poll cron</dt><dd id="ov-cron">-</dd></div>
-        </dl>
-      </div>
-      <div class="panel">
-        <h2>Active jobs</h2>
-        <div class="table-wrap"><table id="active-jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Progress</th><th>Job ID</th></tr></thead><tbody></tbody></table></div>
-        <div id="active-jobs-empty" class="muted hidden">Nothing running.</div>
-      </div>
-      <div class="panel">
-        <h2>Job history</h2>
-        <div class="table-wrap"><table id="jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Size</th><th>Finished</th><th>Error</th></tr></thead><tbody></tbody></table></div>
-        <div class="row" style="justify-content:center;">
-          <button class="action small secondary hidden" id="jobs-load-more" onclick="loadMoreJobHistory()" style="margin-top:12px;"></button>
+        <div class="home-side">
+          <div class="panel">
+            <h2>Status</h2>
+            <div class="stat-row">
+              <div><div class="stat" id="ov-scheduler">-</div><div class="stat-label">Scheduler</div></div>
+              <div><div class="stat" id="ov-active">-</div><div class="stat-label">Active jobs</div></div>
+            </div>
+            <dl class="config-list">
+              <div><dt>Watching</dt><dd id="ov-bundle">-</dd></div>
+              <div><dt>Poll cron</dt><dd id="ov-cron">-</dd></div>
+            </dl>
+          </div>
         </div>
       </div>
     </section>
@@ -306,7 +316,6 @@
           <h2>All keys</h2>
           <div class="table-wrap"><table id="all-keys-table"><thead><tr><th>Name</th><th>Owner</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table></div>
         </div>
-        <div class="muted" style="margin-top:-6px;">The root <code>API_KEY</code> from <code>.env</code> always works too and isn't listed here.</div>
       </div>
     </section>
 
@@ -395,11 +404,7 @@
       <div id="settings-sub-apple" class="hidden">
         <div class="panel">
           <h2>Apple ID re-authentication</h2>
-          <div class="muted" style="margin-bottom:10px;">
-            Redoes the App Store sign-in step only (email, password, and a 2FA code if Apple asks for one).
-            The device SSH connection isn't touched. This can't drive the device-setup wizard's interactive
-            menu, so it's only useful for refreshing an expired Apple session.
-          </div>
+          <div class="muted" style="margin-bottom:10px;">Redoes the App Store sign-in only - the device connection isn't touched.</div>
           <div class="row">
             <button class="action" id="apple-start-btn" onclick="startAppleAuth()">Start re-authentication</button>
             <button class="action secondary" id="apple-cancel-btn" onclick="cancelAppleAuth()" disabled>Cancel</button>
@@ -448,7 +453,6 @@ function showLogin() {
     rootDetails.open = false;
     summary.classList.remove('hidden');
   } else {
-    // Root password is the only way in - show it expanded, no toggle to hide it behind.
     rootDetails.open = true;
     summary.classList.add('hidden');
   }
@@ -520,7 +524,6 @@ function showTab(name) {
   if (name === 'docs') loadDocs();
   if (name === 'settings') showSettingsSubtab(currentSettingsSubtab);
 
-  // Only keep the Apple Auth log polling alive while that subtab is actually visible.
   if (!(name === 'settings' && currentSettingsSubtab === 'apple')) stopAppleAuthPolling();
 }
 
@@ -683,7 +686,7 @@ async function pollMyDecrypts() {
   }
 
   saveMyDecrypts();
-  if (!document.getElementById('tab-decrypt').classList.contains('hidden')) renderMyDecrypts();
+  if (!document.getElementById('tab-home').classList.contains('hidden')) renderMyDecrypts();
   myDecryptsPollTimer = setTimeout(pollMyDecrypts, 2500);
 }
 
@@ -752,7 +755,6 @@ async function copyText(text, btn) {
   }
 }
 
-/** Wraps a mutating api() call with a success/error toast, based on the response status. */
 async function apiAction(path, opts, successMsg) {
   const res = await api(path, opts);
   let data = {};
@@ -769,16 +771,23 @@ function loadingRow(colspan) {
   return `<tr><td colspan="${colspan}" class="muted">Loading…</td></tr>`;
 }
 
-/** Only placeholders an empty table - background refreshes swap content in place instead of flashing empty. */
-function showLoadingIfEmpty(tbody, colspan) {
+const loadedTables = new Set();
+
+function showLoadingIfEmpty(tbody, colspan, key) {
+  if (loadedTables.has(key)) return;
   if (!tbody.children.length) tbody.innerHTML = loadingRow(colspan);
 }
 
+function markTableLoaded(key) {
+  loadedTables.add(key);
+}
+
 async function loadOverview() {
-  showLoadingIfEmpty(document.querySelector('#active-jobs-table tbody'), 5);
+  showLoadingIfEmpty(document.querySelector('#active-jobs-table tbody'), 5, 'activeJobs');
 
   const res = await api('/v1/dashboard/overview');
   const data = await res.json();
+  markTableLoaded('activeJobs');
 
   document.getElementById('scheduler-status').textContent = data.schedulerEnabled ? '· scheduler enabled' : '· scheduler disabled';
 
@@ -818,9 +827,10 @@ let jobHistoryData = [];
 let jobHistoryShown = JOB_HISTORY_PAGE_SIZE;
 
 async function loadJobs() {
-  showLoadingIfEmpty(document.querySelector('#jobs-table tbody'), 6);
+  showLoadingIfEmpty(document.querySelector('#jobs-table tbody'), 6, 'jobHistory');
   const res = await api('/v1/dashboard/jobs');
   const data = await res.json();
+  markTableLoaded('jobHistory');
   jobHistoryData = data.history;
   jobHistoryShown = JOB_HISTORY_PAGE_SIZE;
   renderJobHistory();
@@ -848,10 +858,11 @@ function loadMoreJobHistory() {
 }
 
 async function loadKeys() {
-  showLoadingIfEmpty(document.querySelector('#mine-keys-table tbody'), 5);
+  showLoadingIfEmpty(document.querySelector('#mine-keys-table tbody'), 5, 'mineKeys');
 
   const mineRes = await api('/v1/dashboard/keys/mine');
   const mine = (await mineRes.json()).keys;
+  markTableLoaded('mineKeys');
   document.querySelector('#mine-keys-table tbody').innerHTML = mine.map((k) => `
     <tr>
       <td>${escapeHtml(k.name)}</td><td><span class="badge ${k.status}">${k.status}</span></td>
@@ -866,11 +877,12 @@ async function loadKeys() {
 
   if (me.role !== 'admin') return;
 
-  showLoadingIfEmpty(document.querySelector('#pending-keys-table tbody'), 4);
-  showLoadingIfEmpty(document.querySelector('#all-keys-table tbody'), 6);
+  showLoadingIfEmpty(document.querySelector('#pending-keys-table tbody'), 4, 'pendingKeys');
+  showLoadingIfEmpty(document.querySelector('#all-keys-table tbody'), 6, 'allKeys');
 
   const pendingRes = await api('/v1/dashboard/keys/pending');
   const pending = (await pendingRes.json()).keys;
+  markTableLoaded('pendingKeys');
   document.querySelector('#pending-keys-table tbody').innerHTML = pending.map((k) => `
     <tr>
       <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.ownerId)}</td><td class="muted">${fmtTimeCell(k.createdAt)}</td>
@@ -884,6 +896,7 @@ async function loadKeys() {
 
   const allRes = await api('/v1/dashboard/keys/all');
   const all = (await allRes.json()).keys;
+  markTableLoaded('allKeys');
   document.querySelector('#all-keys-table tbody').innerHTML = all.map((k) => `
     <tr>
       <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.ownerId)}</td><td><span class="badge ${k.status}">${k.status}</span></td>
@@ -912,8 +925,6 @@ async function requestKey() {
   }
   document.getElementById('key-name').value = '';
 
-  // Admins get the plaintext key back immediately (auto-approved); members
-  // get a pending record with no key yet - they'll reveal it once approved.
   if (data.key) {
     showKeyReveal(data.key);
     showToast('Key created', 'success');
@@ -1025,9 +1036,10 @@ function stopLogsPolling() {
 }
 
 async function loadUsers() {
-  showLoadingIfEmpty(document.querySelector('#users-table tbody'), 4);
+  showLoadingIfEmpty(document.querySelector('#users-table tbody'), 4, 'users');
   const res = await api('/v1/dashboard/users');
   const data = await res.json();
+  markTableLoaded('users');
   document.querySelector('#users-table tbody').innerHTML = data.users.map((u) => {
     const isSelf = u.username === (me.sub || '').toLowerCase();
     return `
@@ -1144,7 +1156,6 @@ async function init() {
   if (data.loggedIn) showApp(); else showLogin();
 }
 
-// Polls faster while a job is actually running, backs off to 10s otherwise.
 let overviewPollTimer = null;
 function scheduleOverviewPoll(activeCount) {
   clearTimeout(overviewPollTimer);

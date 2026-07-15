@@ -7,7 +7,6 @@ const COOKIE_NAME = 'session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export interface Session {
-  /** 'root' or a github username. */
   sub: string;
   role: Role;
 }
@@ -76,7 +75,6 @@ export function getSession(req: Request): Session | undefined {
   return value ? deserialize(value) : undefined;
 }
 
-/** Any logged-in user, admin or member. */
 export function requireSession(req: Request, res: Response, next: NextFunction): void {
   const session = getSession(req);
   if (!session) {
@@ -87,7 +85,6 @@ export function requireSession(req: Request, res: Response, next: NextFunction):
   next();
 }
 
-/** Admin-only actions: settings, user allowlist, key approval, Apple re-auth, etc. */
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   const session = getSession(req);
   if (!session) {

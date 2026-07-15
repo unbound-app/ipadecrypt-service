@@ -22,9 +22,6 @@ jobs:
       - run: bun run typecheck
       - run: bun test
 
-  # Runs on push to main only (never pull_request), against the existing
-  # checkout at /home/adrian/ipadecrypt-service rather than a fresh
-  # actions/checkout, since that's where .env and the Docker volumes live.
   deploy:
     name: Deploy to homelab
     needs: ci
@@ -38,10 +35,6 @@ jobs:
       - name: Pull and rebuild
         run: |
           set -e
-          # The runner container's git otherwise refuses to operate on this
-          # bind-mounted repo (owned by a different UID than the container's
-          # root user) - idempotent, and self-healing across container
-          # recreation since nothing here persists in the image itself.
           git config --global --add safe.directory /home/adrian/ipadecrypt-service
           cd /home/adrian/ipadecrypt-service
           git fetch origin main

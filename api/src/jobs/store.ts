@@ -12,8 +12,6 @@ import type { Job, JobSource } from './types.js';
 
 const jobs = new Map<string, Job>();
 
-// The device can't run two decrypts concurrently, so every job - manual or
-// scheduled - goes through this one FIFO queue.
 const queue: string[] = [];
 let workerRunning = false;
 
@@ -26,12 +24,6 @@ function findActiveJobForBundle(bundleId: string): Job | undefined {
   return undefined;
 }
 
-/**
- * Creates a new job for bundleId, or returns the already in-flight one for
- * that bundle. Scheduler jobs jump ahead of anything dashboard-queued, but
- * never ahead of a job already running (the device can't be interrupted
- * mid-decrypt).
- */
 export function enqueueDecryptJob(bundleId: string, source: JobSource): Job {
   const existing = findActiveJobForBundle(bundleId);
   if (existing) return existing;
@@ -66,7 +58,6 @@ export function getActiveJobs(): Job[] {
   return [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running');
 }
 
-/** 1-based position among not-yet-finished jobs (a running job is position 1), plus the total. */
 export function getQueueInfo(jobId: string): { position: number; total: number } | undefined {
   const job = jobs.get(jobId);
   if (!job || job.status === 'done' || job.status === 'failed') return undefined;
@@ -77,7 +68,6 @@ export function getQueueInfo(jobId: string): { position: number; total: number }
   return { position: idx === -1 ? ordered.length : idx + 1, total: ordered.length };
 }
 
-/** Resolves once the job reaches done/failed, or immediately if it already has. */
 export function waitForJob(job: Job, timeoutMs: number): Promise<Job> {
   if (job.status === 'done' || job.status === 'failed') return Promise.resolve(job);
 
@@ -158,16 +148,11 @@ async function cleanupJob(job: Job): Promise<void> {
   log.info('job cleaned up', { jobId: job.id, bundleId: job.bundleId });
 }
 
-/** Deletes a job's file immediately (called right after a successful download stream). */
 export async function reclaimJobFile(job: Job): Promise<void> {
   job.downloadedAt = Date.now();
   await cleanupJob(job);
 }
 
-/**
- * Reclaims undownloaded files after FILE_TTL_MINUTES and prunes finished
- * jobs after JOB_RETENTION_MINUTES.
- */
 export function startJobSweeper(): void {
   const intervalMs = 60_000;
   setInterval(() => {

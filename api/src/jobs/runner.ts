@@ -7,10 +7,6 @@ import { scopedLogger } from '../logger.js';
 const log = scopedLogger('jobs');
 import type { Job } from './types.js';
 
-/**
- * --from-appstore avoids getting stuck on the "installed vs fresh" prompt
- * when the app is already on the device.
- */
 export async function runDecrypt(job: Job): Promise<void> {
   await mkdir(config.outputDir, { recursive: true });
   const outputPath = path.join(config.outputDir, `${job.id}.ipa`);

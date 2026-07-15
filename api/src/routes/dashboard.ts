@@ -38,8 +38,6 @@ export const dashboardRouter = Router();
 
 dashboardRouter.use(requireSession);
 
-// --- overview / jobs: read-only for everyone logged in ---
-
 dashboardRouter.get('/v1/dashboard/overview', (_req, res) => {
   res.json({
     schedulerEnabled: isSchedulerEnabled(),
@@ -63,10 +61,6 @@ dashboardRouter.get('/v1/dashboard/jobs', (_req, res) => {
 dashboardRouter.get('/v1/dashboard/logs', (_req, res) => {
   res.json({ logs: getRecentLogs() });
 });
-
-// --- decrypt-from-the-dashboard: open to every role. Shares the same
-// queue as the API/scheduler, so a job queued here can still get bumped
-// behind a scheduler job that arrives after it. ---
 
 const BUNDLE_ID_RE = /^[A-Za-z0-9.-]{3,200}$/;
 
@@ -114,14 +108,11 @@ dashboardRouter.get('/v1/dashboard/jobs/:id/file', async (req, res) => {
   await streamJobFile(job, req, res);
 });
 
-// --- api keys: everyone manages their own; admins manage everyone's ---
-
 dashboardRouter.get('/v1/dashboard/keys/mine', (_req, res) => {
   const { sub } = res.locals.session;
   res.json({ keys: listApiKeysForOwner(sub) });
 });
 
-/** Admins get their key instantly; everyone else lands as 'pending' until an admin approves it. */
 dashboardRouter.post('/v1/dashboard/keys/request', (req, res) => {
   const { sub, role } = res.locals.session;
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
@@ -168,8 +159,6 @@ dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// --- admin-only: approve/deny/create/list-all keys ---
-
 dashboardRouter.get('/v1/dashboard/keys/pending', requireAdmin, (_req, res) => {
   res.json({ keys: listPendingApiKeys() });
 });
@@ -196,8 +185,6 @@ dashboardRouter.post('/v1/dashboard/keys/:id/deny', requireAdmin, (req, res) => 
   res.json({ ok: true });
 });
 
-// --- admin-only: scheduler settings ---
-
 dashboardRouter.get('/v1/dashboard/settings', (_req, res) => {
   res.json(getEffectiveSettings());
 });
@@ -222,8 +209,6 @@ dashboardRouter.post('/v1/dashboard/auth-alert/clear', requireAdmin, (_req, res)
   res.json({ ok: true });
 });
 
-// --- admin-only: user allowlist ---
-
 dashboardRouter.get('/v1/dashboard/users', requireAdmin, (_req, res) => {
   res.json({ users: listAllowedUsers() });
 });
@@ -246,8 +231,6 @@ dashboardRouter.delete('/v1/dashboard/users/:username', requireAdmin, (req, res)
   }
   res.json({ ok: true });
 });
-
-// --- admin-only: apple re-authentication bridge ---
 
 dashboardRouter.get('/v1/dashboard/apple-auth/status', requireAdmin, (_req, res) => {
   res.json(getAppleAuthStatus());

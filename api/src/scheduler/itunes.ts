@@ -41,7 +41,6 @@ interface ItunesSearchResponse {
   }>;
 }
 
-/** Free-text app search (iTunes Search API), used by the dashboard's "find an app" box. */
 export async function searchApps(term: string, limit = 10): Promise<ItunesSearchResult[]> {
   const url = `https://itunes.apple.com/search?entity=software&limit=${limit}&term=${encodeURIComponent(term)}`;
   const res = await fetch(url);
