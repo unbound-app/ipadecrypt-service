@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  typecheck:
-    name: Typecheck
+  ci:
+    name: Typecheck & test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -20,13 +20,14 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      - run: bun test
 
   # Runs on push to main only (never pull_request), against the existing
   # checkout at /home/adrian/ipadecrypt-service rather than a fresh
   # actions/checkout, since that's where .env and the Docker volumes live.
   deploy:
     name: Deploy to homelab
-    needs: typecheck
+    needs: ci
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, homelab]
     timeout-minutes: 15
@@ -40,10 +41,11 @@ jobs:
           cd /home/adrian/ipadecrypt-service
           git fetch origin main
           git merge --ff-only origin/main
+          docker tag ipadecrypt-service-api:latest ipadecrypt-service-api:previous 2>/dev/null || true
           docker compose build api
           docker compose up -d api
 
-      - name: Wait for health
+      - name: Wait for health, roll back on failure
         run: |
           set -e
           for i in $(seq 1 15); do
@@ -53,6 +55,15 @@ jobs:
             fi
             sleep 2
           done
+
           echo "service did not become healthy in time" >&2
           docker compose -f /home/adrian/ipadecrypt-service/docker-compose.yml logs --tail 50 api
+
+          if docker image inspect ipadecrypt-service-api:previous >/dev/null 2>&1; then
+            echo "rolling back to the previous image" >&2
+            docker tag ipadecrypt-service-api:previous ipadecrypt-service-api:latest
+            docker compose -f /home/adrian/ipadecrypt-service/docker-compose.yml up -d api
+          else
+            echo "no previous image to roll back to" >&2
+          fi
           exit 1
