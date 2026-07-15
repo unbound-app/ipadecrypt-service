@@ -121,6 +121,40 @@
   .search-result .name { font-size: 13px; }
   .search-result .sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .search-result button, .search-result .badge { flex-shrink: 0; }
+
+  #whoami { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw; }
+
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #active-jobs-table, #jobs-table, #mine-keys-table, #all-keys-table, #pending-keys-table, #users-table { min-width: 480px; }
+
+  .log-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; align-items: center; }
+  .log-filter-group { display: flex; gap: 4px; }
+  button.log-filter.active { border-color: var(--accent); color: var(--text); }
+  #log-level-filter { width: auto; }
+  .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 560px; overflow-y: auto; }
+  .log-entry { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 8px 10px;
+    background: #0d0f13; border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; }
+  .log-entry .log-time { flex: 0 0 auto; color: var(--muted); font-family: ui-monospace, monospace; font-size: 11.5px; white-space: nowrap; }
+  .log-entry .log-msg { flex: 1 1 240px; min-width: 0; word-break: break-word; }
+  .log-entry .log-meta { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; margin-left: 6px; }
+  .badge.loglevel-info { background: rgba(91,140,255,0.15); color: var(--accent); }
+  .badge.loglevel-warn { background: rgba(245,166,35,0.15); color: var(--warn); }
+  .badge.loglevel-error { background: rgba(242,84,91,0.15); color: var(--err); }
+  .badge.logscope { background: rgba(139,147,163,0.15); color: var(--muted); }
+
+  @media (max-width: 640px) {
+    main { padding: 14px; }
+    .panel { padding: 14px; }
+    header { padding: 12px 16px; flex-wrap: wrap; row-gap: 8px; }
+    header h1 { flex: 1 1 100%; font-size: 14px; }
+    header > .row { flex: 1 1 100%; justify-content: space-between; }
+    #whoami { max-width: 55vw; }
+    button.action { padding: 10px 16px; }
+    button.small { padding: 7px 12px; }
+    button.copy { padding: 6px 10px; }
+    .search-result { flex-wrap: wrap; }
+    dl.config-list dt { flex-basis: 110px; }
+  }
 </style>
 </head>
 <body>
@@ -150,9 +184,10 @@
 
     <section id="tab-home">
       <div class="panel">
-        <h2>Find an app</h2>
+        <h2>Decrypt an app</h2>
+        <div class="muted" style="margin-bottom:10px;">Search the App Store, then hit Decrypt on any free result.</div>
         <div class="row">
-          <input id="search-term" placeholder="Search the App Store…" />
+          <input id="search-term" placeholder="Search the App Store to decrypt… (press / to focus)" />
           <button class="action" style="margin-top:0;" onclick="searchAppsUI()">Search</button>
         </div>
         <div id="search-results" style="margin-top:14px;"></div>
@@ -176,12 +211,15 @@
       </div>
       <div class="panel">
         <h2>Active jobs</h2>
-        <table id="active-jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Progress</th><th>Job ID</th></tr></thead><tbody></tbody></table>
+        <div class="table-wrap"><table id="active-jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Progress</th><th>Job ID</th></tr></thead><tbody></tbody></table></div>
         <div id="active-jobs-empty" class="muted hidden">Nothing running.</div>
       </div>
       <div class="panel">
         <h2>Job history</h2>
-        <table id="jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Size</th><th>Finished</th><th>Error</th></tr></thead><tbody></tbody></table>
+        <div class="table-wrap"><table id="jobs-table"><thead><tr><th>Bundle ID</th><th>Source</th><th>Status</th><th>Size</th><th>Finished</th><th>Error</th></tr></thead><tbody></tbody></table></div>
+        <div class="row" style="justify-content:center;">
+          <button class="action small secondary hidden" id="jobs-load-more" onclick="loadMoreJobHistory()" style="margin-top:12px;"></button>
+        </div>
       </div>
     </section>
 
@@ -196,19 +234,40 @@
       </div>
       <div class="panel">
         <h2>My keys</h2>
-        <table id="mine-keys-table"><thead><tr><th>Name</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table>
+        <div class="table-wrap"><table id="mine-keys-table"><thead><tr><th>Name</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
       <div id="admin-keys-panels" class="hidden">
         <div class="panel">
           <h2>Pending requests</h2>
-          <table id="pending-keys-table"><thead><tr><th>Name</th><th>Requested by</th><th>Requested</th><th></th></tr></thead><tbody></tbody></table>
+          <div class="table-wrap"><table id="pending-keys-table"><thead><tr><th>Name</th><th>Requested by</th><th>Requested</th><th></th></tr></thead><tbody></tbody></table></div>
           <div id="pending-keys-empty" class="muted hidden">Nothing pending.</div>
         </div>
         <div class="panel">
           <h2>All keys</h2>
-          <table id="all-keys-table"><thead><tr><th>Name</th><th>Owner</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table>
+          <div class="table-wrap"><table id="all-keys-table"><thead><tr><th>Name</th><th>Owner</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr></thead><tbody></tbody></table></div>
         </div>
         <div class="muted" style="margin-top:-6px;">The root <code>API_KEY</code> from <code>.env</code> always works too and isn't listed here.</div>
+      </div>
+    </section>
+
+    <section id="tab-logs" class="hidden">
+      <div class="panel">
+        <h2>Scheduler &amp; job logs</h2>
+        <div class="log-filters">
+          <div class="log-filter-group">
+            <button class="action small secondary log-filter active" data-scope="all" onclick="setLogScopeFilter('all')">All</button>
+            <button class="action small secondary log-filter" data-scope="scheduler" onclick="setLogScopeFilter('scheduler')">Scheduler</button>
+            <button class="action small secondary log-filter" data-scope="jobs" onclick="setLogScopeFilter('jobs')">Jobs</button>
+          </div>
+          <select id="log-level-filter" onchange="setLogLevelFilter(this.value)">
+            <option value="all">All levels</option>
+            <option value="info">Info</option>
+            <option value="warn">Warnings</option>
+            <option value="error">Errors</option>
+          </select>
+        </div>
+        <div id="log-list" class="log-list"></div>
+        <div id="log-empty" class="muted hidden" style="margin-top:10px;">No log entries yet.</div>
       </div>
     </section>
 
@@ -269,7 +328,7 @@
         </div>
         <div class="panel">
           <h2>Allowlist</h2>
-          <table id="users-table"><thead><tr><th>Username</th><th>Role</th><th>Added</th><th></th></tr></thead><tbody></tbody></table>
+          <div class="table-wrap"><table id="users-table"><thead><tr><th>Username</th><th>Role</th><th>Added</th><th></th></tr></thead><tbody></tbody></table></div>
         </div>
       </div>
 
@@ -328,6 +387,7 @@ function tabsForRole(role) {
   const base = [
     ['home', 'Home'],
     ['keys', 'API Keys'],
+    ['logs', 'Logs'],
     ['docs', 'Docs'],
   ];
   if (role === 'admin') {
@@ -348,11 +408,13 @@ function showApp() {
   document.getElementById('request-key-btn').textContent = me.role === 'admin' ? 'Create' : 'Request';
 
   const nav = document.getElementById('tab-nav');
-  nav.innerHTML = tabsForRole(me.role).map(([id, label], i) =>
+  const tabs = tabsForRole(me.role);
+  nav.innerHTML = tabs.map(([id, label], i) =>
     `<button class="tab ${i === 0 ? 'active' : ''}" data-tab="${id}" onclick="showTab('${id}')">${label}</button>`
   ).join('');
 
-  showTab('home');
+  const savedTab = localStorage.getItem('activeTab');
+  showTab(tabs.some(([id]) => id === savedTab) ? savedTab : 'home');
   pollMyDecrypts();
 }
 
@@ -369,13 +431,15 @@ async function logout() {
   await init();
 }
 
-let currentSettingsSubtab = 'scheduler';
+let currentSettingsSubtab = localStorage.getItem('activeSettingsSubtab') || 'scheduler';
 
 function showTab(name) {
+  localStorage.setItem('activeTab', name);
   document.querySelectorAll('nav .tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('main > section').forEach((s) => s.classList.toggle('hidden', s.id !== `tab-${name}`));
   if (name === 'home') { loadOverview(); loadJobs(); renderMyDecrypts(); }
   if (name === 'keys') loadKeys();
+  if (name === 'logs') startLogsPolling(); else stopLogsPolling();
   if (name === 'docs') loadDocs();
   if (name === 'settings') showSettingsSubtab(currentSettingsSubtab);
 
@@ -385,6 +449,7 @@ function showTab(name) {
 
 function showSettingsSubtab(name) {
   currentSettingsSubtab = name;
+  localStorage.setItem('activeSettingsSubtab', name);
   document.querySelectorAll('#settings-subnav .tab').forEach((b) => b.classList.toggle('active', b.dataset.subtab === name));
   document.querySelectorAll('#tab-settings > div').forEach((s) => s.classList.toggle('hidden', s.id !== `settings-sub-${name}`));
 
@@ -413,40 +478,46 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" \\
 }
 
 let lastSearchResults = [];
+let searchInFlight = false;
 
 async function searchAppsUI() {
   const term = document.getElementById('search-term').value.trim();
-  if (!term) return;
+  if (!term || searchInFlight) return;
+  searchInFlight = true;
   const container = document.getElementById('search-results');
   container.innerHTML = '<div class="muted">Searching…</div>';
 
-  const res = await api(`/v1/dashboard/search?q=${encodeURIComponent(term)}`);
-  const data = await res.json();
-  if (!res.ok) {
-    container.innerHTML = `<div class="muted">${escapeHtml(data.error || 'Search failed')}</div>`;
-    return;
-  }
+  try {
+    const res = await api(`/v1/dashboard/search?q=${encodeURIComponent(term)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      container.innerHTML = `<div class="muted">${escapeHtml(data.error || 'Search failed')}</div>`;
+      return;
+    }
 
-  lastSearchResults = data.results;
-  if (data.results.length === 0) {
-    container.innerHTML = '<div class="muted">No results.</div>';
-    return;
-  }
+    lastSearchResults = data.results;
+    if (data.results.length === 0) {
+      container.innerHTML = '<div class="muted">No results.</div>';
+      return;
+    }
 
-  container.innerHTML = data.results.map((r, i) => {
-    const paid = r.price > 0;
-    return `
-    <div class="search-result">
-      ${r.artworkUrl ? `<img src="${escapeHtml(r.artworkUrl)}" alt="" />` : ''}
-      <div class="meta">
-        <div class="name">${escapeHtml(r.trackName)}</div>
-        <div class="sub" title="${escapeHtml(r.bundleId)}">${escapeHtml(r.bundleId)} · v${escapeHtml(r.version)} · ${escapeHtml(r.sellerName)}</div>
-      </div>
-      ${paid
-        ? `<span class="badge failed" title="ipadecrypt only supports free apps">Paid</span>`
-        : `<button class="action small" onclick="queueDecryptFromSearch(${i})">Decrypt</button>`}
-    </div>`;
-  }).join('');
+    container.innerHTML = data.results.map((r, i) => {
+      const paid = r.price > 0;
+      return `
+      <div class="search-result">
+        ${r.artworkUrl ? `<img src="${escapeHtml(r.artworkUrl)}" alt="" />` : ''}
+        <div class="meta">
+          <div class="name">${escapeHtml(r.trackName)}</div>
+          <div class="sub" title="${escapeHtml(r.bundleId)}">${escapeHtml(r.bundleId)} · v${escapeHtml(r.version)} · ${escapeHtml(r.sellerName)}</div>
+        </div>
+        ${paid
+          ? `<span class="badge failed" title="ipadecrypt only supports free apps">Paid</span>`
+          : `<button class="action small" onclick="queueDecryptFromSearch(${i})">Decrypt</button>`}
+      </div>`;
+    }).join('');
+  } finally {
+    searchInFlight = false;
+  }
 }
 
 function queueDecryptFromSearch(index) {
@@ -533,6 +604,22 @@ async function pollMyDecrypts() {
 }
 
 function fmtTime(ms) { return ms ? new Date(ms).toLocaleString() : '-'; }
+function fmtRelative(ms) {
+  if (!ms) return '-';
+  const sec = Math.round(Math.abs(Date.now() - ms) / 1000);
+  if (sec < 45) return 'just now';
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  return new Date(ms).toLocaleDateString();
+}
+function fmtTimeCell(ms) {
+  if (!ms) return '-';
+  return `<span title="${escapeHtml(fmtTime(ms))}">${escapeHtml(fmtRelative(ms))}</span>`;
+}
 function fmtSize(b) { if (!b) return '-'; const mb = b / 1024 / 1024; return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(b/1024).toFixed(0)} KB`; }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -598,8 +685,17 @@ function loadingRow(colspan) {
   return `<tr><td colspan="${colspan}" class="muted">Loading…</td></tr>`;
 }
 
+/**
+ * Shows a "Loading…" placeholder only on the very first render of a table.
+ * On background refreshes the old rows stay put until the new ones are
+ * ready, so polling swaps content in place instead of flashing empty first.
+ */
+function showLoadingIfEmpty(tbody, colspan) {
+  if (!tbody.children.length) tbody.innerHTML = loadingRow(colspan);
+}
+
 async function loadOverview() {
-  document.querySelector('#active-jobs-table tbody').innerHTML = loadingRow(5);
+  showLoadingIfEmpty(document.querySelector('#active-jobs-table tbody'), 5);
 
   const res = await api('/v1/dashboard/overview');
   const data = await res.json();
@@ -609,7 +705,7 @@ async function loadOverview() {
   const banner = document.getElementById('alert-banner');
   if (data.appleAuthAlert?.suspected) {
     const dismissBtn = me.role === 'admin' ? `<div><button class="action small secondary" onclick="clearAuthAlert()">Dismiss</button></div>` : '';
-    banner.innerHTML = `<div class="alert">⚠️ App Store auth may need re-authentication (last error at ${fmtTime(data.appleAuthAlert.lastErrorAt)}): <code>${escapeHtml(data.appleAuthAlert.lastError || '')}</code>${dismissBtn}</div>`;
+    banner.innerHTML = `<div class="alert">⚠️ App Store auth may need re-authentication (last error ${fmtTimeCell(data.appleAuthAlert.lastErrorAt)}): <code>${escapeHtml(data.appleAuthAlert.lastError || '')}</code>${dismissBtn}</div>`;
   } else {
     banner.innerHTML = '';
   }
@@ -637,29 +733,49 @@ async function clearAuthAlert() {
   if (ok) loadOverview();
 }
 
+const JOB_HISTORY_PAGE_SIZE = 15;
+let jobHistoryData = [];
+let jobHistoryShown = JOB_HISTORY_PAGE_SIZE;
+
 async function loadJobs() {
-  document.querySelector('#jobs-table tbody').innerHTML = loadingRow(6);
+  showLoadingIfEmpty(document.querySelector('#jobs-table tbody'), 6);
   const res = await api('/v1/dashboard/jobs');
   const data = await res.json();
-  document.querySelector('#jobs-table tbody').innerHTML = data.history.map((j) => `
+  jobHistoryData = data.history;
+  jobHistoryShown = JOB_HISTORY_PAGE_SIZE;
+  renderJobHistory();
+}
+
+function renderJobHistory() {
+  document.querySelector('#jobs-table tbody').innerHTML = jobHistoryData.slice(0, jobHistoryShown).map((j) => `
     <tr>
       <td>${escapeHtml(j.bundleId)}</td><td>${j.source}</td>
       <td><span class="badge ${j.status}">${j.status}</span></td>
-      <td>${fmtSize(j.sizeBytes)}</td><td class="muted">${fmtTime(j.finishedAt)}</td>
+      <td>${fmtSize(j.sizeBytes)}</td><td class="muted">${fmtTimeCell(j.finishedAt)}</td>
       <td class="muted">${escapeHtml(j.error || '')}</td>
     </tr>
   `).join('');
+
+  const remaining = jobHistoryData.length - jobHistoryShown;
+  const btn = document.getElementById('jobs-load-more');
+  btn.classList.toggle('hidden', remaining <= 0);
+  if (remaining > 0) btn.textContent = `Load more (${remaining} older)`;
+}
+
+function loadMoreJobHistory() {
+  jobHistoryShown += JOB_HISTORY_PAGE_SIZE;
+  renderJobHistory();
 }
 
 async function loadKeys() {
-  document.querySelector('#mine-keys-table tbody').innerHTML = loadingRow(5);
+  showLoadingIfEmpty(document.querySelector('#mine-keys-table tbody'), 5);
 
   const mineRes = await api('/v1/dashboard/keys/mine');
   const mine = (await mineRes.json()).keys;
   document.querySelector('#mine-keys-table tbody').innerHTML = mine.map((k) => `
     <tr>
       <td>${escapeHtml(k.name)}</td><td><span class="badge ${k.status}">${k.status}</span></td>
-      <td class="muted">${fmtTime(k.createdAt)}</td><td class="muted">${fmtTime(k.lastUsedAt)}</td>
+      <td class="muted">${fmtTimeCell(k.createdAt)}</td><td class="muted">${fmtTimeCell(k.lastUsedAt)}</td>
       <td class="actions-cell">
         ${k.hasUnrevealedSecret ? `<button class="action small" onclick="revealKey('${k.id}')">Reveal</button>` : ''}
         ${k.status === 'approved' ? `<button class="action small secondary" onclick="regenerateKey('${k.id}')">Regenerate</button>` : ''}
@@ -670,14 +786,14 @@ async function loadKeys() {
 
   if (me.role !== 'admin') return;
 
-  document.querySelector('#pending-keys-table tbody').innerHTML = loadingRow(4);
-  document.querySelector('#all-keys-table tbody').innerHTML = loadingRow(6);
+  showLoadingIfEmpty(document.querySelector('#pending-keys-table tbody'), 4);
+  showLoadingIfEmpty(document.querySelector('#all-keys-table tbody'), 6);
 
   const pendingRes = await api('/v1/dashboard/keys/pending');
   const pending = (await pendingRes.json()).keys;
   document.querySelector('#pending-keys-table tbody').innerHTML = pending.map((k) => `
     <tr>
-      <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.ownerId)}</td><td class="muted">${fmtTime(k.createdAt)}</td>
+      <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.ownerId)}</td><td class="muted">${fmtTimeCell(k.createdAt)}</td>
       <td class="actions-cell">
         <button class="action small" onclick="approveKey('${k.id}')">Approve</button>
         <button class="action small danger" onclick="denyKey('${k.id}')">Deny</button>
@@ -691,7 +807,7 @@ async function loadKeys() {
   document.querySelector('#all-keys-table tbody').innerHTML = all.map((k) => `
     <tr>
       <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.ownerId)}</td><td><span class="badge ${k.status}">${k.status}</span></td>
-      <td class="muted">${fmtTime(k.createdAt)}</td><td class="muted">${fmtTime(k.lastUsedAt)}</td>
+      <td class="muted">${fmtTimeCell(k.createdAt)}</td><td class="muted">${fmtTimeCell(k.lastUsedAt)}</td>
       <td><button class="action small danger" onclick="revokeKey('${k.id}')">Revoke</button></td>
     </tr>
   `).join('');
@@ -774,8 +890,62 @@ async function saveSettings() {
   if (ok) loadOverview();
 }
 
+let allLogs = [];
+let logScopeFilter = 'all';
+let logLevelFilter = 'all';
+let logsPollTimer = null;
+
+function fmtLogMeta(meta) {
+  if (!meta) return '';
+  return Object.entries(meta).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join(' ');
+}
+
+async function loadLogs() {
+  const res = await api('/v1/dashboard/logs');
+  const data = await res.json();
+  allLogs = data.logs;
+  renderLogs();
+}
+
+function setLogScopeFilter(scope) {
+  logScopeFilter = scope;
+  document.querySelectorAll('.log-filter').forEach((b) => b.classList.toggle('active', b.dataset.scope === scope));
+  renderLogs();
+}
+
+function setLogLevelFilter(level) {
+  logLevelFilter = level;
+  renderLogs();
+}
+
+function renderLogs() {
+  const filtered = allLogs.filter((l) =>
+    (logScopeFilter === 'all' || l.scope === logScopeFilter) &&
+    (logLevelFilter === 'all' || l.level === logLevelFilter)
+  );
+  document.getElementById('log-empty').classList.toggle('hidden', filtered.length > 0);
+  document.getElementById('log-list').innerHTML = filtered.map((l) => `
+    <div class="log-entry">
+      <span class="log-time">${fmtTimeCell(l.ts)}</span>
+      <span class="badge loglevel-${l.level}">${l.level}</span>
+      <span class="badge logscope">${escapeHtml(l.scope)}</span>
+      <span class="log-msg">${escapeHtml(l.message)}${l.meta ? `<span class="log-meta">${escapeHtml(fmtLogMeta(l.meta))}</span>` : ''}</span>
+    </div>
+  `).join('');
+}
+
+function startLogsPolling() {
+  loadLogs();
+  if (logsPollTimer) return;
+  logsPollTimer = setInterval(loadLogs, 3000);
+}
+
+function stopLogsPolling() {
+  if (logsPollTimer) { clearInterval(logsPollTimer); logsPollTimer = null; }
+}
+
 async function loadUsers() {
-  document.querySelector('#users-table tbody').innerHTML = loadingRow(4);
+  showLoadingIfEmpty(document.querySelector('#users-table tbody'), 4);
   const res = await api('/v1/dashboard/users');
   const data = await res.json();
   document.querySelector('#users-table tbody').innerHTML = data.users.map((u) => {
@@ -783,7 +953,7 @@ async function loadUsers() {
     return `
     <tr>
       <td>${escapeHtml(u.username)}</td><td><span class="badge ${u.role}">${u.role}</span></td>
-      <td class="muted">${fmtTime(u.addedAt)}</td>
+      <td class="muted">${fmtTimeCell(u.addedAt)}</td>
       <td>${isSelf ? '<span class="you-badge">(you)</span>' : `<button class="action small danger" onclick="removeUser('${u.username}')">Remove</button>`}</td>
     </tr>`;
   }).join('');
@@ -857,6 +1027,13 @@ async function submitAppleInput() {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.activeElement?.id === 'apple-input') submitAppleInput();
   if (e.key === 'Enter' && document.activeElement?.id === 'password') loginRoot();
+  if (e.key === 'Enter' && document.activeElement?.id === 'search-term') searchAppsUI();
+
+  const typingInField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  if (e.key === '/' && !typingInField && !document.getElementById('tab-home').classList.contains('hidden')) {
+    e.preventDefault();
+    document.getElementById('search-term').focus();
+  }
 });
 
 async function init() {
