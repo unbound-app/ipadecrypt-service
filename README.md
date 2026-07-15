@@ -94,41 +94,47 @@ Two ways in:
 - **Sign in with GitHub** - only shown if `GITHUB_OAUTH_CLIENT_ID` /
   `GITHUB_OAUTH_CLIENT_SECRET` are set (see `.env.example` for how to
   register the OAuth App). A successful GitHub login only grants access if
-  that username is on the **Users** tab's allowlist - registering the
-  OAuth app doesn't let just anyone in, an admin has to add them first
-  (chicken-and-egg: add yourself via `ADMIN_PASSWORD` first).
+  that username is on the **Settings → Users** sub-tab's allowlist -
+  registering the OAuth app doesn't let just anyone in, an admin has to
+  add them first (chicken-and-egg: add yourself via `ADMIN_PASSWORD`
+  first).
 
 Two roles, enforced server-side (the UI just hides what a role can't do):
 
-- **admin** - everything below, plus Settings, Users, and Apple Auth.
-- **member** - read-only Overview/Jobs, and manages their *own* API keys
-  (request, reveal-once, regenerate, revoke) - but a request sits as
+- **admin** - everything below, plus the Settings tab.
+- **member** - Home, API Keys, Logs, and Docs, and manages their *own* API
+  keys (request, reveal-once, regenerate, revoke) - but a request sits as
   `pending` until an admin approves it on the API Keys tab.
 
 Tabs:
 
-- **Overview** - scheduler on/off, active jobs, recent history, and a
-  banner if a decrypt failure looked like an App Store auth issue.
-- **Jobs** - full bounded history (last 100) of finished/failed jobs.
+- **Home** - search the App Store and queue a decrypt, your own
+  queued/finished requests, scheduler on/off, active jobs, recent history,
+  and a banner if a decrypt failure looked like an App Store auth issue.
 - **API Keys** - request/reveal/regenerate/revoke your own keys; admins
   additionally see all pending requests (approve/deny), the full key list
   across every user, and can create an auto-approved key directly (e.g.
   for a CI runner). Keys are stored hashed - the plaintext is only ever
   shown once, right after approval/regeneration. The root `API_KEY` from
   `.env` always works too and isn't managed here.
-- **Settings** (admin) - edit the watch bundle ID, watch/dispatch repos,
-  workflow file, poll cron, and notification webhook URL live, no restart
-  needed. `GH_TOKEN` and `API_KEY` stay env-only, not editable here.
-- **Users** (admin) - the GitHub OAuth allowlist: add a username with a
-  role, or remove one.
-- **Apple Auth** (admin) - re-runs just the App Store sign-in step of
-  `ipadecrypt bootstrap` (email/password, and a 2FA code if Apple asks for
-  one) as a piped child process, streaming its prompts to the page so you
-  don't need to SSH in for routine re-auth. It deliberately can't drive the
-  device-setup wizard's interactive arrow-key menu - only `device.*`
-  fields stay untouched (so that step is skipped entirely), never the full
-  wizard. See the note below on why a fully headless approach isn't
-  possible.
+- **Logs** - a live feed of scheduler/job log lines, filterable by scope
+  (all/scheduler/jobs) and level (info/warning/error).
+- **Docs** - copy-pasteable curl examples for using an API key, filled in
+  with this instance's actual `PUBLIC_BASE_URL`.
+- **Settings** (admin) - three sub-tabs:
+  - *Scheduler* - edit the watch bundle ID, watch/dispatch repos, workflow
+    file, poll cron, and notification webhook URL live, no restart
+    needed. `GH_TOKEN` and `API_KEY` stay env-only, not editable here.
+  - *Users* - the GitHub OAuth allowlist: add a username with a role, or
+    remove one.
+  - *Apple Auth* - re-runs just the App Store sign-in step of `ipadecrypt
+    bootstrap` (email/password, and a 2FA code if Apple asks for one) as
+    a piped child process, streaming its prompts to the page so you don't
+    need to SSH in for routine re-auth. It deliberately can't drive the
+    device-setup wizard's interactive arrow-key menu - only `device.*`
+    fields stay untouched (so that step is skipped entirely), never the
+    full wizard. See the note below on why a fully headless approach
+    isn't possible.
 
 **Auth-failure detection**: there's no headless way to proactively check
 whether the App Store session is still valid - `ipadecrypt versions` is an
