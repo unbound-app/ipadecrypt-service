@@ -20,6 +20,16 @@ const app = express();
 app.set('trust proxy', 'loopback');
 app.use(express.json());
 
+// Every response is session/state-dependent (the dashboard shell reflects
+// live login state, API responses reflect live job/key state) except the
+// two static assets below - nothing here should ever be cached by a
+// browser or intermediary, or a client can get stuck seeing stale state
+// no amount of reloading fixes.
+app.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
 // Every route requires auth (see auth.ts / session.ts) - the deliberate
 // exceptions are the static dashboard shell itself (a login form with no
 // data in it), its favicon/OG image (so link-preview crawlers can fetch
@@ -34,8 +44,12 @@ const indexHtml = readFileSync(path.join(publicDir, 'index.html'), 'utf8').repla
   config.publicBaseUrl,
 );
 app.get('/', (_req, res) => res.type('html').send(indexHtml));
-app.get('/favicon.svg', (_req, res) => res.sendFile(path.join(publicDir, 'favicon.svg')));
-app.get('/og-image.png', (_req, res) => res.sendFile(path.join(publicDir, 'og-image.png')));
+app.get('/favicon.svg', (_req, res) =>
+  res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'favicon.svg')),
+);
+app.get('/og-image.png', (_req, res) =>
+  res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'og-image.png')),
+);
 
 app.use(healthRouter);
 app.use(decryptRouter);
