@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "ipadecrypt-service-api",
+      "name": "dkrypt-api",
       "dependencies": {
         "express": "^4.21.2",
         "node-cron": "^3.0.3",

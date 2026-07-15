@@ -1,6 +1,6 @@
 {
-  "name": "ipadecrypt-service",
-  "short_name": "ipadecrypt",
+  "name": "dkrypt",
+  "short_name": "dkrypt",
   "description": "Authenticated API and dashboard for on-demand and automated App Store IPA decryption.",
   "start_url": "/",
   "display": "standalone",
