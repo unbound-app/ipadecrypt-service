@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { PackageSearch } from 'lucide-svelte';
   import { fetchJobStatus } from '../../lib/api';
+  import EmptyState from '../../components/EmptyState.svelte';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
@@ -31,7 +33,7 @@
 
 <Card title="My requests">
   {#if myDecryptsState.items.length === 0}
-    <div class="text-sm text-muted">Nothing queued yet - search above.</div>
+    <EmptyState icon={PackageSearch} message="Nothing queued yet - search above." />
   {:else}
     <table>
       <thead>

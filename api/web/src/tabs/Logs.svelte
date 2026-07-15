@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { ScrollText } from 'lucide-svelte';
+  import CopyButton from '../components/CopyButton.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
   import RelativeTime from '../components/RelativeTime.svelte';
   import { fetchLogs, type LogEntry } from '../lib/api';
   import Badge from '../lib/components/ui/Badge.svelte';
@@ -8,6 +11,12 @@
   import Select from '../lib/components/ui/Select.svelte';
   import type { BadgeVariant } from '../lib/components/ui/variants';
   import { liveState } from '../lib/live.svelte';
+
+  const LEVEL_BORDER: Record<LogEntry['level'], string> = {
+    info: 'border-l-accent',
+    warn: 'border-l-warn',
+    error: 'border-l-err',
+  };
 
   let scopeFilter = $state(localStorage.getItem('logScopeFilter') ?? 'all');
   let levelFilter = $state(localStorage.getItem('logLevelFilter') ?? 'all');
@@ -120,7 +129,7 @@
   {:else}
     <div class="flex max-h-[560px] flex-col gap-1.5 overflow-y-auto" bind:this={listEl}>
       {#each filtered as l (entryKey(l))}
-        <div class="border-border bg-panel-muted flex items-baseline gap-2 rounded-md border px-2.5 py-2 text-[12.5px]">
+        <div class={`border-border bg-panel-muted flex items-baseline gap-2 rounded-md border border-l-[3px] px-2.5 py-2 text-[12.5px] ${LEVEL_BORDER[l.level]}`}>
           <span class="shrink-0 font-mono text-[11.5px] whitespace-nowrap text-muted"><RelativeTime ms={l.ts} /></span>
           <Badge variant={LEVEL_BADGE[l.level]} class="shrink-0">{l.level}</Badge>
           <Badge variant="secondary" class="shrink-0">{l.scope}</Badge>
@@ -130,11 +139,12 @@
               <span class="font-mono text-[11px] text-muted">{fmtLogMeta(l.meta)}</span>
             {/if}
           </span>
+          <CopyButton text={JSON.stringify(l, null, 2)} label="JSON" />
         </div>
       {/each}
     </div>
     {#if filtered.length === 0}
-      <div class="mt-2.5 text-sm text-muted">No log entries yet.</div>
+      <EmptyState icon={ScrollText} message="No log entries yet." />
     {/if}
   {/if}
 </Card>

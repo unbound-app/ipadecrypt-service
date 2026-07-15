@@ -5,7 +5,7 @@ import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('scheduler');
 import { notify } from '../notify.js';
-import { getEffectiveSettings, isSchedulerEnabled } from '../store/state.js';
+import { getEffectiveSettings, isSchedulerEnabled, recordSchedulerRun, type SchedulerSettings } from '../store/state.js';
 import { buildSignedFileUrl } from '../util/signedUrl.js';
 import { compareVersions, normalizeVersion } from '../util/version.js';
 import { dispatchIpaUpdate, findDispatchedRun, getRun, listReleaseVersions } from './github.js';
@@ -16,6 +16,51 @@ function sleep(ms: number): Promise<void> {
 }
 
 const SCHEDULER_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
+export interface UpdateCheck {
+  itunesVersion?: string;
+  normalizedVersion?: string;
+  alreadyReleased?: boolean;
+  wouldDispatch: boolean;
+  reason: string;
+}
+
+export async function checkForUpdate(settings: SchedulerSettings): Promise<UpdateCheck> {
+  let itunesVersion: string;
+  try {
+    itunesVersion = (await lookupCurrentVersion(settings.watchBundleId)).version;
+  } catch (err) {
+    return { wouldDispatch: false, reason: `iTunes lookup failed: ${String(err)}` };
+  }
+
+  const normalizedVersion = normalizeVersion(itunesVersion);
+
+  let releaseVersions: Set<string>;
+  try {
+    releaseVersions = await listReleaseVersions(settings.watchAppRepo);
+  } catch (err) {
+    return { itunesVersion, normalizedVersion, wouldDispatch: false, reason: `failed to list releases: ${String(err)}` };
+  }
+
+  const alreadyReleased = [...releaseVersions].some((v) => compareVersions(v, normalizedVersion) === 0);
+  if (alreadyReleased) {
+    return {
+      itunesVersion,
+      normalizedVersion,
+      alreadyReleased: true,
+      wouldDispatch: false,
+      reason: `iTunes version ${normalizedVersion} already has a matching release`,
+    };
+  }
+
+  return {
+    itunesVersion,
+    normalizedVersion,
+    alreadyReleased: false,
+    wouldDispatch: true,
+    reason: `no release matches iTunes version ${normalizedVersion} - would decrypt and dispatch`,
+  };
+}
 
 async function pollRunToCompletion(dispatchRepo: string, workflowFile: string, dispatchedAt: Date): Promise<void> {
   const deadline = Date.now() + config.runPollTimeoutMinutes * 60_000;
@@ -48,36 +93,24 @@ async function pollRunToCompletion(dispatchRepo: string, workflowFile: string, d
 }
 
 async function tick(): Promise<void> {
+  recordSchedulerRun();
   const settings = getEffectiveSettings();
   log.info('scheduler tick', { bundleId: settings.watchBundleId, appRepo: settings.watchAppRepo });
 
-  let itunesVersion: string;
-  try {
-    itunesVersion = (await lookupCurrentVersion(settings.watchBundleId)).version;
-  } catch (err) {
-    log.error('itunes lookup failed', { error: String(err) });
+  const check = await checkForUpdate(settings);
+  if (!check.wouldDispatch) {
+    if (check.alreadyReleased) {
+      log.info('itunes version already has a matching release, nothing to do', {
+        bundleId: settings.watchBundleId,
+        version: check.normalizedVersion,
+      });
+    } else {
+      log.error(check.reason, { bundleId: settings.watchBundleId });
+    }
     return;
   }
 
-  const normalized = normalizeVersion(itunesVersion);
-
-  let releaseVersions: Set<string>;
-  try {
-    releaseVersions = await listReleaseVersions(settings.watchAppRepo);
-  } catch (err) {
-    log.error('failed to list releases', { repo: settings.watchAppRepo, error: String(err) });
-    return;
-  }
-
-  const alreadyReleased = [...releaseVersions].some((v) => compareVersions(v, normalized) === 0);
-  if (alreadyReleased) {
-    log.info('itunes version already has a matching release, nothing to do', {
-      bundleId: settings.watchBundleId,
-      version: normalized,
-    });
-    return;
-  }
-
+  const normalized = check.normalizedVersion as string;
   log.info('no matching release found, decrypting', { bundleId: settings.watchBundleId, version: normalized });
 
   const job = enqueueDecryptJob(settings.watchBundleId, 'scheduler');

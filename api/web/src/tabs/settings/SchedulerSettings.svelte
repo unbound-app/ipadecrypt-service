@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { fetchSettings, saveSettings, testWebhook, validateCron, type SchedulerSettings } from '../../lib/api';
+  import { fetchSettings, previewDispatch, saveSettings, testWebhook, validateCron, type SchedulerSettings, type UpdateCheck } from '../../lib/api';
+  import RelativeTime from '../../components/RelativeTime.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import Input from '../../lib/components/ui/Input.svelte';
@@ -19,6 +20,8 @@
   });
   let cronValid = $state<boolean | null>(null);
   let testingWebhook = $state(false);
+  let previewResult = $state<UpdateCheck | null>(null);
+  let previewing = $state(false);
 
   $effect(() => {
     void fetchSettings().then((s) => {
@@ -74,6 +77,16 @@
       testingWebhook = false;
     }
   }
+
+  async function runPreview(): Promise<void> {
+    previewing = true;
+    previewResult = null;
+    try {
+      previewResult = await previewDispatch();
+    } finally {
+      previewing = false;
+    }
+  }
 </script>
 
 <Card title="Automated watch → GitHub dispatch">
@@ -95,7 +108,16 @@
   <label for="s-ghWorkflowFile" class="mt-3 mb-1 block text-xs text-muted">Workflow file</label>
   <Input id="s-ghWorkflowFile" bind:value={form.ghWorkflowFile} />
 
-  <label for="s-pollCron" class="mt-3 mb-1 block text-xs text-muted">Poll cron</label>
+  <div class="mt-3 mb-1 flex items-baseline justify-between">
+    <label for="s-pollCron" class="block text-xs text-muted">Poll cron</label>
+    <span class="text-xs text-muted">
+      {#if liveState.overview?.lastSchedulerRunAt}
+        last ran <RelativeTime ms={liveState.overview.lastSchedulerRunAt} />
+      {:else}
+        never ran yet
+      {/if}
+    </span>
+  </div>
   <Input id="s-pollCron" bind:value={form.pollCron} />
   {#if cronValid === false}
     <div class="mt-1 text-xs text-err">Not a valid cron expression</div>
@@ -107,5 +129,17 @@
     <Button variant="secondary" size="sm" disabled={testingWebhook} onclick={runTestWebhook}>Test</Button>
   </div>
 
-  <Button class="mt-4" onclick={save}>Save</Button>
+  <div class="mt-4 flex flex-wrap gap-2">
+    <Button onclick={save}>Save</Button>
+    <Button variant="secondary" disabled={previewing} onclick={runPreview}>Preview next dispatch</Button>
+  </div>
+
+  {#if previewResult}
+    <div class="border-border bg-panel-muted mt-3 rounded-md border p-3 text-sm">
+      <div class={previewResult.wouldDispatch ? 'text-ok' : 'text-muted'}>{previewResult.reason}</div>
+      {#if previewResult.itunesVersion}
+        <div class="mt-1 text-xs text-muted">iTunes version: {previewResult.itunesVersion}</div>
+      {/if}
+    </div>
+  {/if}
 </Card>

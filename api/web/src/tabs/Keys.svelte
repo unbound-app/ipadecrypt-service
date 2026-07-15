@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { PackageSearch } from 'lucide-svelte';
   import CopyButton from '../components/CopyButton.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
   import RelativeTime from '../components/RelativeTime.svelte';
   import SkeletonRows from '../components/SkeletonRows.svelte';
   import {
@@ -21,10 +23,12 @@
   import Input from '../lib/components/ui/Input.svelte';
   import Select from '../lib/components/ui/Select.svelte';
   import { statusToBadgeVariant } from '../lib/components/ui/variants';
+  import { fmtUntil } from '../lib/format';
   import { sessionState } from '../lib/session.svelte';
   import { confirmDialog, showToast } from '../lib/ui.svelte';
 
   let keyName = $state('');
+  let keyExpiry = $state('never');
   let revealedKey = $state('');
   let mine = $state<ApiKeyRecord[] | null>(null);
   let pending = $state<ApiKeyRecord[] | null>(null);
@@ -37,6 +41,14 @@
     { value: 'pending', label: 'Pending' },
     { value: 'approved', label: 'Approved' },
     { value: 'denied', label: 'Denied' },
+  ];
+
+  const EXPIRY_OPTIONS = [
+    { value: 'never', label: 'Never expires' },
+    { value: '1', label: 'In 1 day' },
+    { value: '7', label: 'In 7 days' },
+    { value: '30', label: 'In 30 days' },
+    { value: '90', label: 'In 90 days' },
   ];
 
   const isAdmin = $derived(sessionState.role === 'admin');
@@ -55,7 +67,8 @@
   async function submitRequest(): Promise<void> {
     const name = keyName.trim();
     if (!name) return;
-    const { ok, data } = await requestKey(name);
+    const expiresInDays = keyExpiry === 'never' ? undefined : Number(keyExpiry);
+    const { ok, data } = await requestKey(name, expiresInDays);
     if (!ok) return;
     keyName = '';
     if (data.key) {
@@ -65,6 +78,11 @@
       showToast('Request submitted - waiting on admin approval', 'success');
     }
     void loadAll();
+  }
+
+  function curlExample(key: string): string {
+    const base = sessionState.publicBaseUrl ?? location.origin;
+    return `curl -H "Authorization: Bearer ${key}" "${base}/v1/decrypt?bundleId=com.example.app" -o app.ipa`;
   }
 
   async function doReveal(id: string): Promise<void> {
@@ -121,12 +139,17 @@
     </div>
     <label for="key-name" class="mb-1 block text-xs text-muted">Name</label>
     <Input id="key-name" placeholder="e.g. laptop, ci-runner" bind:value={keyName} />
+    <label for="key-expiry" class="mt-3 mb-1 block text-xs text-muted">Expires</label>
+    <Select id="key-expiry" items={EXPIRY_OPTIONS} bind:value={keyExpiry} class="w-full" />
     <Button class="mt-3" onclick={submitRequest}>{isAdmin ? 'Create' : 'Request'}</Button>
     {#if revealedKey}
       <div class="border-accent bg-panel-muted mt-3 rounded-md border p-2.5 text-xs break-all">
         Save this now, it won't be shown again:<br />
         <code>{revealedKey}</code>
         <CopyButton text={revealedKey} />
+        <div class="mt-2">
+          <CopyButton text={curlExample(revealedKey)} label="Copy curl example" />
+        </div>
       </div>
     {/if}
   </Card>
@@ -150,7 +173,14 @@
             {#each mine as k (k.id)}
               <tr>
                 <td>{k.name}</td>
-                <td><Badge variant={statusToBadgeVariant(k.status)}>{k.status}</Badge></td>
+                <td>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <Badge variant={statusToBadgeVariant(k.status)}>{k.status}</Badge>
+                    {#if k.expiresAt}
+                      <Badge variant="secondary">expires {fmtUntil(k.expiresAt)}</Badge>
+                    {/if}
+                  </div>
+                </td>
                 <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                 <td class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
                 <td>
@@ -190,7 +220,12 @@
             {:else}
               {#each pending as k (k.id)}
                 <tr>
-                  <td>{k.name}</td>
+                  <td>
+                    {k.name}
+                    {#if k.expiresAt}
+                      <Badge variant="secondary" class="ml-1.5">expires {fmtUntil(k.expiresAt)}</Badge>
+                    {/if}
+                  </td>
                   <td>{k.ownerId}</td>
                   <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                   <td>
@@ -206,7 +241,7 @@
         </table>
       </div>
       {#if pending !== null && pending.length === 0}
-        <div class="text-sm text-muted">Nothing pending.</div>
+        <EmptyState icon={PackageSearch} message="Nothing pending." />
       {/if}
     </Card>
 
@@ -246,7 +281,14 @@
                   </td>
                   <td>{k.name}</td>
                   <td>{k.ownerId}</td>
-                  <td><Badge variant={statusToBadgeVariant(k.status)}>{k.status}</Badge></td>
+                  <td>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <Badge variant={statusToBadgeVariant(k.status)}>{k.status}</Badge>
+                      {#if k.expiresAt}
+                        <Badge variant="secondary">{fmtUntil(k.expiresAt)}</Badge>
+                      {/if}
+                    </div>
+                  </td>
                   <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                   <td class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
                   <td><Button size="sm" variant="destructive" onclick={() => doRevoke(k.id)}>Revoke</Button></td>

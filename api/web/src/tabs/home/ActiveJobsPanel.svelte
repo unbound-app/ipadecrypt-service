@@ -1,13 +1,31 @@
 <script lang="ts">
+  import { PackageOpen } from 'lucide-svelte';
   import CopyButton from '../../components/CopyButton.svelte';
+  import EmptyState from '../../components/EmptyState.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
+  import { fetchJobEta } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import { statusToBadgeVariant } from '../../lib/components/ui/variants';
+  import { fmtDurationApprox } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
 
   const jobs = $derived(liveState.overview?.activeJobs ?? []);
   const loaded = $derived(liveState.overview !== null);
+
+  let etaByBundle = $state<Record<string, number | null>>({});
+  const fetchedBundles = new Set<string>();
+
+  $effect(() => {
+    for (const j of jobs) {
+      if (j.status === 'running' && !fetchedBundles.has(j.bundleId)) {
+        fetchedBundles.add(j.bundleId);
+        void fetchJobEta(j.bundleId).then((r) => {
+          etaByBundle[j.bundleId] = r.avgMs;
+        });
+      }
+    }
+  });
 </script>
 
 <Card title="Active jobs">
@@ -37,6 +55,9 @@
                     <div class="progress-indeterminate bg-border relative h-1 w-10 shrink-0 overflow-hidden rounded-full after:bg-accent"></div>
                     <span class="truncate" title={j.progress}>{j.progress}</span>
                   </div>
+                  {#if etaByBundle[j.bundleId]}
+                    <div class="mt-0.5 text-[11px] text-muted">usually {fmtDurationApprox(etaByBundle[j.bundleId] as number)}</div>
+                  {/if}
                 {:else}
                   <span class="block truncate" title={j.progress}>{j.progress}</span>
                 {/if}
@@ -54,6 +75,6 @@
     </table>
   </div>
   {#if loaded && jobs.length === 0}
-    <div class="text-sm text-muted">Nothing running.</div>
+    <EmptyState icon={PackageOpen} message="Nothing running." />
   {/if}
 </Card>

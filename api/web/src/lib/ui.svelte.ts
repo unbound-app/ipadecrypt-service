@@ -66,6 +66,16 @@ export function closePalette(): void {
   paletteState.open = false;
 }
 
+export const helpState = $state<{ open: boolean }>({ open: false });
+
+export function openHelp(): void {
+  helpState.open = true;
+}
+
+export function closeHelp(): void {
+  helpState.open = false;
+}
+
 export type TabId = 'home' | 'keys' | 'logs' | 'docs' | 'settings';
 
 export const tabState = $state<{ active: TabId; settingsSubtab: string }>({

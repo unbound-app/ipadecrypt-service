@@ -21,6 +21,25 @@ export function fmtSize(bytes?: number): string {
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`;
 }
 
+export function fmtDurationApprox(ms: number): string {
+  const min = ms / 60_000;
+  if (min < 1) return '<1m';
+  if (min < 60) return `~${Math.round(min)}m`;
+  return `~${(min / 60).toFixed(1)}h`;
+}
+
+export function fmtUntil(ms?: number): string {
+  if (!ms) return '-';
+  const diff = ms - Date.now();
+  if (diff <= 0) return 'expired';
+  const min = Math.round(diff / 60_000);
+  if (min < 60) return `${min}m`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h`;
+  const day = Math.round(hr / 24);
+  return `${day}d`;
+}
+
 export function fmtCountdown(ms: number): string {
   const totalSec = Math.max(0, Math.round(ms / 1000));
   const h = Math.floor(totalSec / 3600);

@@ -1,8 +1,28 @@
 <script lang="ts">
+  import Sparkline from '../../components/Sparkline.svelte';
+  import { fetchJobVolume } from '../../lib/api';
   import Card from '../../lib/components/ui/Card.svelte';
   import { liveState } from '../../lib/live.svelte';
 
   const overview = $derived(liveState.overview);
+
+  let volume = $state<number[] | null>(null);
+
+  $effect(() => {
+    void fetchJobVolume(14).then((r) => {
+      volume = r.days.map((d) => d.count);
+    });
+  });
+
+  $effect(() => {
+    if (liveState.historyAdditions.length > 0) {
+      void fetchJobVolume(14).then((r) => {
+        volume = r.days.map((d) => d.count);
+      });
+    }
+  });
+
+  const total = $derived(volume?.reduce((a, b) => a + b, 0) ?? 0);
 </script>
 
 <Card title="Status">
@@ -30,4 +50,10 @@
       </dd>
     </div>
   </dl>
+  {#if volume}
+    <div class="border-border mt-1 border-t pt-3">
+      <div class="mb-1.5 text-xs text-muted">{total} decrypt{total === 1 ? '' : 's'} · last 14 days</div>
+      <Sparkline data={volume} width={280} />
+    </div>
+  {/if}
 </Card>

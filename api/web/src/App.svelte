@@ -6,11 +6,12 @@
   import ConfirmModal from './components/ConfirmModal.svelte';
   import Login from './components/Login.svelte';
   import SessionExpiryBanner from './components/SessionExpiryBanner.svelte';
+  import ShortcutsHelp from './components/ShortcutsHelp.svelte';
   import Button from './lib/components/ui/Button.svelte';
   import Tabs from './lib/components/ui/Tabs.svelte';
   import { connectLive, disconnectLive, liveState } from './lib/live.svelte';
   import { logout, refreshSession, sessionState } from './lib/session.svelte';
-  import { initTheme, openPalette, setActiveTab, setTheme, tabState, themeState, type TabId } from './lib/ui.svelte';
+  import { initTheme, openHelp, openPalette, setActiveTab, setTheme, tabState, themeState, type TabId } from './lib/ui.svelte';
   import Docs from './tabs/Docs.svelte';
   import Home from './tabs/Home.svelte';
   import Keys from './tabs/Keys.svelte';
@@ -54,6 +55,11 @@
     if (e.key === '/' && !typingInField && tabState.active === 'home') {
       e.preventDefault();
       homeRef?.focusSearch();
+      return;
+    }
+    if (e.key === '?' && !typingInField) {
+      e.preventDefault();
+      openHelp();
     }
   }
 
@@ -120,3 +126,4 @@
 
 <ConfirmModal />
 <CommandPalette />
+<ShortcutsHelp />

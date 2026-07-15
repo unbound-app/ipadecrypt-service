@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { History } from 'lucide-svelte';
+  import EmptyState from '../../components/EmptyState.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
   import { fetchJobHistory, queueDecrypt, type JobHistoryEntry } from '../../lib/api';
@@ -61,41 +63,75 @@
     pushRecentBundleId(bundleId);
     showToast(`Queued ${bundleId}`, 'success');
   }
+
+  function dayLabel(ms: number): string {
+    const d = new Date(ms);
+    const today = new Date();
+    const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diffDays = Math.round((startOfDay(today) - startOfDay(d)) / 86_400_000);
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
+    });
+  }
+
+  const grouped = $derived.by((): { label: string; items: JobHistoryEntry[] }[] => {
+    const groups: { label: string; items: JobHistoryEntry[] }[] = [];
+    for (const e of entries) {
+      const label = dayLabel(e.finishedAt);
+      const last = groups[groups.length - 1];
+      if (last && last.label === label) last.items.push(e);
+      else groups.push({ label, items: [e] });
+    }
+    return groups;
+  });
 </script>
 
 <Card title="Job history">
-  <div class="overflow-x-auto">
-    <table class="min-w-[640px]">
-      <thead>
-        <tr>
-          <th>Bundle ID</th>
-          <th>Source</th>
-          <th>Status</th>
-          <th>Size</th>
-          <th>Finished</th>
-          <th>Error</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {#if !loaded}
-          <SkeletonRows rows={4} colspan={7} />
-        {:else}
-          {#each entries as j (j.id)}
-            <tr>
-              <td class="max-w-40 truncate" title={j.bundleId}>{j.bundleId}</td>
-              <td>{j.source}</td>
-              <td><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
-              <td>{fmtSize(j.sizeBytes)}</td>
-              <td class="text-muted"><RelativeTime ms={j.finishedAt} /></td>
-              <td class="max-w-52 truncate text-muted" title={j.error ?? ''}>{j.error ?? ''}</td>
-              <td><Button size="sm" variant="secondary" onclick={() => decryptAgain(j.bundleId)}>Decrypt again</Button></td>
-            </tr>
-          {/each}
-        {/if}
-      </tbody>
-    </table>
-  </div>
+  {#if loaded && entries.length === 0}
+    <EmptyState icon={History} message="No decrypts yet." />
+  {:else}
+    <div class="max-h-[600px] overflow-auto">
+      <table class="min-w-[640px]">
+        <thead>
+          <tr>
+            <th>Bundle ID</th>
+            <th>Source</th>
+            <th>Status</th>
+            <th>Size</th>
+            <th>Finished</th>
+            <th>Error</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {#if !loaded}
+            <SkeletonRows rows={4} colspan={7} />
+          {:else}
+            {#each grouped as g (g.label)}
+              <tr class="bg-panel sticky top-0 z-10">
+                <td colspan="7" class="border-b-0! py-1.5 text-xs font-semibold text-muted">{g.label}</td>
+              </tr>
+              {#each g.items as j (j.id)}
+                <tr>
+                  <td class="max-w-40 truncate" title={j.bundleId}>{j.bundleId}</td>
+                  <td>{j.source}</td>
+                  <td><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
+                  <td>{fmtSize(j.sizeBytes)}</td>
+                  <td class="text-muted"><RelativeTime ms={j.finishedAt} /></td>
+                  <td class="max-w-52 truncate text-muted" title={j.error ?? ''}>{j.error ?? ''}</td>
+                  <td><Button size="sm" variant="secondary" onclick={() => decryptAgain(j.bundleId)}>Decrypt again</Button></td>
+                </tr>
+              {/each}
+            {/each}
+          {/if}
+        </tbody>
+      </table>
+    </div>
+  {/if}
   {#if loaded && entries.length < total}
     <div class="mt-3 flex justify-center">
       <Button size="sm" variant="secondary" disabled={loadingMore} onclick={loadMore}>

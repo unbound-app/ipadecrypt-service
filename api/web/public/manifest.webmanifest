@@ -1,0 +1,17 @@
+{
+  "name": "ipadecrypt-service",
+  "short_name": "ipadecrypt",
+  "description": "Authenticated API and dashboard for on-demand and automated App Store IPA decryption.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

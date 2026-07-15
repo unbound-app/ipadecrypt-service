@@ -13,15 +13,17 @@
     value: string;
     onValueChange?: (value: string) => void;
     class?: string;
+    id?: string;
   }
 
-  let { items, value = $bindable(), onValueChange, class: className }: Props = $props();
+  let { items, value = $bindable(), onValueChange, class: className, id }: Props = $props();
 
   const selectedLabel = $derived(items.find((i) => i.value === value)?.label ?? '');
 </script>
 
 <SelectPrimitive.Root type="single" bind:value {onValueChange}>
   <SelectPrimitive.Trigger
+    {id}
     class={cn(
       'flex h-9 items-center justify-between gap-2 rounded-md border border-border bg-panel-muted px-3 text-sm text-text focus:border-accent focus:outline-none',
       className,

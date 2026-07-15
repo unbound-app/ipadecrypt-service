@@ -13,7 +13,7 @@ import { enqueueDecryptJob, getActiveJobs, getJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
 import { sendTestNotification } from '../notify.js';
-import { applySchedule } from '../scheduler/index.js';
+import { applySchedule, checkForUpdate } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requireAdmin, requireSession } from '../session.js';
 import {
@@ -23,8 +23,11 @@ import {
   createApiKey,
   denyApiKey,
   getAppleAuthAlert,
+  getAverageJobDurationMs,
+  getDailyVolume,
   getEffectiveSettings,
   getJobHistoryPage,
+  getLastSchedulerRunAt,
   isSchedulerEnabled,
   type JobHistoryEntry,
   listAllApiKeys,
@@ -48,6 +51,7 @@ function buildOverview() {
     schedulerEnabled: isSchedulerEnabled(),
     settings: getEffectiveSettings(),
     appleAuthAlert: getAppleAuthAlert(),
+    lastSchedulerRunAt: getLastSchedulerRunAt(),
     activeJobs: getActiveJobs().map((j) => ({
       id: j.id,
       bundleId: j.bundleId,
@@ -104,6 +108,15 @@ dashboardRouter.get('/v1/dashboard/logs', (_req, res) => {
   res.json({ logs: getRecentLogs() });
 });
 
+dashboardRouter.get('/v1/dashboard/jobs/eta/:bundleId', (req, res) => {
+  res.json({ avgMs: getAverageJobDurationMs(req.params.bundleId) ?? null });
+});
+
+dashboardRouter.get('/v1/dashboard/jobs/volume', (req, res) => {
+  const days = Math.min(Math.max(Number.parseInt(String(req.query.days ?? '14'), 10) || 14, 1), 90);
+  res.json({ days: getDailyVolume(days) });
+});
+
 const BUNDLE_ID_RE = /^[A-Za-z0-9.-]{3,200}$/;
 
 dashboardRouter.get('/v1/dashboard/search', async (req, res) => {
@@ -155,6 +168,8 @@ dashboardRouter.get('/v1/dashboard/keys/mine', (_req, res) => {
   res.json({ keys: listApiKeysForOwner(sub) });
 });
 
+const EXPIRY_OPTIONS = new Set([1, 7, 30, 90]);
+
 dashboardRouter.post('/v1/dashboard/keys/request', (req, res) => {
   const { sub, role } = res.locals.session;
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
@@ -163,12 +178,16 @@ dashboardRouter.post('/v1/dashboard/keys/request', (req, res) => {
     return;
   }
 
+  const expiresInDays = typeof req.body?.expiresInDays === 'number' && EXPIRY_OPTIONS.has(req.body.expiresInDays)
+    ? req.body.expiresInDays
+    : undefined;
+
   if (role === 'admin') {
-    res.status(201).json(createApiKey(name, sub));
+    res.status(201).json(createApiKey(name, sub, expiresInDays));
     return;
   }
 
-  res.status(201).json(requestApiKey(name, sub));
+  res.status(201).json(requestApiKey(name, sub, expiresInDays));
 });
 
 dashboardRouter.post('/v1/dashboard/keys/:id/reveal', (req, res) => {
@@ -266,6 +285,11 @@ dashboardRouter.get('/v1/dashboard/settings/validate-cron', requireAdmin, (req, 
 dashboardRouter.post('/v1/dashboard/settings/test-webhook', requireAdmin, async (_req, res) => {
   const result = await sendTestNotification();
   res.status(result.ok ? 200 : 400).json(result);
+});
+
+dashboardRouter.get('/v1/dashboard/settings/preview-dispatch', requireAdmin, async (_req, res) => {
+  const result = await checkForUpdate(getEffectiveSettings());
+  res.json(result);
 });
 
 dashboardRouter.post('/v1/dashboard/auth-alert/clear', requireAdmin, (_req, res) => {

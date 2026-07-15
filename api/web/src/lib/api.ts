@@ -82,6 +82,7 @@ export interface OverviewPayload {
   schedulerEnabled: boolean;
   settings: SchedulerSettings;
   appleAuthAlert: AppleAuthAlert;
+  lastSchedulerRunAt?: number;
   activeJobs: ActiveJob[];
 }
 
@@ -93,6 +94,7 @@ export interface JobHistoryEntry {
   sizeBytes?: number;
   source: 'manual' | 'scheduler';
   createdAt: number;
+  startedAt?: number;
   finishedAt: number;
 }
 
@@ -104,6 +106,7 @@ export interface ApiKeyRecord {
   createdAt: number;
   approvedAt?: number;
   lastUsedAt?: number;
+  expiresAt?: number;
   hasUnrevealedSecret: boolean;
 }
 
@@ -142,6 +145,14 @@ export function fetchLogs(): Promise<{ logs: LogEntry[] }> {
   return apiJson('/v1/dashboard/logs');
 }
 
+export function fetchJobEta(bundleId: string): Promise<{ avgMs: number | null }> {
+  return apiJson(`/v1/dashboard/jobs/eta/${encodeURIComponent(bundleId)}`);
+}
+
+export function fetchJobVolume(days = 14): Promise<{ days: { date: string; count: number }[] }> {
+  return apiJson(`/v1/dashboard/jobs/volume?days=${days}`);
+}
+
 export function searchApps(term: string): Promise<{ results: AppStoreSearchResult[] } | { error: string }> {
   return apiJson(`/v1/dashboard/search?q=${encodeURIComponent(term)}`);
 }
@@ -170,8 +181,8 @@ export function fetchAllKeys(): Promise<{ keys: ApiKeyRecord[] }> {
   return apiJson('/v1/dashboard/keys/all');
 }
 
-export function requestKey(name: string): Promise<{ ok: boolean; data: { key?: string } }> {
-  return apiAction('/v1/dashboard/keys/request', { method: 'POST', body: JSON.stringify({ name }) });
+export function requestKey(name: string, expiresInDays?: number): Promise<{ ok: boolean; data: { key?: string; expiresAt?: number } }> {
+  return apiAction('/v1/dashboard/keys/request', { method: 'POST', body: JSON.stringify({ name, expiresInDays }) });
 }
 
 export function revealKey(id: string): Promise<{ ok: boolean; data: { key: string } }> {
@@ -212,6 +223,18 @@ export function validateCron(expr: string): Promise<{ valid: boolean }> {
 
 export function testWebhook(): Promise<{ ok: boolean; data: { ok: boolean; error?: string } }> {
   return apiAction('/v1/dashboard/settings/test-webhook', { method: 'POST' });
+}
+
+export interface UpdateCheck {
+  itunesVersion?: string;
+  normalizedVersion?: string;
+  alreadyReleased?: boolean;
+  wouldDispatch: boolean;
+  reason: string;
+}
+
+export function previewDispatch(): Promise<UpdateCheck> {
+  return apiJson('/v1/dashboard/settings/preview-dispatch');
 }
 
 export function fetchUsers(): Promise<{ users: AllowedUser[] }> {

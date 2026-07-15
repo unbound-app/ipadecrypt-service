@@ -23,6 +23,7 @@ export interface ApiKeyRecord {
   createdAt: number;
   approvedAt?: number;
   lastUsedAt?: number;
+  expiresAt?: number;
 }
 
 export interface SchedulerSettings {
@@ -42,6 +43,7 @@ export interface JobHistoryEntry {
   sizeBytes?: number;
   source: 'manual' | 'scheduler';
   createdAt: number;
+  startedAt?: number;
   finishedAt: number;
 }
 
@@ -58,6 +60,7 @@ interface PersistedState {
   settings: Partial<SchedulerSettings>;
   jobHistory: JobHistoryEntry[];
   appleAuthAlert: AppleAuthAlert;
+  lastSchedulerRunAt?: number;
 }
 
 const MAX_HISTORY = 100;
@@ -170,11 +173,20 @@ function redact(k: ApiKeyRecord) {
     createdAt: k.createdAt,
     approvedAt: k.approvedAt,
     lastUsedAt: k.lastUsedAt,
+    expiresAt: k.expiresAt,
     hasUnrevealedSecret: !!k.pendingReveal,
   };
 }
 
-export function createApiKey(name: string, ownerId: string): { id: string; name: string; key: string; createdAt: number } {
+function expiresAtFromDays(expiresInDays?: number): number | undefined {
+  return expiresInDays ? Date.now() + expiresInDays * 86_400_000 : undefined;
+}
+
+export function createApiKey(
+  name: string,
+  ownerId: string,
+  expiresInDays?: number,
+): { id: string; name: string; key: string; createdAt: number; expiresAt?: number } {
   const key = randomBytes(32).toString('hex');
   const record: ApiKeyRecord = {
     id: randomUUID(),
@@ -185,14 +197,22 @@ export function createApiKey(name: string, ownerId: string): { id: string; name:
     pendingReveal: key,
     createdAt: Date.now(),
     approvedAt: Date.now(),
+    expiresAt: expiresAtFromDays(expiresInDays),
   };
   state.apiKeys.push(record);
   persistNow();
-  return { id: record.id, name: record.name, key, createdAt: record.createdAt };
+  return { id: record.id, name: record.name, key, createdAt: record.createdAt, expiresAt: record.expiresAt };
 }
 
-export function requestApiKey(name: string, ownerId: string) {
-  const record: ApiKeyRecord = { id: randomUUID(), name, ownerId, status: 'pending', createdAt: Date.now() };
+export function requestApiKey(name: string, ownerId: string, expiresInDays?: number) {
+  const record: ApiKeyRecord = {
+    id: randomUUID(),
+    name,
+    ownerId,
+    status: 'pending',
+    createdAt: Date.now(),
+    expiresAt: expiresAtFromDays(expiresInDays),
+  };
   state.apiKeys.push(record);
   persistNow();
   return redact(record);
@@ -265,10 +285,20 @@ export function verifyApiKey(candidate: string): boolean {
   const hash = hashKey(candidate);
   const record = state.apiKeys.find((k) => k.status === 'approved' && k.hash === hash);
   if (!record) return false;
+  if (record.expiresAt && Date.now() > record.expiresAt) return false;
 
   record.lastUsedAt = Date.now();
   dirty = true;
   return true;
+}
+
+export function startApiKeySweeper(): void {
+  setInterval(() => {
+    const now = Date.now();
+    const before = state.apiKeys.length;
+    state.apiKeys = state.apiKeys.filter((k) => !(k.expiresAt && now > k.expiresAt));
+    if (state.apiKeys.length !== before) persistNow();
+  }, 60_000).unref();
 }
 
 export function getEffectiveSettings(): SchedulerSettings {
@@ -302,6 +332,39 @@ export function recordJobHistory(entry: JobHistoryEntry): void {
 
 export function getJobHistoryPage(offset: number, limit: number): { entries: JobHistoryEntry[]; total: number } {
   return { entries: state.jobHistory.slice(offset, offset + limit), total: state.jobHistory.length };
+}
+
+export function getAverageJobDurationMs(bundleId: string): number | undefined {
+  const durations = state.jobHistory
+    .filter((j) => j.bundleId === bundleId && j.status === 'done' && j.startedAt)
+    .map((j) => j.finishedAt - (j.startedAt as number));
+  if (durations.length === 0) return undefined;
+  return durations.reduce((a, b) => a + b, 0) / durations.length;
+}
+
+export function getDailyVolume(days: number): { date: string; count: number }[] {
+  const buckets = new Map<string, number>();
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    buckets.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const j of state.jobHistory) {
+    if (j.status !== 'done') continue;
+    const key = new Date(j.finishedAt).toISOString().slice(0, 10);
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  return [...buckets.entries()].map(([date, count]) => ({ date, count }));
+}
+
+export function recordSchedulerRun(): void {
+  state.lastSchedulerRunAt = Date.now();
+  persistNow();
+}
+
+export function getLastSchedulerRunAt(): number | undefined {
+  return state.lastSchedulerRunAt;
 }
 
 export function getAppleAuthAlert(): AppleAuthAlert {

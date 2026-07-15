@@ -131,6 +131,7 @@ async function runWorker(): Promise<void> {
         sizeBytes: job.fileSizeBytes,
         source: job.source,
         createdAt: job.createdAt,
+        startedAt: job.startedAt,
         finishedAt: job.finishedAt ?? Date.now(),
       });
       emitJobsChanged();

@@ -10,7 +10,7 @@ import { dashboardRouter } from './routes/dashboard.js';
 import { decryptRouter } from './routes/decrypt.js';
 import { healthRouter } from './routes/health.js';
 import { startScheduler } from './scheduler/index.js';
-import { startStateFlusher } from './store/state.js';
+import { startApiKeySweeper, startStateFlusher } from './store/state.js';
 
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -36,6 +36,9 @@ app.get('/favicon.svg', (_req, res) =>
 app.get('/og-image.png', (_req, res) =>
   res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'og-image.png')),
 );
+app.get('/manifest.webmanifest', (_req, res) =>
+  res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'manifest.webmanifest')),
+);
 
 app.use(healthRouter);
 app.use(decryptRouter);
@@ -48,6 +51,7 @@ app.use((_req, res) => {
 
 startJobSweeper();
 startStateFlusher();
+startApiKeySweeper();
 startScheduler();
 
 app.listen(config.port, config.bindHost, () => {
