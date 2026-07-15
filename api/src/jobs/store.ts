@@ -16,22 +16,27 @@ const jobs = new Map<string, Job>();
 const queue: string[] = [];
 let workerRunning = false;
 
-function findActiveJobForBundle(bundleId: string): Job | undefined {
+function findActiveJobForBundle(bundleId: string, externalVersionId: string | undefined): Job | undefined {
   for (const job of jobs.values()) {
-    if (job.bundleId === bundleId && (job.status === 'queued' || job.status === 'running')) {
+    if (
+      job.bundleId === bundleId &&
+      job.externalVersionId === externalVersionId &&
+      (job.status === 'queued' || job.status === 'running')
+    ) {
       return job;
     }
   }
   return undefined;
 }
 
-export function enqueueDecryptJob(bundleId: string, source: JobSource): Job {
-  const existing = findActiveJobForBundle(bundleId);
+export function enqueueDecryptJob(bundleId: string, source: JobSource, externalVersionId?: string): Job {
+  const existing = findActiveJobForBundle(bundleId, externalVersionId);
   if (existing) return existing;
 
   const job: Job = {
     id: randomUUID(),
     bundleId,
+    externalVersionId,
     source,
     status: 'queued',
     progress: 'queued',
@@ -45,7 +50,7 @@ export function enqueueDecryptJob(bundleId: string, source: JobSource): Job {
   } else {
     queue.push(job.id);
   }
-  log.info('job queued', { jobId: job.id, bundleId, source });
+  log.info('job queued', { jobId: job.id, bundleId, externalVersionId, source });
   emitJobsChanged();
 
   void runWorker();
@@ -118,7 +123,7 @@ async function runWorker(): Promise<void> {
         if (looksLikeAppleAuthFailure(job.error)) {
           setAppleAuthAlert(job.error);
           void notify(
-            `⚠️ ipadecrypt-service: decrypting **${job.bundleId}** failed with what looks like an App Store auth issue - it may need re-bootstrapping.\n\`${job.error}\``,
+            `⚠️ dkrypt: decrypting **${job.bundleId}** failed with what looks like an App Store auth issue - it may need re-bootstrapping.\n\`${job.error}\``,
           );
         }
       }
@@ -126,6 +131,7 @@ async function runWorker(): Promise<void> {
       recordJobHistory({
         id: job.id,
         bundleId: job.bundleId,
+        externalVersionId: job.externalVersionId,
         status: job.status as 'done' | 'failed',
         error: job.error,
         sizeBytes: job.fileSizeBytes,

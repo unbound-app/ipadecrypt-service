@@ -15,7 +15,8 @@ import { getRecentLogs } from '../logger.js';
 import { sendTestNotification } from '../notify.js';
 import { applySchedule, checkForUpdate } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
-import { requireAdmin, requireSession } from '../session.js';
+import { requireAdmin, requireRole, requireSession } from '../session.js';
+import { listAppVersions } from '../versions.js';
 import {
   addAllowedUser,
   approveApiKey,
@@ -28,6 +29,7 @@ import {
   getEffectiveSettings,
   getJobHistoryPage,
   getLastSchedulerRunAt,
+  getUserPrefs,
   isSchedulerEnabled,
   type JobHistoryEntry,
   listAllApiKeys,
@@ -35,12 +37,19 @@ import {
   listApiKeysForOwner,
   listPendingApiKeys,
   regenerateApiKey,
+  type Role,
   removeAllowedUser,
   requestApiKey,
   revealApiKeySecret,
   revokeApiKey,
+  updateAllowedUserRole,
   updateSettings,
+  updateUserPrefs,
 } from '../store/state.js';
+
+const ROLES: Role[] = ['admin', 'operator', 'member', 'viewer'];
+const canManageKeys = requireRole('admin', 'operator');
+const canDecrypt = requireRole('admin', 'operator', 'member');
 
 export const dashboardRouter = Router();
 
@@ -134,15 +143,37 @@ dashboardRouter.get('/v1/dashboard/search', async (req, res) => {
   }
 });
 
-dashboardRouter.post('/v1/dashboard/decrypt', (req, res) => {
+const EXTERNAL_VERSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+dashboardRouter.post('/v1/dashboard/decrypt', canDecrypt, (req, res) => {
   const bundleId = typeof req.body?.bundleId === 'string' ? req.body.bundleId.trim() : '';
   if (!BUNDLE_ID_RE.test(bundleId)) {
     res.status(400).json({ error: 'bundleId is required and must look like a bundle identifier' });
     return;
   }
 
-  const job = enqueueDecryptJob(bundleId, 'manual');
+  const externalVersionId =
+    typeof req.body?.externalVersionId === 'string' && EXTERNAL_VERSION_ID_RE.test(req.body.externalVersionId)
+      ? req.body.externalVersionId
+      : undefined;
+
+  const job = enqueueDecryptJob(bundleId, 'manual', externalVersionId);
   res.status(202).json(jobSummary(job));
+});
+
+dashboardRouter.get('/v1/dashboard/versions/:bundleId', async (req, res) => {
+  const bundleId = req.params.bundleId;
+  if (!BUNDLE_ID_RE.test(bundleId)) {
+    res.status(400).json({ error: 'bundleId must look like a bundle identifier' });
+    return;
+  }
+
+  try {
+    const versions = await listAppVersions(bundleId);
+    res.json({ versions });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 dashboardRouter.get('/v1/dashboard/jobs/:id/status', (req, res) => {
@@ -170,7 +201,7 @@ dashboardRouter.get('/v1/dashboard/keys/mine', (_req, res) => {
 
 const EXPIRY_OPTIONS = new Set([1, 7, 30, 90]);
 
-dashboardRouter.post('/v1/dashboard/keys/request', (req, res) => {
+dashboardRouter.post('/v1/dashboard/keys/request', canDecrypt, (req, res) => {
   const { sub, role } = res.locals.session;
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
   if (!name) {
@@ -182,7 +213,7 @@ dashboardRouter.post('/v1/dashboard/keys/request', (req, res) => {
     ? req.body.expiresInDays
     : undefined;
 
-  if (role === 'admin') {
+  if (role === 'admin' || role === 'operator') {
     res.status(201).json(createApiKey(name, sub, expiresInDays));
     return;
   }
@@ -212,7 +243,7 @@ dashboardRouter.post('/v1/dashboard/keys/:id/regenerate', (req, res) => {
 
 dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
   const { sub, role } = res.locals.session;
-  const ok = revokeApiKey(req.params.id, sub, role === 'admin');
+  const ok = revokeApiKey(req.params.id, sub, role === 'admin' || role === 'operator');
   if (!ok) {
     res.status(404).json({ error: 'key not found or not yours' });
     return;
@@ -223,19 +254,19 @@ dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
 dashboardRouter.post('/v1/dashboard/keys/bulk-revoke', (req, res) => {
   const { sub, role } = res.locals.session;
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown) => typeof id === 'string') : [];
-  const revoked = ids.filter((id: string) => revokeApiKey(id, sub, role === 'admin'));
+  const revoked = ids.filter((id: string) => revokeApiKey(id, sub, role === 'admin' || role === 'operator'));
   res.json({ revoked });
 });
 
-dashboardRouter.get('/v1/dashboard/keys/pending', requireAdmin, (_req, res) => {
+dashboardRouter.get('/v1/dashboard/keys/pending', canManageKeys, (_req, res) => {
   res.json({ keys: listPendingApiKeys() });
 });
 
-dashboardRouter.get('/v1/dashboard/keys/all', requireAdmin, (_req, res) => {
+dashboardRouter.get('/v1/dashboard/keys/all', canManageKeys, (_req, res) => {
   res.json({ keys: listAllApiKeys() });
 });
 
-dashboardRouter.post('/v1/dashboard/keys/:id/approve', requireAdmin, (req, res) => {
+dashboardRouter.post('/v1/dashboard/keys/:id/approve', canManageKeys, (req, res) => {
   const ok = approveApiKey(req.params.id);
   if (!ok) {
     res.status(404).json({ error: 'no pending request with that id' });
@@ -244,7 +275,7 @@ dashboardRouter.post('/v1/dashboard/keys/:id/approve', requireAdmin, (req, res) 
   res.json({ ok: true });
 });
 
-dashboardRouter.post('/v1/dashboard/keys/:id/deny', requireAdmin, (req, res) => {
+dashboardRouter.post('/v1/dashboard/keys/:id/deny', canManageKeys, (req, res) => {
   const ok = denyApiKey(req.params.id);
   if (!ok) {
     res.status(404).json({ error: 'no pending request with that id' });
@@ -303,12 +334,30 @@ dashboardRouter.get('/v1/dashboard/users', requireAdmin, (_req, res) => {
 
 dashboardRouter.post('/v1/dashboard/users', requireAdmin, (req, res) => {
   const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
-  const role = req.body?.role === 'admin' ? 'admin' : req.body?.role === 'member' ? 'member' : undefined;
+  const role = ROLES.includes(req.body?.role) ? (req.body.role as Role) : undefined;
   if (!username || !role) {
-    res.status(400).json({ error: 'username and role (admin|member) are required' });
+    res.status(400).json({ error: `username and role (${ROLES.join('|')}) are required` });
     return;
   }
   res.status(201).json(addAllowedUser(username, role));
+});
+
+dashboardRouter.patch('/v1/dashboard/users/:username', requireAdmin, (req, res) => {
+  const role = ROLES.includes(req.body?.role) ? (req.body.role as Role) : undefined;
+  if (!role) {
+    res.status(400).json({ error: `role (${ROLES.join('|')}) is required` });
+    return;
+  }
+  if (req.params.username.toLowerCase() === res.locals.session.sub.toLowerCase() && role !== 'admin') {
+    res.status(400).json({ error: "you can't change your own role away from admin" });
+    return;
+  }
+  const updated = updateAllowedUserRole(req.params.username, role);
+  if (!updated) {
+    res.status(404).json({ error: 'not on the allowlist' });
+    return;
+  }
+  res.json(updated);
 });
 
 dashboardRouter.delete('/v1/dashboard/users/:username', requireAdmin, (req, res) => {
@@ -318,6 +367,17 @@ dashboardRouter.delete('/v1/dashboard/users/:username', requireAdmin, (req, res)
     return;
   }
   res.json({ ok: true });
+});
+
+dashboardRouter.get('/v1/dashboard/me/prefs', (_req, res) => {
+  res.json(getUserPrefs(res.locals.session.sub));
+});
+
+dashboardRouter.put('/v1/dashboard/me/prefs', (req, res) => {
+  const body = req.body ?? {};
+  const patch: { theme?: 'dark' | 'light' } = {};
+  if (body.theme === 'dark' || body.theme === 'light') patch.theme = body.theme;
+  res.json(updateUserPrefs(res.locals.session.sub, patch));
 });
 
 dashboardRouter.get('/v1/dashboard/apple-auth/status', requireAdmin, (_req, res) => {

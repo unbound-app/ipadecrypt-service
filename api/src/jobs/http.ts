@@ -10,6 +10,7 @@ export function jobSummary(job: Job) {
   return {
     id: job.id,
     bundleId: job.bundleId,
+    externalVersionId: job.externalVersionId,
     source: job.source,
     status: job.status,
     progress: job.progress,

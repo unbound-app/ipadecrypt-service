@@ -25,7 +25,7 @@ export async function sendTestNotification(): Promise<{ ok: boolean; error?: str
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: '🔔 ipadecrypt-service: test notification from the dashboard.' }),
+      body: JSON.stringify({ content: '🔔 dkrypt: test notification from the dashboard.' }),
     });
     if (!res.ok) return { ok: false, error: `webhook returned HTTP ${res.status}` };
     return { ok: true };

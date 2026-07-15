@@ -4,7 +4,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { emitHistoryAdded } from '../events.js';
 
-export type Role = 'admin' | 'member';
+export type Role = 'admin' | 'operator' | 'member' | 'viewer';
 export type ApiKeyStatus = 'pending' | 'approved' | 'denied';
 
 export interface AllowedUser {
@@ -38,6 +38,7 @@ export interface SchedulerSettings {
 export interface JobHistoryEntry {
   id: string;
   bundleId: string;
+  externalVersionId?: string;
   status: 'done' | 'failed';
   error?: string;
   sizeBytes?: number;
@@ -53,6 +54,10 @@ interface AppleAuthAlert {
   lastErrorAt?: number;
 }
 
+export interface UserPrefs {
+  theme?: 'dark' | 'light';
+}
+
 interface PersistedState {
   version: 2;
   apiKeys: ApiKeyRecord[];
@@ -61,6 +66,7 @@ interface PersistedState {
   jobHistory: JobHistoryEntry[];
   appleAuthAlert: AppleAuthAlert;
   lastSchedulerRunAt?: number;
+  userPrefs: Record<string, UserPrefs>;
 }
 
 const MAX_HISTORY = 100;
@@ -74,6 +80,7 @@ function defaultState(): PersistedState {
     settings: {},
     jobHistory: [],
     appleAuthAlert: { suspected: false },
+    userPrefs: {},
   };
 }
 
@@ -154,6 +161,14 @@ export function addAllowedUser(username: string, role: Role): AllowedUser {
   state.allowedUsers.push(record);
   persistNow();
   return record;
+}
+
+export function updateAllowedUserRole(username: string, role: Role): AllowedUser | undefined {
+  const existing = state.allowedUsers.find((u) => u.username === username.toLowerCase());
+  if (!existing) return undefined;
+  existing.role = role;
+  persistNow();
+  return existing;
 }
 
 export function removeAllowedUser(username: string): boolean {
@@ -380,4 +395,16 @@ export function clearAppleAuthAlert(): void {
   if (!state.appleAuthAlert.suspected) return;
   state.appleAuthAlert = { suspected: false };
   persistNow();
+}
+
+export function getUserPrefs(username: string): UserPrefs {
+  return state.userPrefs[username.toLowerCase()] ?? {};
+}
+
+export function updateUserPrefs(username: string, patch: Partial<UserPrefs>): UserPrefs {
+  const lower = username.toLowerCase();
+  const updated = { ...(state.userPrefs[lower] ?? {}), ...patch };
+  state.userPrefs[lower] = updated;
+  persistNow();
+  return updated;
 }

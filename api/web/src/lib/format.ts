@@ -52,8 +52,10 @@ export function fmtCountdown(ms: number): string {
 
 export function debounce<Args extends unknown[]>(fn: (...args: Args) => void, ms: number) {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return (...args: Args) => {
+  const debounced = (...args: Args) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   };
+  debounced.cancel = () => clearTimeout(timer);
+  return debounced;
 }

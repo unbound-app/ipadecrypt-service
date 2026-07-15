@@ -1,4 +1,4 @@
-# ipadecrypt-service
+# dkrypt
 
 Docker Compose service that wraps [londek/ipadecrypt](https://github.com/londek/ipadecrypt)
 behind an authenticated HTTP API, run against a jailbroken iDevice reachable
@@ -35,7 +35,7 @@ can only run one `ipadecrypt decrypt` at a time.
    `docker compose run` needs an explicit different name to avoid clashing
    with it:
    ```sh
-   docker compose run --rm -it --name ipadecrypt-service-bootstrap api ipadecrypt bootstrap
+   docker compose run --rm -it --name dkrypt-bootstrap api ipadecrypt bootstrap
    ```
 5. Start the service:
    ```sh
@@ -66,10 +66,13 @@ decrypts won't get cut off mid-request.
 All routes require `Authorization: Bearer <API_KEY>` - there is no
 unauthenticated path, including health checks.
 
-### `GET /v1/decrypt?bundleId=<id>`
+### `GET /v1/decrypt?bundleId=<id>&externalVersionId=<id>`
 Starts (or joins an in-flight) decrypt job and blocks until it's done,
 then streams the `.ipa` directly. Falls back to `202` with a status/file
-URL if it's still running after `JOB_MAX_WAIT_SECONDS`.
+URL if it's still running after `JOB_MAX_WAIT_SECONDS`. `externalVersionId`
+is optional and pins the decrypt to a specific historical App Store
+release instead of the current one - see **Decrypting a specific
+version** below for where that id comes from.
 
 ### `GET /v1/jobs/:id`
 Job status: `queued | running | done | failed`, plus the last progress
@@ -99,24 +102,39 @@ Two ways in:
   add them first (chicken-and-egg: add yourself via `ADMIN_PASSWORD`
   first).
 
-Two roles, enforced server-side (the UI just hides what a role can't do):
+Four roles, enforced server-side (the UI just hides what a role can't do):
 
-- **admin** - everything below, plus the Settings tab.
+- **admin** - everything below, plus the Settings tab (Scheduler, Users,
+  Apple Auth).
+- **operator** - everything admin can do *except* the Settings tab: queues
+  decrypts, and manages API keys for everyone (approve/deny pending
+  requests, view the full key list, bulk-revoke, own requests auto-approve).
 - **member** - Home, API Keys, Logs, and Docs, and manages their *own* API
   keys (request, reveal-once, regenerate, revoke) - but a request sits as
-  `pending` until an admin approves it on the API Keys tab.
+  `pending` until an admin or operator approves it on the API Keys tab.
+- **viewer** - read-only: Home, Logs, and Docs, but can't queue a decrypt,
+  and has no API Keys tab (nothing to request or manage).
+
+Per-account preferences (currently just light/dark theme) are synced
+server-side, not just `localStorage` - switching browsers or devices keeps
+your last choice.
 
 Tabs:
 
 - **Home** - search the App Store and queue a decrypt, your own
   queued/finished requests, scheduler on/off, active jobs, recent history,
   and a banner if a decrypt failure looked like an App Store auth issue.
-- **API Keys** - request/reveal/regenerate/revoke your own keys; admins
-  additionally see all pending requests (approve/deny), the full key list
-  across every user, and can create an auto-approved key directly (e.g.
-  for a CI runner). Keys are stored hashed - the plaintext is only ever
-  shown once, right after approval/regeneration. The root `API_KEY` from
-  `.env` always works too and isn't managed here.
+  Each free result has a clock-icon button that opens its App Store
+  version history and lets you decrypt an older release instead of the
+  current one (`ipadecrypt decrypt --external-version-id`) - see
+  **Decrypting a specific version** below.
+- **API Keys** (not shown to viewers) - request/reveal/regenerate/revoke
+  your own keys; admins and operators additionally see all pending
+  requests (approve/deny), the full key list across every user, and can
+  create an auto-approved key directly (e.g. for a CI runner). Keys are
+  stored hashed - the plaintext is only ever shown once, right after
+  approval/regeneration. The root `API_KEY` from `.env` always works too
+  and isn't managed here.
 - **Logs** - a live feed of scheduler/job log lines, filterable by scope
   (all/scheduler/jobs) and level (info/warning/error).
 - **Docs** - copy-pasteable curl examples for using an API key, filled in
@@ -125,8 +143,10 @@ Tabs:
   - *Scheduler* - edit the watch bundle ID, watch/dispatch repos, workflow
     file, poll cron, and notification webhook URL live, no restart
     needed. `GH_TOKEN` and `API_KEY` stay env-only, not editable here.
-  - *Users* - the GitHub OAuth allowlist: add a username with a role, or
-    remove one.
+  - *Users* - the GitHub OAuth allowlist: add a username with a role,
+    change an existing user's role inline, or remove one. An admin can't
+    change their own role or remove themselves - get another admin to do
+    it, or fall back to `ADMIN_PASSWORD`.
   - *Apple Auth* - re-runs just the App Store sign-in step of `ipadecrypt
     bootstrap` (email/password, and a 2FA code if Apple asks for one) as
     a piped child process, streaming its prompts to the page so you don't
@@ -146,6 +166,29 @@ successful Apple Auth re-run) and, if `NOTIFY_WEBHOOK_URL` is set, posts a
 Discord-webhook-shaped notification. If it turns out sessions expire
 more/less often than expected, this is the place to tighten the detection
 (`api/src/util/appleAuth.ts`).
+
+**Decrypting a specific version**: `ipadecrypt decrypt` supports pinning
+to a historical release via `--external-version-id`, and this service
+exposes it (`GET /v1/dashboard/versions/:bundleId` in the dashboard, the
+`externalVersionId` param on the API). What it can *not* safely do is
+resolve those opaque ids to human-readable version numbers on its own -
+that requires a separate Apple API call per version, and `ipadecrypt`'s
+own author gates it behind an interactive warning precisely because
+hitting it too many times in a short window risks getting the signed-in
+Apple ID flagged, rate-limited, or banned. So the version picker only
+shows a version number for releases someone has already opened
+(interactively, on the host) via `ipadecrypt versions <bundle-id>` -
+that command caches what it fetches to disk, and this service reads that
+cache plus its list of every external-version-id. Anything without a
+cached number is still fully decryptable, just labeled by its raw id
+instead of e.g. `v1.4.2`.
+
+The very first time this service tries to list any app's versions, it'll
+fail with a message telling you to SSH in and run
+`docker compose exec api ipadecrypt versions <any-bundle-id>` once,
+press Enter to accept Apple's rate-limit warning, and then Ctrl-C out -
+that's a one-time per-install step (the acceptance is persisted in the
+`ipadecrypt-config` volume), same as `ipadecrypt bootstrap`.
 
 ## Notes / limitations
 

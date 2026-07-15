@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Search } from 'lucide-svelte';
+  import { History, Search } from 'lucide-svelte';
   import { queueDecrypt, searchApps, type AppStoreSearchResult } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
@@ -9,8 +9,10 @@
   import { addDecrypt, myDecryptsState, pushRecentBundleId, recentBundleIdsState } from '../../lib/decrypts.svelte';
   import { debounce } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
+  import { sessionState } from '../../lib/session.svelte';
   import { showToast } from '../../lib/ui.svelte';
   import { cn } from '../../lib/utils';
+  import VersionPickerDialog from './VersionPickerDialog.svelte';
 
   let term = $state('');
   let results = $state<AppStoreSearchResult[]>([]);
@@ -18,16 +20,18 @@
   let searched = $state(false);
   let highlighted = $state(-1);
   let inputEl: HTMLInputElement | undefined = $state();
+  let searchToken = 0;
 
   const statusByBundle = $derived.by(() => {
     const map = new Map<string, string>();
-    for (const d of myDecryptsState.items) map.set(d.bundleId, d.status);
+    for (const d of myDecryptsState.items) if (!map.has(d.bundleId)) map.set(d.bundleId, d.status);
     for (const j of liveState.overview?.activeJobs ?? []) if (!map.has(j.bundleId)) map.set(j.bundleId, j.status);
     return map;
   });
 
   async function runSearch(q: string): Promise<void> {
     const trimmed = q.trim();
+    const token = ++searchToken;
     if (!trimmed) {
       results = [];
       searched = false;
@@ -36,6 +40,7 @@
     loading = true;
     try {
       const data = await searchApps(trimmed);
+      if (token !== searchToken) return;
       if ('error' in data) {
         showToast(data.error, 'error');
         results = [];
@@ -45,7 +50,7 @@
       searched = true;
       highlighted = -1;
     } finally {
-      loading = false;
+      if (token === searchToken) loading = false;
     }
   }
 
@@ -53,19 +58,40 @@
 
   function onInput(): void {
     if (!term.trim()) {
+      debouncedSearch.cancel();
+      searchToken++;
       results = [];
       searched = false;
+      loading = false;
       return;
     }
     debouncedSearch(term);
   }
 
-  async function queue(bundleId: string, trackName: string): Promise<void> {
-    const { ok, data } = await queueDecrypt(bundleId);
+  const canDecrypt = $derived(sessionState.role !== 'viewer');
+
+  let versionsOpen = $state(false);
+  let versionsBundleId = $state('');
+  let versionsTrackName = $state('');
+
+  function openVersions(bundleId: string, trackName: string): void {
+    versionsBundleId = bundleId;
+    versionsTrackName = trackName;
+    versionsOpen = true;
+  }
+
+  async function queue(bundleId: string, trackName: string, externalVersionId?: string, versionLabel?: string): Promise<void> {
+    if (!canDecrypt) return;
+    const { ok, data } = await queueDecrypt(bundleId, externalVersionId);
     if (!ok) return;
-    addDecrypt({ id: data.id, bundleId, trackName, status: data.status, progress: data.progress, queue: data.queue });
+    addDecrypt({ id: data.id, bundleId, trackName, versionLabel, status: data.status, progress: data.progress, queue: data.queue });
     pushRecentBundleId(bundleId);
-    showToast(`Queued ${trackName}`, 'success');
+    showToast(`Queued ${trackName}${versionLabel ? ` (${versionLabel})` : ''}`, 'success');
+  }
+
+  function decryptVersion(bundleId: string, externalVersionId: string, label: string): void {
+    versionsOpen = false;
+    void queue(bundleId, versionsTrackName, externalVersionId, label);
   }
 
   function onKeydown(e: KeyboardEvent): void {
@@ -138,14 +164,39 @@
           </div>
           {#if r.price > 0}
             <Badge variant="destructive" title="ipadecrypt only supports free apps">Paid</Badge>
-          {:else if statusByBundle.has(r.bundleId)}
-            {@const status = statusByBundle.get(r.bundleId) ?? ''}
-            <Badge variant={statusToBadgeVariant(status)}>{status}</Badge>
           {:else}
-            <Button size="sm" onclick={() => queue(r.bundleId, r.trackName)}>Decrypt</Button>
+            <div class="flex items-center gap-1.5">
+              {#if canDecrypt}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onclick={() => openVersions(r.bundleId, r.trackName)}
+                  title="Browse version history"
+                  aria-label="Browse version history"
+                >
+                  <History class="h-3.5 w-3.5" />
+                </Button>
+              {/if}
+              {#if statusByBundle.has(r.bundleId)}
+                {@const status = statusByBundle.get(r.bundleId) ?? ''}
+                <Badge variant={statusToBadgeVariant(status)}>{status}</Badge>
+              {:else if canDecrypt}
+                <Button size="sm" onclick={() => queue(r.bundleId, r.trackName)}>Decrypt</Button>
+              {:else}
+                <Badge variant="secondary" title="Viewers can't queue decrypts">view only</Badge>
+              {/if}
+            </div>
           {/if}
         </div>
       {/each}
     {/if}
   </div>
 </Card>
+
+<VersionPickerDialog
+  open={versionsOpen}
+  bundleId={versionsBundleId}
+  trackName={versionsTrackName}
+  onOpenChange={(v) => (versionsOpen = v)}
+  onDecrypt={decryptVersion}
+/>

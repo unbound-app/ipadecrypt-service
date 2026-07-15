@@ -5,6 +5,7 @@ export type JobSource = 'manual' | 'scheduler';
 export interface Job {
   id: string;
   bundleId: string;
+  externalVersionId?: string;
   source: JobSource;
   status: JobStatus;
   progress: string;

@@ -87,15 +87,21 @@ export function requireSession(req: Request, res: Response, next: NextFunction):
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  const session = getSession(req);
-  if (!session) {
-    res.status(401).json({ error: 'unauthorized' });
-    return;
-  }
-  if (session.role !== 'admin') {
-    res.status(403).json({ error: 'admin role required' });
-    return;
-  }
-  res.locals.session = session;
-  next();
+  requireRole('admin')(req, res, next);
+}
+
+export function requireRole(...roles: Role[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const session = getSession(req);
+    if (!session) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    if (!roles.includes(session.role)) {
+      res.status(403).json({ error: `requires one of these roles: ${roles.join(', ')}` });
+      return;
+    }
+    res.locals.session = session;
+    next();
+  };
 }

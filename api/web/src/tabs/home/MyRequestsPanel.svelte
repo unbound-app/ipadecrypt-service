@@ -46,7 +46,12 @@
       <tbody>
         {#each myDecryptsState.items as d (d.id)}
           <tr>
-            <td>{d.trackName}</td>
+            <td>
+              {d.trackName}
+              {#if d.versionLabel}
+                <span class="text-muted text-xs">({d.versionLabel})</span>
+              {/if}
+            </td>
             <td>
               {#if d.status === 'done'}
                 <Badge variant="success">done</Badge>

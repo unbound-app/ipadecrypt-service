@@ -2,6 +2,7 @@ export interface TrackedDecrypt {
   id: string;
   bundleId: string;
   trackName: string;
+  versionLabel?: string;
   status: string;
   progress?: string;
   queue?: { position: number; total: number };

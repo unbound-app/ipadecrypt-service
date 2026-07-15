@@ -28,4 +28,14 @@
   "{base}/v1/jobs/&lt;JOB_ID&gt;/file" \
   -o discord.ipa</pre>
   </Card>
+
+  <Card title="Decrypt a specific version">
+    <div class="mb-2.5 text-sm text-muted">
+      Add <code>externalVersionId</code> to pin to a historical App Store release instead of the current one - get the
+      id from the clock-icon button next to a search result on the Home tab.
+    </div>
+    <pre class="border-border overflow-x-auto rounded-md border bg-panel-muted p-3 text-[12.5px] leading-relaxed">curl -H "Authorization: Bearer &lt;YOUR_API_KEY&gt;" \
+  "{base}/v1/decrypt?bundleId=com.hammerandchisel.discord&externalVersionId=&lt;EXTERNAL_VERSION_ID&gt;" \
+  -o discord.ipa</pre>
+  </Card>
 </div>

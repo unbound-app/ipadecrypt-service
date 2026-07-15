@@ -51,11 +51,11 @@
     { value: '90', label: 'In 90 days' },
   ];
 
-  const isAdmin = $derived(sessionState.role === 'admin');
+  const isKeyManager = $derived(sessionState.role === 'admin' || sessionState.role === 'operator');
 
   async function loadAll(): Promise<void> {
     mine = (await fetchMyKeys()).keys;
-    if (!isAdmin) return;
+    if (!isKeyManager) return;
     pending = (await fetchPendingKeys()).keys;
     all = (await fetchAllKeys()).keys;
   }
@@ -133,15 +133,15 @@
 </script>
 
 <div class="flex flex-col gap-4">
-  <Card title={isAdmin ? 'Get a key' : 'Request a key'}>
+  <Card title={isKeyManager ? 'Get a key' : 'Request a key'}>
     <div class="mb-2.5 text-sm text-muted">
-      {isAdmin ? "You get it instantly - no approval needed." : 'Needs approval from an admin before it works.'}
+      {isKeyManager ? "You get it instantly - no approval needed." : 'Needs approval from an admin before it works.'}
     </div>
     <label for="key-name" class="mb-1 block text-xs text-muted">Name</label>
     <Input id="key-name" placeholder="e.g. laptop, ci-runner" bind:value={keyName} />
     <label for="key-expiry" class="mt-3 mb-1 block text-xs text-muted">Expires</label>
     <Select id="key-expiry" items={EXPIRY_OPTIONS} bind:value={keyExpiry} class="w-full" />
-    <Button class="mt-3" onclick={submitRequest}>{isAdmin ? 'Create' : 'Request'}</Button>
+    <Button class="mt-3" onclick={submitRequest}>{isKeyManager ? 'Create' : 'Request'}</Button>
     {#if revealedKey}
       <div class="border-accent bg-panel-muted mt-3 rounded-md border p-2.5 text-xs break-all">
         Save this now, it won't be shown again:<br />
@@ -202,7 +202,7 @@
     </div>
   </Card>
 
-  {#if isAdmin}
+  {#if isKeyManager}
     <Card title="Pending requests">
       <div class="overflow-x-auto">
         <table class="min-w-[480px]">

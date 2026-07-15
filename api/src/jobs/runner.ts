@@ -13,12 +13,11 @@ export async function runDecrypt(job: Job): Promise<void> {
   const outputPath = path.join(config.outputDir, `${job.id}.ipa`);
   job.filePath = outputPath;
 
+  const args = ['decrypt', job.bundleId, '--from-appstore', '--output', outputPath];
+  if (job.externalVersionId) args.push('--external-version-id', job.externalVersionId);
+
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      config.ipadecryptBin,
-      ['decrypt', job.bundleId, '--from-appstore', '--output', outputPath],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    );
+    const child = spawn(config.ipadecryptBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     const onLine = (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim();

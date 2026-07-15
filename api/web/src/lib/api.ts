@@ -41,6 +41,7 @@ export async function apiAction<T = Record<string, unknown>>(
 export interface JobSummary {
   id: string;
   bundleId: string;
+  externalVersionId?: string;
   source: 'manual' | 'scheduler';
   status: 'queued' | 'running' | 'done' | 'failed';
   progress: string;
@@ -89,6 +90,7 @@ export interface OverviewPayload {
 export interface JobHistoryEntry {
   id: string;
   bundleId: string;
+  externalVersionId?: string;
   status: 'done' | 'failed';
   error?: string;
   sizeBytes?: number;
@@ -157,8 +159,20 @@ export function searchApps(term: string): Promise<{ results: AppStoreSearchResul
   return apiJson(`/v1/dashboard/search?q=${encodeURIComponent(term)}`);
 }
 
-export function queueDecrypt(bundleId: string): Promise<{ ok: boolean; data: JobSummary }> {
-  return apiAction('/v1/dashboard/decrypt', { method: 'POST', body: JSON.stringify({ bundleId }) });
+export function queueDecrypt(bundleId: string, externalVersionId?: string): Promise<{ ok: boolean; data: JobSummary }> {
+  return apiAction('/v1/dashboard/decrypt', { method: 'POST', body: JSON.stringify({ bundleId, externalVersionId }) });
+}
+
+export interface AppVersionEntry {
+  externalVersionId: string;
+  isLatest: boolean;
+  displayVersion?: string;
+  bundleVersion?: string;
+  releaseDate?: string;
+}
+
+export function fetchAppVersions(bundleId: string): Promise<{ versions: AppVersionEntry[] } | { error: string }> {
+  return apiJson(`/v1/dashboard/versions/${encodeURIComponent(bundleId)}`);
 }
 
 export function fetchJobStatus(id: string): Promise<JobSummary> {
@@ -247,6 +261,14 @@ export function addUser(username: string, role: Role): Promise<{ ok: boolean }> 
 
 export function removeUser(username: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/users/${encodeURIComponent(username)}`, { method: 'DELETE' }, `${username} removed`);
+}
+
+export function updateUserRole(username: string, role: Role): Promise<{ ok: boolean }> {
+  return apiAction(
+    `/v1/dashboard/users/${encodeURIComponent(username)}`,
+    { method: 'PATCH', body: JSON.stringify({ role }) },
+    `${username} is now ${role}`,
+  );
 }
 
 export interface AppleAuthStatus {

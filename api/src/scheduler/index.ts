@@ -132,10 +132,10 @@ async function tick(): Promise<void> {
     log.info('dispatched ipa-update', { dispatchRepo: settings.ghDispatchRepo, bundleId: settings.watchBundleId });
 
     await pollRunToCompletion(settings.ghDispatchRepo, settings.ghWorkflowFile, dispatchedAt);
-    await notify(`✅ ipadecrypt-service: **${settings.watchBundleId}** v${normalized} decrypted and dispatched to \`${settings.ghDispatchRepo}\`.`);
+    await notify(`✅ dkrypt: **${settings.watchBundleId}** v${normalized} decrypted and dispatched to \`${settings.ghDispatchRepo}\`.`);
   } catch (err) {
     log.error('dispatch/poll failed', { error: String(err) });
-    await notify(`⚠️ ipadecrypt-service: dispatch/poll failed for **${settings.watchBundleId}** v${normalized}: ${String(err)}`);
+    await notify(`⚠️ dkrypt: dispatch/poll failed for **${settings.watchBundleId}** v${normalized}: ${String(err)}`);
   } finally {
     await reclaimJobFile(finished);
   }

@@ -56,8 +56,8 @@
     }
   });
 
-  async function decryptAgain(bundleId: string): Promise<void> {
-    const { ok, data } = await queueDecrypt(bundleId);
+  async function decryptAgain(bundleId: string, externalVersionId?: string): Promise<void> {
+    const { ok, data } = await queueDecrypt(bundleId, externalVersionId);
     if (!ok) return;
     addDecrypt({ id: data.id, bundleId, trackName: bundleId, status: data.status, progress: data.progress, queue: data.queue });
     pushRecentBundleId(bundleId);
@@ -117,13 +117,22 @@
               </tr>
               {#each g.items as j (j.id)}
                 <tr>
-                  <td class="max-w-40 truncate" title={j.bundleId}>{j.bundleId}</td>
+                  <td class="max-w-40 truncate" title={j.bundleId}>
+                    {j.bundleId}
+                    {#if j.externalVersionId}
+                      <Badge variant="secondary" class="ml-1" title="pinned to external version id {j.externalVersionId}">pinned</Badge>
+                    {/if}
+                  </td>
                   <td>{j.source}</td>
                   <td><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
                   <td>{fmtSize(j.sizeBytes)}</td>
                   <td class="text-muted"><RelativeTime ms={j.finishedAt} /></td>
                   <td class="max-w-52 truncate text-muted" title={j.error ?? ''}>{j.error ?? ''}</td>
-                  <td><Button size="sm" variant="secondary" onclick={() => decryptAgain(j.bundleId)}>Decrypt again</Button></td>
+                  <td>
+                    <Button size="sm" variant="secondary" onclick={() => decryptAgain(j.bundleId, j.externalVersionId)}>
+                      Decrypt again
+                    </Button>
+                  </td>
                 </tr>
               {/each}
             {/each}

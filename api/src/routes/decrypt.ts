@@ -7,6 +7,7 @@ import { enqueueDecryptJob, getJob, waitForJob } from '../jobs/store.js';
 export const decryptRouter = Router();
 
 const BUNDLE_ID_RE = /^[A-Za-z0-9.-]{3,200}$/;
+const EXTERNAL_VERSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
   const bundleId = req.query.bundleId;
@@ -15,7 +16,11 @@ decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
     return;
   }
 
-  const job = enqueueDecryptJob(bundleId, 'manual');
+  const externalVersionId = req.query.externalVersionId;
+  const versionId =
+    typeof externalVersionId === 'string' && EXTERNAL_VERSION_ID_RE.test(externalVersionId) ? externalVersionId : undefined;
+
+  const job = enqueueDecryptJob(bundleId, 'manual', versionId);
   const finished = await waitForJob(job, config.jobMaxWaitSeconds * 1000);
 
   if (finished.status === 'queued' || finished.status === 'running') {

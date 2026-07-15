@@ -55,5 +55,5 @@ startApiKeySweeper();
 startScheduler();
 
 app.listen(config.port, config.bindHost, () => {
-  log.info(`ipadecrypt-service listening on ${config.bindHost}:${config.port}`);
+  log.info(`dkrypt listening on ${config.bindHost}:${config.port}`);
 });

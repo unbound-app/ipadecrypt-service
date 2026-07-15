@@ -45,7 +45,7 @@
     <div class="bg-accent shadow-accent/35 mx-auto mb-5 flex h-[60px] w-[60px] items-center justify-center rounded-2xl shadow-xl">
       <Lock class="h-7 w-7 text-white" />
     </div>
-    <h2 class="mb-1.5 text-[19px] font-semibold">ipadecrypt-service</h2>
+    <h2 class="mb-1.5 text-[19px] font-semibold">dkrypt</h2>
     <div class="mb-6.5 text-[13px] text-muted">Sign in to manage decrypts, keys, and settings.</div>
 
     {#if sessionState.githubOauthEnabled}

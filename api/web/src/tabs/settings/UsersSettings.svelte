@@ -1,12 +1,13 @@
 <script lang="ts">
   import RelativeTime from '../../components/RelativeTime.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
-  import { addUser, fetchUsers, removeUser, type AllowedUser, type Role } from '../../lib/api';
+  import { addUser, fetchUsers, removeUser, updateUserRole, type AllowedUser, type Role } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import Input from '../../lib/components/ui/Input.svelte';
   import Select from '../../lib/components/ui/Select.svelte';
+  import { statusToBadgeVariant } from '../../lib/components/ui/variants';
   import { sessionState } from '../../lib/session.svelte';
   import { confirmDialog, showToast } from '../../lib/ui.svelte';
 
@@ -15,7 +16,9 @@
   let users = $state<AllowedUser[] | null>(null);
 
   const ROLE_OPTIONS = [
-    { value: 'member', label: 'member (read-only + own API keys)' },
+    { value: 'viewer', label: 'viewer (read-only)' },
+    { value: 'member', label: 'member (queue decrypts + own API keys)' },
+    { value: 'operator', label: 'operator (admin, minus Users & Settings)' },
     { value: 'admin', label: 'admin (full access)' },
   ];
 
@@ -35,6 +38,11 @@
       username = '';
       void load();
     }
+  }
+
+  async function changeRole(name: string, newRole: Role): Promise<void> {
+    await updateUserRole(name, newRole);
+    void load();
   }
 
   async function remove(name: string): Promise<void> {
@@ -73,12 +81,24 @@
             <SkeletonRows rows={3} colspan={4} />
           {:else}
             {#each users as u (u.username)}
+              {@const isSelf = u.username === (sessionState.sub ?? '').toLowerCase()}
               <tr>
                 <td>{u.username}</td>
-                <td><Badge variant={u.role === 'admin' ? 'success' : 'default'}>{u.role}</Badge></td>
+                <td>
+                  {#if isSelf}
+                    <Badge variant={statusToBadgeVariant(u.role)}>{u.role}</Badge>
+                  {:else}
+                    <Select
+                      items={ROLE_OPTIONS}
+                      value={u.role}
+                      onValueChange={(v) => void changeRole(u.username, v as Role)}
+                      class="w-56"
+                    />
+                  {/if}
+                </td>
                 <td class="text-muted"><RelativeTime ms={u.addedAt} /></td>
                 <td>
-                  {#if u.username === (sessionState.sub ?? '').toLowerCase()}
+                  {#if isSelf}
                     <span class="text-xs text-muted">(you)</span>
                   {:else}
                     <Button size="sm" variant="destructive" onclick={() => remove(u.username)}>Remove</Button>
