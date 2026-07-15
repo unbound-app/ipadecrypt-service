@@ -1,0 +1,5 @@
+# Plain http:// (no automatic HTTPS attempt) since this sits behind the
+# existing Cloudflare Tunnel, which terminates TLS at the edge.
+http://ipa.dylib.dev {
+	reverse_proxy 127.0.0.1:8080
+}

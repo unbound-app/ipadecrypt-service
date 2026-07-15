@@ -21,7 +21,47 @@ services:
       # read-only, mounted at ipadecrypt's default key path.
       - ${HOME}/.ssh/id_ed25519_ipad:/root/.ssh/id_ed25519:ro
 
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: caddy
+    restart: unless-stopped
+    # Host networking so it can reach the api container's loopback-bound
+    # port the same way native Caddy did, and so the existing Cloudflare
+    # Tunnel (which points at the docker bridge gateway IP) keeps working
+    # unchanged.
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  # Runs the deploy job for this repo's CI workflow (see
+  # .github/workflows/deploy.yml). Needs the host's Docker socket (to run
+  # `docker compose` against the api service - DooD, not DinD) and this
+  # exact checkout bind-mounted at the same absolute path it lives at on
+  # the host, since compose bind-mount sources and the project name it
+  # infers are resolved by the host daemon, not from inside this container.
+  github-actions-runner:
+    image: myoung34/github-runner:latest
+    container_name: github-actions-runner
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ACCESS_TOKEN: ${GH_TOKEN}
+      REPO_URL: https://github.com/unbound-app/ipadecrypt-service
+      RUNNER_SCOPE: repo
+      RUNNER_NAME: homelab
+      LABELS: homelab
+      HOME: /home/adrian
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/adrian/ipadecrypt-service:/home/adrian/ipadecrypt-service
+      - github-runner-work:/_work
+
 volumes:
   ipadecrypt-config:
   ipa-tmp:
   ipadecrypt-state:
+  caddy-data:
+  caddy-config:
+  github-runner-work:
