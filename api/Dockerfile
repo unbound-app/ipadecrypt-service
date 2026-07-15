@@ -1,6 +1,7 @@
 # --- ipadecrypt CLI (Go) ---
 FROM golang:1.25-bookworm AS ipadecrypt
-RUN go install github.com/londek/ipadecrypt/cmd/ipadecrypt@latest
+ARG IPADECRYPT_VERSION=v0.7.3
+RUN go install github.com/londek/ipadecrypt/cmd/ipadecrypt@${IPADECRYPT_VERSION}
 
 # --- runtime ---
 FROM oven/bun:1-slim
