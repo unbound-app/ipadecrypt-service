@@ -120,7 +120,7 @@ function parseCookieHeader(header: string | undefined): Record<string, string> {
 
 authRouter.get('/v1/auth/github/callback', async (req, res) => {
   if (!githubOauthEnabled) {
-    res.status(404).send('GitHub OAuth is not configured');
+    res.redirect('/?auth_error=disabled');
     return;
   }
 
@@ -130,7 +130,8 @@ authRouter.get('/v1/auth/github/callback', async (req, res) => {
   res.setHeader('Set-Cookie', `${OAUTH_STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
 
   if (!code || !state || !cookieState || state !== cookieState) {
-    res.status(400).send('OAuth state mismatch - please try signing in again.');
+    log.warn('github oauth state mismatch', { hasCode: !!code, hasState: !!state, hasCookieState: !!cookieState });
+    res.redirect('/?auth_error=state_mismatch');
     return;
   }
 
@@ -158,18 +159,16 @@ authRouter.get('/v1/auth/github/callback', async (req, res) => {
 
     const role = getUserRole(user.login);
     if (!role) {
-      res
-        .status(403)
-        .send(
-          `<p>GitHub user <b>${user.login}</b> isn't on the allowlist for this dashboard. Ask an admin to add you.</p>`,
-        );
+      log.warn('github oauth login rejected - not on allowlist', { login: user.login });
+      res.redirect(`/?auth_error=not_allowed&user=${encodeURIComponent(user.login)}`);
       return;
     }
 
     setSessionCookie(res, { sub: user.login.toLowerCase(), role });
+    log.info('github oauth login succeeded', { login: user.login, role });
     res.redirect('/');
   } catch (err) {
     log.error('github oauth callback failed', { error: String(err) });
-    res.status(500).send('GitHub sign-in failed - check the server logs.');
+    res.redirect('/?auth_error=failed');
   }
 });
