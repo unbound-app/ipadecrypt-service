@@ -50,16 +50,13 @@ device's SSH port - typically a USB-tethered `iproxy ... 2222:22` bound to
 can't see at all). `BIND_HOST` defaults to `127.0.0.1` so the app itself
 still only listens on loopback, not the whole LAN.
 
-`docker compose up -d` brings up a `caddy` service alongside `api` by
-default, configured from the root `Caddyfile` and also given
-`network_mode: host` so it can reach `api`'s loopback-bound port the same
-way (a bridge-network Caddy container has no route to it - and no
-compose-network DNS entry for `api` either, since `api` isn't on any
-compose network). Edit `Caddyfile` to your own domain before deploying;
-it ships pointed at this reference deployment's. If you'd rather run
-Caddy directly on the host instead, remove the `caddy` service from
-`docker-compose.yml` and point a host Caddy instance's
-`reverse_proxy 127.0.0.1:8080` at the same file.
+This repo doesn't run Caddy itself - point whatever reverse proxy already
+fronts your other homelab services at `127.0.0.1:8080` (a container-based
+Caddy needs `network_mode: host` too, for the same reason as `api`: a
+bridge-network container has no route to a loopback-bound port, and `api`
+isn't on any compose network for a service-name DNS entry to exist
+either). The root `Caddyfile` is a copy-pasteable fragment for that,
+pointed at this reference deployment's domain - swap it for your own.
 
 Caddy's `reverse_proxy` has no request timeout by default, so long-running
 decrypts won't get cut off mid-request.
