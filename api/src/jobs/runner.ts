@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
+import { emitJobsChanged } from '../events.js';
 import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('jobs');
@@ -25,6 +26,7 @@ export async function runDecrypt(job: Job): Promise<void> {
       const lastLine = text.split('\n').at(-1) ?? text;
       job.progress = lastLine;
       log.info('ipadecrypt output', { jobId: job.id, bundleId: job.bundleId, line: lastLine });
+      emitJobsChanged();
     };
 
     child.stdout.on('data', onLine);

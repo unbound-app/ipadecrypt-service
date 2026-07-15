@@ -16,3 +16,20 @@ export async function notify(message: string): Promise<void> {
     log.warn('notify webhook failed', { error: String(err) });
   }
 }
+
+export async function sendTestNotification(): Promise<{ ok: boolean; error?: string }> {
+  const url = getEffectiveSettings().notifyWebhookUrl;
+  if (!url) return { ok: false, error: 'no webhook URL configured' };
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '🔔 ipadecrypt-service: test notification from the dashboard.' }),
+    });
+    if (!res.ok) return { ok: false, error: `webhook returned HTTP ${res.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}

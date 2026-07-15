@@ -9,6 +9,7 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 export interface Session {
   sub: string;
   role: Role;
+  exp: number;
 }
 
 function safeEqualStr(a: string, b: string): boolean {
@@ -22,7 +23,7 @@ function sign(payload: string): string {
   return createHmac('sha256', config.downloadSigningSecret).update(payload).digest('hex');
 }
 
-function serialize(session: Session, expiresAtMs: number): string {
+function serialize(session: Omit<Session, 'exp'>, expiresAtMs: number): string {
   const body = Buffer.from(JSON.stringify({ ...session, exp: expiresAtMs })).toString('base64url');
   return `${body}.${sign(body)}`;
 }
@@ -33,9 +34,9 @@ function deserialize(cookieValue: string): Session | undefined {
   if (!safeEqualStr(sig, sign(body))) return undefined;
 
   try {
-    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Session & { exp: number };
+    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Session;
     if (Date.now() > parsed.exp) return undefined;
-    return { sub: parsed.sub, role: parsed.role };
+    return { sub: parsed.sub, role: parsed.role, exp: parsed.exp };
   } catch {
     return undefined;
   }
@@ -58,7 +59,7 @@ export function checkRootPassword(candidate: string): boolean {
   return safeEqualStr(candidate, config.adminPassword);
 }
 
-export function setSessionCookie(res: Response, session: Session): void {
+export function setSessionCookie(res: Response, session: Omit<Session, 'exp'>): void {
   const expiresAtMs = Date.now() + SESSION_TTL_MS;
   res.setHeader(
     'Set-Cookie',

@@ -52,6 +52,7 @@ authRouter.get('/v1/auth/session', (req, res) => {
     loggedIn: !!session,
     sub: session?.sub,
     role: session?.role,
+    expiresAt: session?.exp,
     githubOauthEnabled,
     publicBaseUrl: config.publicBaseUrl,
   });

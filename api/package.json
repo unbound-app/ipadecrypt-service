@@ -10,7 +10,9 @@
     "start": "bun src/server.ts",
     "dev": "bun --watch src/server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "build:web": "cd web && bun install --frozen-lockfile && bun run build",
+    "typecheck:web": "cd web && bun install --frozen-lockfile && bun run typecheck"
   },
   "dependencies": {
     "express": "^4.21.2",

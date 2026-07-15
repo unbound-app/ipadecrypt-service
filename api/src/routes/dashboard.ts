@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { validate as validateCronExpr } from 'node-cron';
 import {
   cancelAppleAuth,
   getAppleAuthStatus,
@@ -6,9 +7,12 @@ import {
   sendAppleAuthInput,
   startAppleReauth,
 } from '../appleAuthRunner.js';
+import { dashboardEvents } from '../events.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
 import { enqueueDecryptJob, getActiveJobs, getJob } from '../jobs/store.js';
+import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
+import { sendTestNotification } from '../notify.js';
 import { applySchedule } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requireAdmin, requireSession } from '../session.js';
@@ -20,8 +24,9 @@ import {
   denyApiKey,
   getAppleAuthAlert,
   getEffectiveSettings,
-  getJobHistory,
+  getJobHistoryPage,
   isSchedulerEnabled,
+  type JobHistoryEntry,
   listAllApiKeys,
   listAllowedUsers,
   listApiKeysForOwner,
@@ -38,8 +43,8 @@ export const dashboardRouter = Router();
 
 dashboardRouter.use(requireSession);
 
-dashboardRouter.get('/v1/dashboard/overview', (_req, res) => {
-  res.json({
+function buildOverview() {
+  return {
     schedulerEnabled: isSchedulerEnabled(),
     settings: getEffectiveSettings(),
     appleAuthAlert: getAppleAuthAlert(),
@@ -51,11 +56,48 @@ dashboardRouter.get('/v1/dashboard/overview', (_req, res) => {
       progress: j.progress,
       createdAt: j.createdAt,
     })),
+  };
+}
+
+dashboardRouter.get('/v1/dashboard/overview', (_req, res) => {
+  res.json(buildOverview());
+});
+
+dashboardRouter.get('/v1/dashboard/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendEvent = (event: string, data: unknown) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendEvent('overview', buildOverview());
+
+  const onJobsChanged = () => sendEvent('overview', buildOverview());
+  const onLogAdded = (entry: LogEntry) => sendEvent('log', entry);
+  const onHistoryAdded = (entry: JobHistoryEntry) => sendEvent('history', entry);
+
+  dashboardEvents.on('jobsChanged', onJobsChanged);
+  dashboardEvents.on('logAdded', onLogAdded);
+  dashboardEvents.on('historyAdded', onHistoryAdded);
+
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    dashboardEvents.off('jobsChanged', onJobsChanged);
+    dashboardEvents.off('logAdded', onLogAdded);
+    dashboardEvents.off('historyAdded', onHistoryAdded);
   });
 });
 
-dashboardRouter.get('/v1/dashboard/jobs', (_req, res) => {
-  res.json({ history: getJobHistory() });
+dashboardRouter.get('/v1/dashboard/jobs', (req, res) => {
+  const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '15'), 10) || 15, 1), 100);
+  const offset = Math.max(Number.parseInt(String(req.query.offset ?? '0'), 10) || 0, 0);
+  const { entries, total } = getJobHistoryPage(offset, limit);
+  res.json({ history: entries, total });
 });
 
 dashboardRouter.get('/v1/dashboard/logs', (_req, res) => {
@@ -159,6 +201,13 @@ dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+dashboardRouter.post('/v1/dashboard/keys/bulk-revoke', (req, res) => {
+  const { sub, role } = res.locals.session;
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown) => typeof id === 'string') : [];
+  const revoked = ids.filter((id: string) => revokeApiKey(id, sub, role === 'admin'));
+  res.json({ revoked });
+});
+
 dashboardRouter.get('/v1/dashboard/keys/pending', requireAdmin, (_req, res) => {
   res.json({ keys: listPendingApiKeys() });
 });
@@ -199,9 +248,24 @@ dashboardRouter.put('/v1/dashboard/settings', requireAdmin, (req, res) => {
     if (typeof body[field] === 'string') patch[field] = body[field].trim();
   }
 
+  if (typeof patch.pollCron === 'string' && patch.pollCron !== '' && !validateCronExpr(patch.pollCron)) {
+    res.status(400).json({ error: 'pollCron is not a valid cron expression' });
+    return;
+  }
+
   const updated = updateSettings(patch);
   applySchedule();
   res.json(updated);
+});
+
+dashboardRouter.get('/v1/dashboard/settings/validate-cron', requireAdmin, (req, res) => {
+  const expr = typeof req.query.expr === 'string' ? req.query.expr : '';
+  res.json({ valid: expr !== '' && validateCronExpr(expr) });
+});
+
+dashboardRouter.post('/v1/dashboard/settings/test-webhook', requireAdmin, async (_req, res) => {
+  const result = await sendTestNotification();
+  res.status(result.ok ? 200 : 400).json(result);
 });
 
 dashboardRouter.post('/v1/dashboard/auth-alert/clear', requireAdmin, (_req, res) => {

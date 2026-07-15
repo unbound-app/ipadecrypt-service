@@ -1,4 +1,7 @@
 .env
 api/node_modules/
 api/dist/
+api/public/
+api/web/node_modules/
+api/web/dist/
 data/

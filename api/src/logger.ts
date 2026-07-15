@@ -1,3 +1,5 @@
+import { emitLogAdded } from './events.js';
+
 export type LogLevel = 'info' | 'warn' | 'error';
 
 export interface LogEntry {
@@ -14,6 +16,7 @@ const recentLogs: LogEntry[] = [];
 function record(entry: LogEntry): void {
   recentLogs.push(entry);
   if (recentLogs.length > MAX_LOG_ENTRIES) recentLogs.shift();
+  emitLogAdded(entry);
 }
 
 export function getRecentLogs(): LogEntry[] {

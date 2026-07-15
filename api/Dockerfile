@@ -1,13 +1,17 @@
-# --- ipadecrypt CLI (Go) ---
 FROM golang:1.25-bookworm AS ipadecrypt
 ARG IPADECRYPT_VERSION=v0.7.3
 RUN go install github.com/londek/ipadecrypt/cmd/ipadecrypt@${IPADECRYPT_VERSION}
 
-# --- runtime ---
+FROM oven/bun:1-slim AS web
+WORKDIR /web
+COPY web/package.json web/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY web ./
+RUN bun run build
+
 FROM oven/bun:1-slim
 WORKDIR /app
 
-# oven/bun:1-slim ships with no CA bundle, so outbound HTTPS fails without this.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
@@ -15,7 +19,7 @@ COPY --from=ipadecrypt /go/bin/ipadecrypt /usr/local/bin/ipadecrypt
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile
 COPY src ./src
-COPY public ./public
+COPY --from=web /public ./public
 
 ENV NODE_ENV=production
 EXPOSE 8080

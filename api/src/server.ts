@@ -18,6 +18,8 @@ const app = express();
 app.set('trust proxy', 'loopback');
 app.use(express.json());
 
+app.use('/assets', express.static(path.join(publicDir, 'assets'), { maxAge: '1y', immutable: true }));
+
 app.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();

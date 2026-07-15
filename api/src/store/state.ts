@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import { emitHistoryAdded } from '../events.js';
 
 export type Role = 'admin' | 'member';
 export type ApiKeyStatus = 'pending' | 'approved' | 'denied';
@@ -296,10 +297,11 @@ export function recordJobHistory(entry: JobHistoryEntry): void {
   state.jobHistory.unshift(entry);
   if (state.jobHistory.length > MAX_HISTORY) state.jobHistory.length = MAX_HISTORY;
   persistNow();
+  emitHistoryAdded(entry);
 }
 
-export function getJobHistory(): JobHistoryEntry[] {
-  return state.jobHistory;
+export function getJobHistoryPage(offset: number, limit: number): { entries: JobHistoryEntry[]; total: number } {
+  return { entries: state.jobHistory.slice(offset, offset + limit), total: state.jobHistory.length };
 }
 
 export function getAppleAuthAlert(): AppleAuthAlert {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { config } from '../config.js';
+import { emitJobsChanged } from '../events.js';
 import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('jobs');
@@ -45,6 +46,7 @@ export function enqueueDecryptJob(bundleId: string, source: JobSource): Job {
     queue.push(job.id);
   }
   log.info('job queued', { jobId: job.id, bundleId, source });
+  emitJobsChanged();
 
   void runWorker();
   return job;
@@ -99,6 +101,7 @@ async function runWorker(): Promise<void> {
       job.status = 'running';
       job.startedAt = Date.now();
       log.info('job started', { jobId: job.id, bundleId: job.bundleId });
+      emitJobsChanged();
 
       try {
         await runDecrypt(job);
@@ -130,6 +133,7 @@ async function runWorker(): Promise<void> {
         createdAt: job.createdAt,
         finishedAt: job.finishedAt ?? Date.now(),
       });
+      emitJobsChanged();
 
       settle(job);
     }
