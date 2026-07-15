@@ -1,4 +1,5 @@
 import express from 'express';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
@@ -21,9 +22,20 @@ app.use(express.json());
 
 // Every route requires auth (see auth.ts / session.ts) - the deliberate
 // exceptions are the static dashboard shell itself (a login form with no
-// data in it), and the login/OAuth routes needed to establish a session.
-app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+// data in it), its favicon/OG image (so link-preview crawlers can fetch
+// them without an API key), and the login/OAuth routes needed to
+// establish a session.
+//
+// og:image/og:url need absolute URLs, so the placeholder in index.html's
+// meta tags is filled in with the real PUBLIC_BASE_URL once at startup
+// rather than being hardcoded to any one deployment's domain.
+const indexHtml = readFileSync(path.join(publicDir, 'index.html'), 'utf8').replaceAll(
+  '__PUBLIC_BASE_URL__',
+  config.publicBaseUrl,
+);
+app.get('/', (_req, res) => res.type('html').send(indexHtml));
 app.get('/favicon.svg', (_req, res) => res.sendFile(path.join(publicDir, 'favicon.svg')));
+app.get('/og-image.png', (_req, res) => res.sendFile(path.join(publicDir, 'og-image.png')));
 
 app.use(healthRouter);
 app.use(decryptRouter);
