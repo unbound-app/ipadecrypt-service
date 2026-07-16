@@ -13,7 +13,7 @@ import { enqueueDecryptJob, getActiveJobs, getJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
 import { sendTestNotification } from '../notify.js';
-import { applySchedule, checkForTestFlightUpdate, checkForUpdate } from '../scheduler/index.js';
+import { applySchedule, checkForTestFlightUpdate, checkForUpdate, triggerTickNow } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requireAdmin, requireRole, requireSession } from '../session.js';
 import { getDeviceHealth, listBuilds, listTrains } from '../testflight.js';
@@ -376,6 +376,11 @@ dashboardRouter.get('/v1/dashboard/settings/preview-dispatch', requireAdmin, asy
   const settings = getEffectiveSettings();
   const [appStore, testflight] = await Promise.all([checkForUpdate(settings), checkForTestFlightUpdate(settings)]);
   res.json({ ...appStore, testflight });
+});
+
+dashboardRouter.post('/v1/dashboard/settings/trigger-dispatch', requireAdmin, async (_req, res) => {
+  const result = await triggerTickNow();
+  res.status(result.ok ? 202 : 409).json(result);
 });
 
 dashboardRouter.post('/v1/dashboard/auth-alert/clear', requireAdmin, (_req, res) => {

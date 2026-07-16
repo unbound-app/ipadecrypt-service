@@ -303,6 +303,10 @@ export function previewDispatch(): Promise<UpdateCheck> {
   return apiJson('/v1/dashboard/settings/preview-dispatch');
 }
 
+export function triggerDispatch(): Promise<{ ok: boolean; data: { ok: boolean; error?: string } }> {
+  return apiAction('/v1/dashboard/settings/trigger-dispatch', { method: 'POST' });
+}
+
 export function fetchUsers(): Promise<{ users: AllowedUser[] }> {
   return apiJson('/v1/dashboard/users');
 }

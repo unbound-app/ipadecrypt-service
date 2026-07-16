@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fetchSettings, previewDispatch, saveSettings, testWebhook, validateCron, type SchedulerSettings, type UpdateCheck } from '../../lib/api';
+  import { fetchSettings, previewDispatch, saveSettings, testWebhook, triggerDispatch, validateCron, type SchedulerSettings, type UpdateCheck } from '../../lib/api';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
@@ -22,6 +22,7 @@
   let testingWebhook = $state(false);
   let previewResult = $state<UpdateCheck | null>(null);
   let previewing = $state(false);
+  let triggering = $state(false);
 
   $effect(() => {
     void fetchSettings().then((s) => {
@@ -87,6 +88,18 @@
       previewing = false;
     }
   }
+
+  async function runTrigger(): Promise<void> {
+    if (!(await confirmDialog('This runs the same check the scheduler would on its own cron tick, right now - if there\'s a new version, it decrypts and dispatches for real. Continue?'))) return;
+    triggering = true;
+    try {
+      const { ok, data } = await triggerDispatch();
+      if (ok) showToast('Dispatch check triggered - watch Active Jobs / Logs for progress', 'success');
+      else showToast(data.error ?? 'Failed to trigger', 'error');
+    } finally {
+      triggering = false;
+    }
+  }
 </script>
 
 <Card title="Automated watch → GitHub dispatch">
@@ -132,6 +145,7 @@
   <div class="mt-4 flex flex-wrap gap-2">
     <Button onclick={save}>Save</Button>
     <Button variant="secondary" disabled={previewing} onclick={runPreview}>Preview next dispatch</Button>
+    <Button variant="secondary" disabled={triggering} onclick={runTrigger}>Trigger dispatch now</Button>
   </div>
 
   {#if previewResult}

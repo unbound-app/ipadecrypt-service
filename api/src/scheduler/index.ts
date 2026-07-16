@@ -252,13 +252,39 @@ async function tickTestFlight(settings: SchedulerSettings): Promise<void> {
   await decryptAndDispatch(job, settings, true, check.latestTag as string);
 }
 
-async function tick(): Promise<void> {
-  recordSchedulerRun();
-  const settings = getEffectiveSettings();
-  log.info('scheduler tick', { bundleId: settings.watchBundleId, appRepo: settings.watchAppRepo });
+let tickInProgress = false;
 
-  await tickAppStore(settings);
-  await tickTestFlight(settings);
+async function tick(): Promise<void> {
+  if (tickInProgress) {
+    log.info('scheduler tick already in progress, skipping');
+    return;
+  }
+  tickInProgress = true;
+  try {
+    recordSchedulerRun();
+    const settings = getEffectiveSettings();
+    log.info('scheduler tick', { bundleId: settings.watchBundleId, appRepo: settings.watchAppRepo });
+
+    await tickAppStore(settings);
+    await tickTestFlight(settings);
+  } finally {
+    tickInProgress = false;
+  }
+}
+
+export function isTickInProgress(): boolean {
+  return tickInProgress;
+}
+
+export async function triggerTickNow(): Promise<{ ok: boolean; error?: string }> {
+  if (tickInProgress) {
+    return { ok: false, error: 'a scheduler tick is already in progress' };
+  }
+  if (!isSchedulerEnabled()) {
+    return { ok: false, error: 'scheduler is not enabled (missing required settings)' };
+  }
+  void tick().catch((err) => log.error('manually triggered tick threw', { error: String(err) }));
+  return { ok: true };
 }
 
 let currentTask: cron.ScheduledTask | undefined;
