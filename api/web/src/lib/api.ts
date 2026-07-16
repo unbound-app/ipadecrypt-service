@@ -141,6 +141,20 @@ export function fetchOverview(): Promise<OverviewPayload> {
   return apiJson('/v1/dashboard/overview');
 }
 
+export interface DeviceHealth {
+  reachable: boolean;
+  error?: string;
+  testFlightRunning?: boolean;
+  darkEnabled?: boolean;
+  screenIsOn?: boolean;
+  backlightState?: number;
+  checkedAt: number;
+}
+
+export function fetchDeviceHealth(): Promise<DeviceHealth> {
+  return apiJson('/v1/dashboard/device/health');
+}
+
 export function fetchJobHistory(offset: number, limit: number): Promise<{ history: JobHistoryEntry[]; total: number }> {
   return apiJson(`/v1/dashboard/jobs?offset=${offset}&limit=${limit}`);
 }

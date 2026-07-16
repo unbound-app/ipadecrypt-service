@@ -16,7 +16,7 @@ import { sendTestNotification } from '../notify.js';
 import { applySchedule, checkForTestFlightUpdate, checkForUpdate } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requireAdmin, requireRole, requireSession } from '../session.js';
-import { listBuilds, listTrains } from '../testflight.js';
+import { getDeviceHealth, listBuilds, listTrains } from '../testflight.js';
 import { listAppVersions } from '../versions.js';
 import {
   addAllowedUser,
@@ -175,6 +175,11 @@ dashboardRouter.get('/v1/dashboard/versions/:bundleId', async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }
+});
+
+dashboardRouter.get('/v1/dashboard/device/health', async (_req, res) => {
+  const health = await getDeviceHealth();
+  res.json(health);
 });
 
 dashboardRouter.get('/v1/dashboard/testflight/:appId/trains', async (req, res) => {

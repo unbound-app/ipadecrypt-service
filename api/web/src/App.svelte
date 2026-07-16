@@ -10,7 +10,7 @@
   import Button from './lib/components/ui/Button.svelte';
   import Tabs from './lib/components/ui/Tabs.svelte';
   import { buttonVariants } from './lib/components/ui/variants';
-  import { connectLive, disconnectLive, liveState } from './lib/live.svelte';
+  import { connectLive, disconnectLive } from './lib/live.svelte';
   import { logout, pushThemePref, refreshSession, sessionState, type Role } from './lib/session.svelte';
   import { initTheme, openHelp, openPalette, setActiveTab, setTheme, tabState, themeState, type TabId } from './lib/ui.svelte';
 
@@ -84,12 +84,6 @@
     <header class="border-border flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
       <div class="flex items-center gap-3">
         <h1 class="text-[15px] font-semibold">dkrypt</h1>
-        {#if liveState.overview}
-          <span class="border-border inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium text-muted">
-            <span class={['h-1.5 w-1.5 rounded-full', liveState.overview.schedulerEnabled ? 'bg-ok' : 'bg-muted']}></span>
-            Scheduler {liveState.overview.schedulerEnabled ? 'on' : 'off'}
-          </span>
-        {/if}
       </div>
       <div class="flex items-center gap-2.5">
         <a

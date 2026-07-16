@@ -244,3 +244,44 @@ export async function installBuild(appId: number, build: TFBuild, waitTimeoutMs 
     throw new Error(`timed out waiting for ${build.bundleId} to reach build ${build.cfBundleVersion}`);
   });
 }
+
+export interface DeviceHealth {
+  reachable: boolean;
+  error?: string;
+  testFlightRunning?: boolean;
+  darkEnabled?: boolean;
+  screenIsOn?: boolean;
+  backlightState?: number;
+  checkedAt: number;
+}
+
+const HEALTH_CACHE_TTL_MS = 20_000;
+let healthCache: { at: number; value: DeviceHealth } | undefined;
+
+async function computeDeviceHealth(): Promise<DeviceHealth> {
+  try {
+    return await withSSH(async (conn) => {
+      const [tfRunning, sbStatus] = await Promise.all([
+        isTestFlightRunning(conn),
+        sendBridgeRequestRawTo(conn, SB_REQUEST_PATH, SB_RESPONSE_PATH, { action: 'screen_status' }, 8_000).catch(() => undefined),
+      ]);
+      return {
+        reachable: true,
+        testFlightRunning: tfRunning,
+        darkEnabled: sbStatus?.darkEnabled,
+        screenIsOn: sbStatus?.screenIsOn,
+        backlightState: sbStatus?.backlightState,
+        checkedAt: Date.now(),
+      };
+    });
+  } catch (err) {
+    return { reachable: false, error: err instanceof Error ? err.message : String(err), checkedAt: Date.now() };
+  }
+}
+
+export async function getDeviceHealth(): Promise<DeviceHealth> {
+  if (healthCache && Date.now() - healthCache.at < HEALTH_CACHE_TTL_MS) return healthCache.value;
+  const value = await computeDeviceHealth();
+  healthCache = { at: Date.now(), value };
+  return value;
+}
