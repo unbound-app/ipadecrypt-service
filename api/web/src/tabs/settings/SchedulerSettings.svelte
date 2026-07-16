@@ -139,13 +139,13 @@
   <label for="s-notifyWebhookUrl" class="mt-3 mb-1 block text-xs text-muted">Notification webhook URL (Discord-compatible, optional)</label>
   <div class="flex gap-2">
     <Input id="s-notifyWebhookUrl" bind:value={form.notifyWebhookUrl} />
-    <Button variant="secondary" disabled={testingWebhook} onclick={runTestWebhook}>Test</Button>
+    <Button variant="secondary" loading={testingWebhook} onclick={runTestWebhook}>Test</Button>
   </div>
 
   <div class="mt-4 flex flex-wrap gap-2">
     <Button onclick={save}>Save</Button>
-    <Button variant="secondary" disabled={previewing} onclick={runPreview}>Preview next dispatch</Button>
-    <Button variant="secondary" disabled={triggering} onclick={runTrigger}>Trigger dispatch now</Button>
+    <Button variant="secondary" loading={previewing} onclick={runPreview}>{previewing ? 'Checking…' : 'Preview next dispatch'}</Button>
+    <Button variant="secondary" loading={triggering} onclick={runTrigger}>{triggering ? 'Triggering…' : 'Trigger dispatch now'}</Button>
   </div>
 
   {#if previewResult}
