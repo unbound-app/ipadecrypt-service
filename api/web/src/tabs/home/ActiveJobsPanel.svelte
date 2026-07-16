@@ -21,9 +21,14 @@
     for (const j of jobs) {
       if (j.status === 'running' && !fetchedBundles.has(j.bundleId)) {
         fetchedBundles.add(j.bundleId);
-        void fetchJobEta(j.bundleId).then((r) => {
-          etaByBundle[j.bundleId] = r.avgMs;
-        });
+        fetchJobEta(j.bundleId)
+          .then((r) => {
+            etaByBundle[j.bundleId] = r.avgMs;
+          })
+          .catch(() => {
+            // Allow a retry on the next effect run instead of silently giving up on this bundle forever.
+            fetchedBundles.delete(j.bundleId);
+          });
       }
     }
   });

@@ -8,6 +8,6 @@
   <div class="text-sm text-text">{confirmState.message}</div>
   <div class="mt-4 flex justify-end gap-2">
     <Button variant="secondary" onclick={() => resolveConfirm(false)}>Cancel</Button>
-    <Button variant="destructive" onclick={() => resolveConfirm(true)}>Confirm</Button>
+    <Button variant={confirmState.variant} onclick={() => resolveConfirm(true)}>{confirmState.confirmLabel}</Button>
   </div>
 </Dialog>

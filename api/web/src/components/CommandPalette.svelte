@@ -19,11 +19,14 @@
     const base: Command[] = [
       { id: 'home', label: 'Go to Home', run: () => setActiveTab('home') },
       { id: 'keys', label: 'Go to API Keys', run: () => setActiveTab('keys') },
-      { id: 'logs', label: 'Go to Logs', run: () => setActiveTab('logs') },
-      { id: 'docs', label: 'Go to Docs', run: () => setActiveTab('docs') },
     ];
+    if (sessionState.permissions?.viewLogs) {
+      base.push({ id: 'logs', label: 'Go to Logs', run: () => setActiveTab('logs') });
+    }
+    base.push({ id: 'docs', label: 'Go to Docs', run: () => setActiveTab('docs') });
     if (
       sessionState.permissions?.manageScheduler ||
+      sessionState.permissions?.triggerDispatch ||
       sessionState.permissions?.manageAppleAuth ||
       sessionState.permissions?.viewUsers ||
       sessionState.permissions?.manageUsers

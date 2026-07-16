@@ -27,7 +27,7 @@
         App Store auth may need re-authentication (last error <span title={fmtTime(alert.lastErrorAt)}>{fmtRelative(alert.lastErrorAt)}</span>):
       </div>
       <code class="mt-1 block break-all text-[12px]">{alert.lastError ?? ''}</code>
-      {#if sessionState.permissions?.manageScheduler}
+      {#if sessionState.permissions?.triggerDispatch}
         <Button variant="secondary" size="sm" class="mt-2" loading={dismissing} onclick={dismiss}>Dismiss</Button>
       {/if}
     </div>

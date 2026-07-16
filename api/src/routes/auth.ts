@@ -89,7 +89,9 @@ authRouter.post('/v1/auth/login', (req, res) => {
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   if (!password || !checkRootPassword(password)) {
     recordLoginFailure(key);
-    res.status(401).json({ error: 'invalid password' });
+    const failures = loginAttempts.get(key)?.failures ?? 0;
+    const attemptsRemaining = Math.max(0, LOCKOUT_AFTER - failures);
+    res.status(401).json({ error: 'invalid password', attemptsRemaining });
     return;
   }
 

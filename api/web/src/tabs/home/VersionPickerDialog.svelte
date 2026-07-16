@@ -19,12 +19,11 @@
   let error = $state('');
   let loadedFor = $state('');
 
-  $effect(() => {
-    if (!open || bundleId === loadedFor) return;
-    loadedFor = bundleId;
+  function load(id: string): void {
+    loadedFor = id;
     versions = null;
     error = '';
-    fetchAppVersions(bundleId)
+    fetchAppVersions(id)
       .then((data) => {
         if ('error' in data) {
           error = data.error;
@@ -37,7 +36,16 @@
         error = 'Failed to load version history - try again.';
         versions = [];
       });
+  }
+
+  $effect(() => {
+    if (!open || bundleId === loadedFor) return;
+    load(bundleId);
   });
+
+  function retry(): void {
+    load(bundleId);
+  }
 
   function label(v: AppVersionEntry): string {
     return v.displayVersion ? `v${v.displayVersion}` : `id ${v.externalVersionId}`;
@@ -50,7 +58,8 @@
   {#if versions === null}
     <div class="text-sm text-muted">Loading version list from the App Store…</div>
   {:else if error}
-    <div class="text-err text-[13px]">{error}</div>
+    <div class="text-err mb-2.5 text-[13px]">{error}</div>
+    <Button size="sm" variant="secondary" onclick={retry}>Try again</Button>
   {:else if versions.length === 0}
     <div class="text-sm text-muted">No version history found.</div>
   {:else}

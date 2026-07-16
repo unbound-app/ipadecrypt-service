@@ -25,14 +25,13 @@
   let builds = $state<TFBuild[] | null>(null);
   let buildsError = $state('');
 
-  $effect(() => {
-    if (!open || appId === loadedFor) return;
-    loadedFor = appId;
+  function load(id: number): void {
+    loadedFor = id;
     trains = null;
     error = '';
     expandedTrain = '';
     builds = null;
-    fetchTestFlightTrains(appId)
+    fetchTestFlightTrains(id)
       .then((data) => {
         if ('error' in data) {
           error = data.error;
@@ -45,7 +44,16 @@
         error = 'Failed to load TestFlight trains - try again.';
         trains = [];
       });
+  }
+
+  $effect(() => {
+    if (!open || appId === loadedFor) return;
+    load(appId);
   });
+
+  function retry(): void {
+    load(appId);
+  }
 
   async function toggleTrain(trainVersion: string): Promise<void> {
     if (expandedTrain === trainVersion) {
@@ -80,7 +88,8 @@
   {#if trains === null}
     <div class="text-sm text-muted">Loading beta trains from TestFlight (this may launch TestFlight on the device)…</div>
   {:else if error}
-    <div class="text-err text-[13px]">{error}</div>
+    <div class="text-err mb-2.5 text-[13px]">{error}</div>
+    <Button size="sm" variant="secondary" onclick={retry}>Try again</Button>
   {:else if trains.length === 0}
     <div class="text-sm text-muted">No beta trains found - is this app in your TestFlight?</div>
   {:else}

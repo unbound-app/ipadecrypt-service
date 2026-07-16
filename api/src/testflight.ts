@@ -41,7 +41,16 @@ async function loadDeviceAuth(): Promise<DeviceAuth> {
 
 async function withSSH<T>(fn: (conn: Client) => Promise<T>): Promise<T> {
   const auth = await loadDeviceAuth();
-  const privateKey = await readFile(auth.keyPath);
+  let privateKey: Buffer;
+  try {
+    privateKey = await readFile(auth.keyPath);
+  } catch (err) {
+    // The key path came from a cached config read - if it no longer resolves, the config
+    // probably changed (key rotation) since we cached it. Drop the cache so the next call
+    // re-reads it, instead of requiring a server restart to pick up the change.
+    cachedAuth = undefined;
+    throw err;
+  }
   const conn = new Client();
   try {
     await new Promise<void>((resolve, reject) => {
@@ -50,6 +59,12 @@ async function withSSH<T>(fn: (conn: Client) => Promise<T>): Promise<T> {
       conn.connect({ host: auth.host, port: auth.port, username: auth.user, privateKey, readyTimeout: 15_000 });
     });
     return await fn(conn);
+  } catch (err) {
+    // Same reasoning for connection-level auth failures (e.g. the device no longer accepts
+    // this key) - self-heal by re-reading config on the next attempt rather than staying wrong
+    // until someone restarts the process.
+    cachedAuth = undefined;
+    throw err;
   } finally {
     conn.end();
   }
@@ -141,6 +156,21 @@ export async function ensureTestFlightRunning(): Promise<void> {
   });
 }
 
+// tfauto watches fixed, well-known paths (it's an external companion tool, not something we
+// control the source of), so concurrent bridge requests can't be made independently addressable.
+// Serialize them instead - otherwise two admins acting at once would race and corrupt each
+// other's request/response files.
+let bridgeQueue: Promise<unknown> = Promise.resolve();
+
+function withBridgeLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = bridgeQueue.then(fn, fn);
+  bridgeQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 async function sendBridgeRequestRawTo(
   conn: Client,
   requestPath: string,
@@ -148,20 +178,22 @@ async function sendBridgeRequestRawTo(
   request: Record<string, unknown>,
   timeoutMs = 20_000,
 ): Promise<any> {
-  await execCommand(conn, `rm -f ${responsePath}`);
-  await writeRemoteFile(conn, requestPath, JSON.stringify(request));
+  return withBridgeLock(async () => {
+    await execCommand(conn, `rm -f ${responsePath}`);
+    await writeRemoteFile(conn, requestPath, JSON.stringify(request));
 
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const raw = await readRemoteFileIfExists(conn, responsePath);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.ok === false) throw new Error(`tfauto bridge error: ${parsed.error}`);
-      return parsed;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const raw = await readRemoteFileIfExists(conn, responsePath);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.ok === false) throw new Error(`tfauto bridge error: ${parsed.error}`);
+        return parsed;
+      }
+      await new Promise((r) => setTimeout(r, 500));
     }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`tfauto bridge request timed out: ${JSON.stringify(request)}`);
+    throw new Error(`tfauto bridge request timed out: ${JSON.stringify(request)}`);
+  });
 }
 
 function sendBridgeRequestRaw(conn: Client, request: Record<string, unknown>, timeoutMs = 20_000): Promise<any> {

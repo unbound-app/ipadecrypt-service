@@ -23,7 +23,11 @@ async function request(path: string, opts: RequestInit = {}): Promise<Response> 
 
 export async function apiJson<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await request(path, opts);
-  return (await res.json()) as T;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error('invalid response from server');
+  }
 }
 
 export async function apiAction<T = Record<string, unknown>>(
@@ -336,8 +340,8 @@ export function validateCron(expr: string): Promise<{ valid: boolean }> {
   return apiJson(`/v1/dashboard/settings/validate-cron?expr=${encodeURIComponent(expr)}`);
 }
 
-export function testWebhook(): Promise<{ ok: boolean; data: { ok: boolean; error?: string } }> {
-  return apiAction('/v1/dashboard/settings/test-webhook', { method: 'POST' });
+export function testWebhook(url?: string): Promise<{ ok: boolean; data: { ok: boolean; error?: string } }> {
+  return apiAction('/v1/dashboard/settings/test-webhook', { method: 'POST', body: JSON.stringify({ url }) });
 }
 
 export interface TestFlightUpdateCheck {

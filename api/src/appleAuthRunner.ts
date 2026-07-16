@@ -6,7 +6,12 @@ import { clearAppleAuthAlert, setAppleAuthAlert } from './store/state.js';
 
 interface RunnerState {
   child: ChildProcessWithoutNullStreams;
-  lines: string[];
+  // Keep the earliest output (often the most diagnostic - connecting/signing-in/2FA prompts)
+  // separate from a rolling window of the most recent lines, instead of just dropping the
+  // oldest lines once the run gets chatty.
+  headLines: string[];
+  recentLines: string[];
+  totalLineCount: number;
   waitingForInput: boolean;
   finished: boolean;
   success?: boolean;
@@ -16,10 +21,34 @@ interface RunnerState {
 let current: RunnerState | undefined;
 
 const IDLE_MS = 600;
-const MAX_LINES = 300;
+const HEAD_LINES = 60;
+const TAIL_LINES = 240;
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\r/g, '');
+}
+
+function pushLine(state: RunnerState, line: string): void {
+  state.totalLineCount += 1;
+  if (state.headLines.length < HEAD_LINES) {
+    state.headLines.push(line);
+    return;
+  }
+  state.recentLines.push(line);
+  if (state.recentLines.length > TAIL_LINES) state.recentLines.shift();
+}
+
+function buildLog(state: RunnerState): string {
+  const omitted = state.totalLineCount - state.headLines.length - state.recentLines.length;
+  const parts = [...state.headLines];
+  if (omitted > 0) parts.push(`… ${omitted} line(s) omitted …`);
+  parts.push(...state.recentLines);
+  return parts.join('\n');
+}
+
+function lastLines(state: RunnerState, n: number): string[] {
+  const all = [...state.headLines, ...state.recentLines];
+  return all.slice(-n);
 }
 
 function clearAppleFieldsInConfig(): void {
@@ -38,24 +67,34 @@ export function getAppleAuthStatus() {
     running: !current.finished,
     waitingForInput: current.waitingForInput,
     success: current.success,
-    log: current.lines.join('\n'),
+    log: buildLog(current),
   };
 }
 
 export function startAppleReauth(): void {
   if (isAppleAuthRunning()) throw new Error('a re-authentication is already running');
 
-  clearAppleFieldsInConfig();
-
   const child = spawn(config.ipadecryptBin, ['bootstrap'], { stdio: ['pipe', 'pipe', 'pipe'] });
-  const state: RunnerState = { child, lines: [], waitingForInput: false, finished: false };
+  const state: RunnerState = { child, headLines: [], recentLines: [], totalLineCount: 0, waitingForInput: false, finished: false };
   current = state;
+
+  // Only wipe the previous App Store session once the process has actually spawned - if spawn
+  // fails (e.g. missing binary), 'spawn' never fires and the working config is left untouched
+  // instead of leaving the user locked out with no restore path.
+  child.once('spawn', () => {
+    try {
+      clearAppleFieldsInConfig();
+    } catch (err) {
+      pushLine(state, `failed to clear existing Apple config before re-auth: ${String(err)}`);
+    }
+  });
 
   const onChunk = (chunk: Buffer) => {
     const text = stripAnsi(chunk.toString('utf8'));
     if (text.trim()) {
-      state.lines.push(...text.split('\n').filter((l) => l.trim() !== ''));
-      if (state.lines.length > MAX_LINES) state.lines.splice(0, state.lines.length - MAX_LINES);
+      for (const line of text.split('\n')) {
+        if (line.trim() !== '') pushLine(state, line);
+      }
     }
 
     state.waitingForInput = false;
@@ -78,7 +117,7 @@ export function startAppleReauth(): void {
       clearAppleAuthAlert();
       log.info('apple re-authentication succeeded');
     } else {
-      const tail = state.lines.slice(-5).join(' / ');
+      const tail = lastLines(state, 5).join(' / ');
       setAppleAuthAlert(`re-auth process exited with code ${code}: ${tail}`);
       log.error('apple re-authentication failed', { code, tail });
     }
@@ -87,7 +126,7 @@ export function startAppleReauth(): void {
   child.on('error', (err) => {
     state.finished = true;
     state.success = false;
-    state.lines.push(`spawn error: ${err.message}`);
+    pushLine(state, `spawn error: ${err.message}`);
   });
 }
 

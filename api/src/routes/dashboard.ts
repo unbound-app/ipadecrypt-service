@@ -58,7 +58,9 @@ const canDecrypt = requirePermission('decrypt');
 const canViewApiKeys = requirePermission('viewApiKeys');
 const canApproveApiKeys = requirePermission('approveApiKeys');
 const canManageScheduler = requirePermission('manageScheduler');
+const canTriggerDispatch = requirePermission('triggerDispatch');
 const canManageAppleAuth = requirePermission('manageAppleAuth');
+const canViewLogs = requirePermission('viewLogs');
 const canViewUsers = requirePermission('viewUsers', 'manageUsers');
 const canManageUsers = requirePermission('manageUsers');
 
@@ -109,7 +111,7 @@ dashboardRouter.get('/v1/dashboard/events', (req, res) => {
   const onHistoryAdded = (entry: JobHistoryEntry) => sendEvent('history', entry);
 
   dashboardEvents.on('jobsChanged', onJobsChanged);
-  dashboardEvents.on('logAdded', onLogAdded);
+  if (res.locals.session.permissions.viewLogs) dashboardEvents.on('logAdded', onLogAdded);
   dashboardEvents.on('historyAdded', onHistoryAdded);
 
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
@@ -130,7 +132,7 @@ dashboardRouter.get('/v1/dashboard/jobs', (req, res) => {
   res.json({ history: entries, total });
 });
 
-dashboardRouter.get('/v1/dashboard/logs', (_req, res) => {
+dashboardRouter.get('/v1/dashboard/logs', canViewLogs, (_req, res) => {
   res.json({ logs: getRecentLogs() });
 });
 
@@ -446,23 +448,24 @@ dashboardRouter.get('/v1/dashboard/settings/validate-cron', canManageScheduler, 
   res.json({ valid: expr !== '' && validateCronExpr(expr) });
 });
 
-dashboardRouter.post('/v1/dashboard/settings/test-webhook', canManageScheduler, async (_req, res) => {
-  const result = await sendTestNotification();
+dashboardRouter.post('/v1/dashboard/settings/test-webhook', canTriggerDispatch, async (req, res) => {
+  const url = typeof req.body?.url === 'string' && req.body.url.trim() ? req.body.url.trim() : undefined;
+  const result = await sendTestNotification(url);
   res.status(result.ok ? 200 : 400).json(result);
 });
 
-dashboardRouter.get('/v1/dashboard/settings/preview-dispatch', canManageScheduler, async (_req, res) => {
+dashboardRouter.get('/v1/dashboard/settings/preview-dispatch', canTriggerDispatch, async (_req, res) => {
   const settings = getEffectiveSettings();
   const [appStore, testflight] = await Promise.all([checkForUpdate(settings), checkForTestFlightUpdate(settings)]);
   res.json({ ...appStore, testflight });
 });
 
-dashboardRouter.post('/v1/dashboard/settings/trigger-dispatch', canManageScheduler, async (_req, res) => {
+dashboardRouter.post('/v1/dashboard/settings/trigger-dispatch', canTriggerDispatch, async (_req, res) => {
   const result = await triggerTickNow();
   res.status(result.ok ? 202 : 409).json(result);
 });
 
-dashboardRouter.post('/v1/dashboard/auth-alert/clear', canManageScheduler, (_req, res) => {
+dashboardRouter.post('/v1/dashboard/auth-alert/clear', canTriggerDispatch, (_req, res) => {
   clearAppleAuthAlert();
   res.json({ ok: true });
 });

@@ -6,10 +6,14 @@
   import Input from '../../lib/components/ui/Input.svelte';
   import { debounce } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
+  import { sessionState } from '../../lib/session.svelte';
   import { confirmDialog, showToast } from '../../lib/ui.svelte';
 
   const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
   const WEBHOOK_URL_RE = /^https?:\/\/.+/;
+
+  const canManageScheduler = $derived(!!sessionState.permissions?.manageScheduler);
+  const canTriggerDispatch = $derived(!!sessionState.permissions?.triggerDispatch);
 
   let form = $state<SchedulerSettings>({
     watchBundleId: '',
@@ -77,7 +81,8 @@
       return;
     }
     if (wouldDisableScheduler()) {
-      if (!(await confirmDialog('This will disable the scheduler (a required field is empty). Save anyway?'))) return;
+      if (!(await confirmDialog('This will disable the scheduler (a required field is empty). Save anyway?', { variant: 'default', confirmLabel: 'Save anyway' })))
+        return;
     }
     saving = true;
     try {
@@ -94,7 +99,7 @@
   async function runTestWebhook(): Promise<void> {
     testingWebhook = true;
     try {
-      const { data } = await testWebhook();
+      const { data } = await testWebhook(form.notifyWebhookUrl || undefined);
       showToast(data.ok ? 'Test notification sent' : (data.error ?? 'Failed to send'), data.ok ? 'success' : 'error');
     } finally {
       testingWebhook = false;
@@ -112,7 +117,13 @@
   }
 
   async function runTrigger(): Promise<void> {
-    if (!(await confirmDialog('This runs the same check the scheduler would on its own cron tick, right now - if there\'s a new version, it decrypts and dispatches for real. Continue?'))) return;
+    if (
+      !(await confirmDialog(
+        'This runs the same check the scheduler would on its own cron tick, right now - if there\'s a new version, it decrypts and dispatches for real. Continue?',
+        { variant: 'default', confirmLabel: 'Trigger now' },
+      ))
+    )
+      return;
     triggering = true;
     try {
       const { ok, data } = await triggerDispatch();
@@ -125,23 +136,29 @@
 </script>
 
 <Card title="Automated watch → GitHub dispatch">
+  {#if !canManageScheduler}
+    <div class="border-border bg-panel-muted mb-3.5 rounded-md border p-2.5 text-xs text-muted">
+      You can operate the scheduler but not change its configuration - fields below are read-only.
+    </div>
+  {/if}
+
   <label for="s-watchBundleId" class="mb-1 block text-xs text-muted">Watch bundle ID (also drives the TestFlight watch, resolved automatically)</label>
-  <Input id="s-watchBundleId" bind:value={form.watchBundleId} />
+  <Input id="s-watchBundleId" bind:value={form.watchBundleId} disabled={!canManageScheduler} />
 
   <label for="s-watchAppRepo" class="mt-3 mb-1 block text-xs text-muted">Watch app repo (releases tracked here)</label>
-  <Input id="s-watchAppRepo" bind:value={form.watchAppRepo} />
+  <Input id="s-watchAppRepo" bind:value={form.watchAppRepo} disabled={!canManageScheduler} />
   {#if repoErrors.watchAppRepo}
     <div class="mt-1 text-xs text-err">{repoErrors.watchAppRepo}</div>
   {/if}
 
   <label for="s-ghDispatchRepo" class="mt-3 mb-1 block text-xs text-muted">GitHub dispatch repo (owns the workflow)</label>
-  <Input id="s-ghDispatchRepo" bind:value={form.ghDispatchRepo} />
+  <Input id="s-ghDispatchRepo" bind:value={form.ghDispatchRepo} disabled={!canManageScheduler} />
   {#if repoErrors.ghDispatchRepo}
     <div class="mt-1 text-xs text-err">{repoErrors.ghDispatchRepo}</div>
   {/if}
 
   <label for="s-ghWorkflowFile" class="mt-3 mb-1 block text-xs text-muted">Workflow file</label>
-  <Input id="s-ghWorkflowFile" bind:value={form.ghWorkflowFile} />
+  <Input id="s-ghWorkflowFile" bind:value={form.ghWorkflowFile} disabled={!canManageScheduler} />
 
   <div class="mt-3 mb-1 flex items-baseline justify-between">
     <label for="s-pollCron" class="block text-xs text-muted">Poll cron</label>
@@ -153,27 +170,34 @@
       {/if}
     </span>
   </div>
-  <Input id="s-pollCron" bind:value={form.pollCron} />
+  <Input id="s-pollCron" bind:value={form.pollCron} disabled={!canManageScheduler} />
   {#if cronValid === false}
     <div class="mt-1 text-xs text-err">Not a valid cron expression</div>
   {/if}
 
   <label for="s-notifyWebhookUrl" class="mt-3 mb-1 block text-xs text-muted">Notification webhook URL (Discord-compatible, optional)</label>
   <div class="flex gap-2">
-    <Input id="s-notifyWebhookUrl" bind:value={form.notifyWebhookUrl} />
-    <Button variant="secondary" loading={testingWebhook} onclick={runTestWebhook}>Test</Button>
+    <Input id="s-notifyWebhookUrl" bind:value={form.notifyWebhookUrl} disabled={!canManageScheduler} />
+    {#if canTriggerDispatch}
+      <Button variant="secondary" loading={testingWebhook} onclick={runTestWebhook}>Test</Button>
+    {/if}
   </div>
+  <div class="mt-1 text-xs text-muted">Test sends to whatever's currently typed above, saved or not.</div>
   {#if repoErrors.notifyWebhookUrl}
     <div class="mt-1 text-xs text-err">{repoErrors.notifyWebhookUrl}</div>
   {/if}
 
   <div class="mt-4 flex flex-wrap items-center gap-2">
-    <Button loading={saving} onclick={save}>Save</Button>
-    {#if hasUnsavedChanges}
-      <span class="text-xs text-warn">Unsaved changes</span>
+    {#if canManageScheduler}
+      <Button loading={saving} onclick={save}>Save</Button>
+      {#if hasUnsavedChanges}
+        <span class="text-xs text-warn">Unsaved changes</span>
+      {/if}
     {/if}
-    <Button variant="secondary" loading={previewing} onclick={runPreview}>{previewing ? 'Checking…' : 'Preview next dispatch'}</Button>
-    <Button variant="secondary" loading={triggering} onclick={runTrigger}>{triggering ? 'Triggering…' : 'Trigger dispatch now'}</Button>
+    {#if canTriggerDispatch}
+      <Button variant="secondary" loading={previewing} onclick={runPreview}>{previewing ? 'Checking…' : 'Preview next dispatch'}</Button>
+      <Button variant="secondary" loading={triggering} onclick={runTrigger}>{triggering ? 'Triggering…' : 'Trigger dispatch now'}</Button>
+    {/if}
   </div>
 
   {#if previewResult}

@@ -6,7 +6,9 @@ export interface Permissions {
   approveApiKeys: boolean;
   revokeApiKeys: boolean;
   manageScheduler: boolean;
+  triggerDispatch: boolean;
   manageAppleAuth: boolean;
+  viewLogs: boolean;
   viewUsers: boolean;
   manageUsers: boolean;
 }
@@ -17,7 +19,9 @@ export const PERMISSION_KEYS: (keyof Permissions)[] = [
   'approveApiKeys',
   'revokeApiKeys',
   'manageScheduler',
+  'triggerDispatch',
   'manageAppleAuth',
+  'viewLogs',
   'viewUsers',
   'manageUsers',
 ];
@@ -28,7 +32,9 @@ export const VIEWER_PERMISSIONS: Permissions = {
   approveApiKeys: false,
   revokeApiKeys: false,
   manageScheduler: false,
+  triggerDispatch: false,
   manageAppleAuth: false,
+  viewLogs: false,
   viewUsers: false,
   manageUsers: false,
 };
@@ -39,7 +45,9 @@ export const ADMIN_PERMISSIONS: Permissions = {
   approveApiKeys: true,
   revokeApiKeys: true,
   manageScheduler: true,
+  triggerDispatch: true,
   manageAppleAuth: true,
+  viewLogs: true,
   viewUsers: true,
   manageUsers: true,
 };
@@ -53,15 +61,71 @@ export function normalizePermissions(p: Permissions): Permissions {
   };
 }
 
-export const PERMISSION_LABELS: { key: keyof Permissions; label: string; impliedBy?: (keyof Permissions)[] }[] = [
-  { key: 'decrypt', label: 'Decrypt' },
-  { key: 'viewApiKeys', label: 'View keys', impliedBy: ['approveApiKeys', 'revokeApiKeys'] },
-  { key: 'approveApiKeys', label: 'Approve keys' },
-  { key: 'revokeApiKeys', label: 'Revoke keys' },
-  { key: 'manageScheduler', label: 'Scheduler' },
-  { key: 'manageAppleAuth', label: 'Apple auth' },
-  { key: 'viewUsers', label: 'View users', impliedBy: ['manageUsers'] },
-  { key: 'manageUsers', label: 'Manage users' },
+export type PermissionGroup = 'Decryption' | 'API Keys' | 'Scheduler & Dispatch' | 'Apple Authentication' | 'Logs' | 'Users';
+
+export interface PermissionMeta {
+  key: keyof Permissions;
+  label: string;
+  description: string;
+  group: PermissionGroup;
+  impliedBy?: (keyof Permissions)[];
+}
+
+// Single source of truth for permission copy/grouping - used by the permission editor,
+// the allowlist table's badges, and the "your permissions" breakdown.
+export const PERMISSION_META: PermissionMeta[] = [
+  { key: 'decrypt', label: 'Decrypt apps', description: 'Queue decrypts and request their own API keys', group: 'Decryption' },
+  {
+    key: 'viewApiKeys',
+    label: 'View all keys',
+    description: 'See every key across every user, not just their own',
+    group: 'API Keys',
+    impliedBy: ['approveApiKeys', 'revokeApiKeys'],
+  },
+  {
+    key: 'approveApiKeys',
+    label: 'Approve requests',
+    description: 'Approve or deny pending key requests; their own requests auto-approve',
+    group: 'API Keys',
+  },
+  {
+    key: 'revokeApiKeys',
+    label: "Revoke anyone's key",
+    description: "Revoke or bulk-revoke any user's key, not just their own",
+    group: 'API Keys',
+  },
+  {
+    key: 'manageScheduler',
+    label: 'Manage scheduler',
+    description: 'Edit watch/dispatch settings and the poll cron',
+    group: 'Scheduler & Dispatch',
+  },
+  {
+    key: 'triggerDispatch',
+    label: 'Trigger dispatch',
+    description: 'Manually run a check, preview the next dispatch, test the webhook, dismiss auth alerts',
+    group: 'Scheduler & Dispatch',
+  },
+  {
+    key: 'manageAppleAuth',
+    label: 'Apple ID re-authentication',
+    description: 'Run the App Store sign-in flow - real Apple ID credentials pass through this',
+    group: 'Apple Authentication',
+  },
+  { key: 'viewLogs', label: 'View logs', description: 'See the live scheduler/job log feed', group: 'Logs' },
+  {
+    key: 'viewUsers',
+    label: 'View allowlist',
+    description: 'See who has access and what they can do',
+    group: 'Users',
+    impliedBy: ['manageUsers'],
+  },
+  {
+    key: 'manageUsers',
+    label: 'Manage allowlist',
+    description: "Add or remove people, change anyone's permissions",
+    group: 'Users',
+  },
 ];
 
 export function permissionsSummary(p?: Permissions): string {
@@ -107,7 +171,7 @@ export async function pushThemePref(theme: Theme): Promise<void> {
   });
 }
 
-export async function loginRoot(password: string): Promise<{ ok: boolean; error?: string }> {
+export async function loginRoot(password: string): Promise<{ ok: boolean; error?: string; attemptsRemaining?: number }> {
   const res = await fetch('/v1/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -117,8 +181,9 @@ export async function loginRoot(password: string): Promise<{ ok: boolean; error?
     await refreshSession();
     return { ok: true };
   }
-  const data = await res.json().catch(() => ({}) as { error?: string });
-  return { ok: false, error: res.status === 429 ? data.error : 'Wrong password.' };
+  const data = await res.json().catch(() => ({}) as { error?: string; attemptsRemaining?: number });
+  if (res.status === 429) return { ok: false, error: data.error };
+  return { ok: false, error: 'Wrong password.', attemptsRemaining: data.attemptsRemaining };
 }
 
 export async function refreshSessionTtl(): Promise<boolean> {

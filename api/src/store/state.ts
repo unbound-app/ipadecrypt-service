@@ -13,7 +13,9 @@ export interface Permissions {
   approveApiKeys: boolean;
   revokeApiKeys: boolean;
   manageScheduler: boolean;
+  triggerDispatch: boolean;
   manageAppleAuth: boolean;
+  viewLogs: boolean;
   viewUsers: boolean;
   manageUsers: boolean;
 }
@@ -24,7 +26,9 @@ export const PERMISSION_KEYS: (keyof Permissions)[] = [
   'approveApiKeys',
   'revokeApiKeys',
   'manageScheduler',
+  'triggerDispatch',
   'manageAppleAuth',
+  'viewLogs',
   'viewUsers',
   'manageUsers',
 ];
@@ -35,7 +39,9 @@ export const VIEWER_PERMISSIONS: Permissions = {
   approveApiKeys: false,
   revokeApiKeys: false,
   manageScheduler: false,
+  triggerDispatch: false,
   manageAppleAuth: false,
+  viewLogs: false,
   viewUsers: false,
   manageUsers: false,
 };
@@ -46,7 +52,9 @@ export const ADMIN_PERMISSIONS: Permissions = {
   approveApiKeys: true,
   revokeApiKeys: true,
   manageScheduler: true,
+  triggerDispatch: true,
   manageAppleAuth: true,
+  viewLogs: true,
   viewUsers: true,
   manageUsers: true,
 };
@@ -60,16 +68,18 @@ export function normalizePermissions(p: Permissions): Permissions {
   };
 }
 
+// Legacy migrations (v1/v2 role strings, v3's 4 flags) always grant viewLogs - the Logs tab
+// was unconditionally visible to any authenticated user before it became its own permission.
 function legacyRoleToPermissions(role: string): Permissions {
   switch (role) {
     case 'admin':
       return { ...ADMIN_PERMISSIONS };
     case 'operator':
-      return { ...VIEWER_PERMISSIONS, decrypt: true, viewApiKeys: true, approveApiKeys: true, revokeApiKeys: true };
+      return { ...VIEWER_PERMISSIONS, decrypt: true, viewApiKeys: true, approveApiKeys: true, revokeApiKeys: true, viewLogs: true };
     case 'member':
-      return { ...VIEWER_PERMISSIONS, decrypt: true };
+      return { ...VIEWER_PERMISSIONS, decrypt: true, viewLogs: true };
     default:
-      return { ...VIEWER_PERMISSIONS };
+      return { ...VIEWER_PERMISSIONS, viewLogs: true };
   }
 }
 
@@ -87,8 +97,38 @@ function migratePermissionsV3(old: LegacyV3Permissions): Permissions {
     approveApiKeys: old.manageKeys,
     revokeApiKeys: old.manageKeys,
     manageScheduler: old.manageSettings,
+    triggerDispatch: old.manageSettings,
     manageAppleAuth: old.manageSettings && old.manageUsers,
+    viewLogs: true,
     viewUsers: old.manageUsers,
+    manageUsers: old.manageUsers,
+  };
+}
+
+interface LegacyV4Permissions {
+  decrypt: boolean;
+  viewApiKeys: boolean;
+  approveApiKeys: boolean;
+  revokeApiKeys: boolean;
+  manageScheduler: boolean;
+  manageAppleAuth: boolean;
+  viewUsers: boolean;
+  manageUsers: boolean;
+}
+
+// v4 -> v5 split manageScheduler into manageScheduler (config) + triggerDispatch (operate),
+// and added viewLogs as its own permission - preserve exactly what v4 already granted.
+function migratePermissionsV4(old: LegacyV4Permissions): Permissions {
+  return {
+    decrypt: old.decrypt,
+    viewApiKeys: old.viewApiKeys,
+    approveApiKeys: old.approveApiKeys,
+    revokeApiKeys: old.revokeApiKeys,
+    manageScheduler: old.manageScheduler,
+    triggerDispatch: old.manageScheduler,
+    manageAppleAuth: old.manageAppleAuth,
+    viewLogs: true,
+    viewUsers: old.viewUsers,
     manageUsers: old.manageUsers,
   };
 }
@@ -175,7 +215,7 @@ export interface SchedulerRunEntry {
 }
 
 interface PersistedState {
-  version: 4;
+  version: 5;
   apiKeys: ApiKeyRecord[];
   allowedUsers: AllowedUser[];
   settings: Partial<SchedulerSettings>;
@@ -194,7 +234,7 @@ const statePath = path.join(config.stateDir, 'state.json');
 
 function defaultState(): PersistedState {
   return {
-    version: 4,
+    version: 5,
     apiKeys: [],
     allowedUsers: [],
     settings: {},
@@ -207,14 +247,28 @@ function defaultState(): PersistedState {
 }
 
 function migrate(raw: Record<string, unknown>): PersistedState {
-  if (raw.version === 4) return { ...defaultState(), ...raw } as PersistedState;
+  if (raw.version === 5) return { ...defaultState(), ...raw } as PersistedState;
+
+  if (raw.version === 4) {
+    const v4Users = Array.isArray(raw.allowedUsers) ? (raw.allowedUsers as Record<string, unknown>[]) : [];
+    return {
+      ...defaultState(),
+      ...raw,
+      version: 5,
+      allowedUsers: v4Users.map((u) => ({
+        username: u.username as string,
+        permissions: migratePermissionsV4(u.permissions as LegacyV4Permissions),
+        addedAt: u.addedAt as number,
+      })),
+    } as PersistedState;
+  }
 
   if (raw.version === 3) {
     const v3Users = Array.isArray(raw.allowedUsers) ? (raw.allowedUsers as Record<string, unknown>[]) : [];
     return {
       ...defaultState(),
       ...raw,
-      version: 4,
+      version: 5,
       allowedUsers: v3Users.map((u) => ({
         username: u.username as string,
         permissions: migratePermissionsV3(u.permissions as LegacyV3Permissions),
@@ -228,7 +282,7 @@ function migrate(raw: Record<string, unknown>): PersistedState {
     return {
       ...defaultState(),
       ...raw,
-      version: 4,
+      version: 5,
       allowedUsers: legacyUsers.map((u) => ({
         username: u.username as string,
         permissions: legacyRoleToPermissions(String(u.role ?? '')),
@@ -301,8 +355,12 @@ export function getUserPermissions(username: string): Permissions | undefined {
 
 // True if applying this change would leave nobody on the allowlist able to grant access back
 // (root's ADMIN_PASSWORD still works, but GitHub-OAuth-only teams would be locked out of self-service).
+// Only blocks the change that actually removes the last holder - if this user never had
+// manageUsers to begin with, deleting/editing them can't be what orphans it.
 export function wouldOrphanManageUsers(username: string, newPermissions: Permissions | null): boolean {
   const lower = username.toLowerCase();
+  const existing = state.allowedUsers.find((u) => u.username === lower);
+  if (!existing?.permissions.manageUsers) return false;
   const othersHaveIt = state.allowedUsers.some((u) => u.username !== lower && u.permissions.manageUsers);
   if (othersHaveIt) return false;
   return !newPermissions?.manageUsers;

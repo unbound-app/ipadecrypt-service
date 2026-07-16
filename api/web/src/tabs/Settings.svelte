@@ -7,7 +7,7 @@
   import UsersSettings from './settings/UsersSettings.svelte';
 
   const ALL_SUBTABS: { id: string; label: string; requires: (keyof Permissions)[] }[] = [
-    { id: 'scheduler', label: 'Scheduler', requires: ['manageScheduler'] },
+    { id: 'scheduler', label: 'Scheduler', requires: ['manageScheduler', 'triggerDispatch'] },
     { id: 'users', label: 'Users', requires: ['viewUsers', 'manageUsers'] },
     { id: 'apple', label: 'Apple Auth', requires: ['manageAppleAuth'] },
   ];
@@ -27,7 +27,7 @@
 
 <Tabs items={visibleSubtabs} value={tabState.settingsSubtab} onValueChange={setSettingsSubtab} class="mb-5" />
 
-{#if hasAccess(['manageScheduler'])}
+{#if hasAccess(['manageScheduler', 'triggerDispatch'])}
   <div class:hidden={tabState.settingsSubtab !== 'scheduler'}>
     <SchedulerSettings />
   </div>

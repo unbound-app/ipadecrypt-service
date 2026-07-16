@@ -14,6 +14,10 @@ export function connectLive(): void {
 
   source = new EventSource('/v1/dashboard/events');
 
+  source.onopen = () => {
+    liveState.connected = true;
+  };
+
   source.addEventListener('overview', (e) => {
     liveState.overview = JSON.parse((e as MessageEvent).data) as OverviewPayload;
     liveState.connected = true;
@@ -26,7 +30,7 @@ export function connectLive(): void {
 
   source.addEventListener('history', (e) => {
     const entry = JSON.parse((e as MessageEvent).data) as JobHistoryEntry;
-    liveState.historyAdditions = [entry, ...liveState.historyAdditions];
+    liveState.historyAdditions = [entry, ...liveState.historyAdditions].slice(0, 200);
   });
 
   source.onerror = () => {
@@ -41,4 +45,12 @@ export function disconnectLive(): void {
   liveState.logs = [];
   liveState.historyAdditions = [];
   liveState.connected = false;
+}
+
+// Force a fresh connection attempt right now instead of waiting on the browser's own EventSource
+// retry backoff - keeps already-known state (overview/logs/history) intact while reconnecting.
+export function reconnectLive(): void {
+  source?.close();
+  source = null;
+  connectLive();
 }

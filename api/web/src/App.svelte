@@ -16,7 +16,7 @@
   import { connectLive, disconnectLive } from './lib/live.svelte';
   import {
     logout,
-    PERMISSION_LABELS,
+    PERMISSION_META,
     permissionsSummary,
     pushThemePref,
     refreshSession,
@@ -40,15 +40,21 @@
   let myPermsOpen = $state(false);
 
   const myGrantedPermissions = $derived(
-    PERMISSION_LABELS.filter((f) => sessionState.permissions?.[f.key]).map((f) => f.label),
+    PERMISSION_META.filter((f) => sessionState.permissions?.[f.key] && !f.impliedBy?.some((k) => sessionState.permissions?.[k])).map(
+      (f) => f.label,
+    ),
   );
 
   const TABS: { id: TabId; label: string; requires?: (keyof Permissions)[] }[] = [
     { id: 'home', label: 'Home' },
     { id: 'keys', label: 'API Keys', requires: ['decrypt', 'viewApiKeys', 'approveApiKeys', 'revokeApiKeys'] },
-    { id: 'logs', label: 'Logs' },
+    { id: 'logs', label: 'Logs', requires: ['viewLogs'] },
     { id: 'docs', label: 'Docs' },
-    { id: 'settings', label: 'Settings', requires: ['manageScheduler', 'manageAppleAuth', 'viewUsers', 'manageUsers'] },
+    {
+      id: 'settings',
+      label: 'Settings',
+      requires: ['manageScheduler', 'triggerDispatch', 'manageAppleAuth', 'viewUsers', 'manageUsers'],
+    },
   ];
 
   const visibleTabs = $derived(
@@ -173,13 +179,15 @@
       <div class:hidden={tabState.active !== 'keys'}>
         <Keys />
       </div>
-      <div class:hidden={tabState.active !== 'logs'}>
-        <Logs />
-      </div>
+      {#if sessionState.permissions?.viewLogs}
+        <div class:hidden={tabState.active !== 'logs'}>
+          <Logs />
+        </div>
+      {/if}
       <div class:hidden={tabState.active !== 'docs'}>
         <Docs />
       </div>
-      {#if sessionState.permissions?.manageScheduler || sessionState.permissions?.manageAppleAuth || sessionState.permissions?.viewUsers || sessionState.permissions?.manageUsers}
+      {#if sessionState.permissions?.manageScheduler || sessionState.permissions?.triggerDispatch || sessionState.permissions?.manageAppleAuth || sessionState.permissions?.viewUsers || sessionState.permissions?.manageUsers}
         <div class:hidden={tabState.active !== 'settings'}>
           <Settings />
         </div>

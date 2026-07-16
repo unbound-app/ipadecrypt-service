@@ -1,13 +1,15 @@
 <script lang="ts">
   import { PackageSearch } from 'lucide-svelte';
   import { fetchJobStatus, queueDecrypt, queueTestFlightDecrypt } from '../../lib/api';
+  import CopyButton from '../../components/CopyButton.svelte';
   import EmptyState from '../../components/EmptyState.svelte';
+  import RelativeTime from '../../components/RelativeTime.svelte';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import { buttonVariants } from '../../lib/components/ui/variants';
   import { addDecrypt, dismissDecrypt, myDecryptsState, pushRecentBundleId, updateDecrypt, type TrackedDecrypt } from '../../lib/decrypts.svelte';
-  import { showToast } from '../../lib/ui.svelte';
+  import { confirmDialog, showToast } from '../../lib/ui.svelte';
 
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let retrying = $state<Set<string>>(new Set());
@@ -68,6 +70,21 @@
       retrying = next;
     }
   }
+
+  async function dismiss(d: TrackedDecrypt): Promise<void> {
+    if (d.status === 'done' || d.status === 'failed') {
+      dismissDecrypt(d.id);
+      return;
+    }
+    if (
+      !(await confirmDialog("This only stops tracking it here - the decrypt keeps running on the server. Dismiss anyway?", {
+        variant: 'default',
+        confirmLabel: 'Dismiss',
+      }))
+    )
+      return;
+    dismissDecrypt(d.id);
+  }
 </script>
 
 <Card title="My requests">
@@ -79,6 +96,8 @@
         <tr>
           <th>App</th>
           <th>Status</th>
+          <th>Queued</th>
+          <th>Job ID</th>
           <th></th>
         </tr>
       </thead>
@@ -103,16 +122,23 @@
                 <span class="text-muted">{d.queue ? `position ${d.queue.position} of ${d.queue.total}` : ''}</span>
               {/if}
             </td>
+            <td class="text-muted"><RelativeTime ms={d.createdAt} /></td>
+            <td>
+              <div class="flex items-center gap-1.5">
+                <code title={d.id}>{d.id.slice(0, 8)}</code>
+                <CopyButton text={d.id} />
+              </div>
+            </td>
             <td>
               <div class="flex gap-1.5">
                 {#if d.status === 'done'}
                   <a class={buttonVariants('default', 'sm')} href="/v1/dashboard/jobs/{d.id}/file">Download</a>
-                  <Button size="sm" variant="secondary" onclick={() => dismissDecrypt(d.id)}>Dismiss</Button>
+                  <Button size="sm" variant="secondary" onclick={() => dismiss(d)}>Dismiss</Button>
                 {:else if d.status === 'failed'}
                   <Button size="sm" loading={retrying.has(d.id)} onclick={() => retry(d)}>Retry</Button>
-                  <Button size="sm" variant="secondary" onclick={() => dismissDecrypt(d.id)}>Dismiss</Button>
+                  <Button size="sm" variant="secondary" onclick={() => dismiss(d)}>Dismiss</Button>
                 {:else}
-                  <Button size="sm" variant="secondary" onclick={() => dismissDecrypt(d.id)}>Dismiss</Button>
+                  <Button size="sm" variant="secondary" onclick={() => dismiss(d)}>Dismiss</Button>
                 {/if}
               </div>
             </td>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronDown, Lock } from 'lucide-svelte';
+  import { ChevronDown, Eye, EyeOff, Lock } from 'lucide-svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Card from '../lib/components/ui/Card.svelte';
   import Input from '../lib/components/ui/Input.svelte';
@@ -8,9 +8,16 @@
 
   let password = $state('');
   let loginError = $state('');
+  let attemptsRemaining = $state<number | undefined>(undefined);
   let detailsOpen = $state(!sessionState.githubOauthEnabled);
   let oauthError = $state('');
   let submitting = $state(false);
+  let showPassword = $state(false);
+  let passwordEl: HTMLInputElement | undefined = $state();
+
+  $effect(() => {
+    if (detailsOpen) passwordEl?.focus();
+  });
 
   const OAUTH_ERROR_MESSAGES: Record<string, string | ((user: string | null) => string)> = {
     state_mismatch: 'Sign-in session expired - please try again.',
@@ -32,7 +39,12 @@
     submitting = true;
     try {
       const result = await loginRoot(password);
-      if (!result.ok) loginError = result.error ?? 'Wrong password.';
+      if (!result.ok) {
+        loginError = result.error ?? 'Wrong password.';
+        attemptsRemaining = result.attemptsRemaining;
+      } else {
+        attemptsRemaining = undefined;
+      }
     } finally {
       submitting = false;
     }
@@ -83,10 +95,38 @@
       </summary>
       <div class="pt-1.5" class:mt-1.5={detailsOpen}>
         <label for="password" class="mb-1 block text-xs text-muted">Root password</label>
-        <Input type="password" id="password" autocomplete="current-password" bind:value={password} onkeydown={onKeydown} />
+        <div class="relative">
+          <Input
+            bind:ref={passwordEl}
+            type={showPassword ? 'text' : 'password'}
+            id="password"
+            autocomplete="current-password"
+            bind:value={password}
+            onkeydown={onKeydown}
+            class="pr-9"
+          />
+          <button
+            type="button"
+            class="text-muted hover:text-text absolute top-1/2 right-2.5 -translate-y-1/2 cursor-pointer"
+            onclick={() => (showPassword = !showPassword)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            title={showPassword ? 'Hide password' : 'Show password'}
+          >
+            {#if showPassword}
+              <EyeOff class="h-3.5 w-3.5" />
+            {:else}
+              <Eye class="h-3.5 w-3.5" />
+            {/if}
+          </button>
+        </div>
         <Button variant="secondary" class="mt-3.5 w-full" loading={submitting} onclick={submit}>Sign in</Button>
         {#if loginError}
-          <div class="mt-2 text-[13px] text-muted">{loginError}</div>
+          <div class="mt-2 text-[13px] text-muted">
+            {loginError}
+            {#if attemptsRemaining !== undefined && attemptsRemaining > 0}
+              ({attemptsRemaining} attempt{attemptsRemaining === 1 ? '' : 's'} left before a temporary lockout)
+            {/if}
+          </div>
         {/if}
       </div>
     </details>

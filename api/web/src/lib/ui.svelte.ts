@@ -37,15 +37,22 @@ export function showToast(message: string, type: 'success' | 'error' = 'success'
 interface ConfirmState {
   open: boolean;
   message: string;
+  variant: 'destructive' | 'default';
+  confirmLabel: string;
   resolve?: (value: boolean) => void;
 }
 
-export const confirmState = $state<ConfirmState>({ open: false, message: '' });
+export const confirmState = $state<ConfirmState>({ open: false, message: '', variant: 'destructive', confirmLabel: 'Confirm' });
 
-export function confirmDialog(message: string): Promise<boolean> {
+export function confirmDialog(
+  message: string,
+  options?: { variant?: 'destructive' | 'default'; confirmLabel?: string },
+): Promise<boolean> {
   return new Promise((resolve) => {
     confirmState.open = true;
     confirmState.message = message;
+    confirmState.variant = options?.variant ?? 'destructive';
+    confirmState.confirmLabel = options?.confirmLabel ?? 'Confirm';
     confirmState.resolve = resolve;
   });
 }

@@ -51,6 +51,13 @@
       }
       searched = true;
       highlighted = -1;
+    } catch (err) {
+      if (token !== searchToken) return;
+      // 'network error' and 'unauthorized' are already surfaced by the fetch layer itself.
+      const alreadyHandled = err instanceof Error && (err.message === 'network error' || err.message === 'unauthorized');
+      if (!alreadyHandled) showToast('App Store search failed - try again', 'error');
+      results = [];
+      searched = true;
     } finally {
       if (token === searchToken) loading = false;
     }

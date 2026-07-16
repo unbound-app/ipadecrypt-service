@@ -11,7 +11,10 @@ export interface TrackedDecrypt {
   progress?: string;
   queue?: { position: number; total: number };
   error?: string;
+  createdAt: number;
 }
+
+const MAX_TRACKED = 30;
 
 function loadDecrypts(): TrackedDecrypt[] {
   try {
@@ -24,11 +27,25 @@ function loadDecrypts(): TrackedDecrypt[] {
 export const myDecryptsState = $state<{ items: TrackedDecrypt[] }>({ items: loadDecrypts() });
 
 function persistDecrypts(): void {
-  localStorage.setItem('myDecrypts', JSON.stringify(myDecryptsState.items));
+  try {
+    localStorage.setItem('myDecrypts', JSON.stringify(myDecryptsState.items));
+  } catch {
+    // localStorage can throw (quota exceeded, private browsing) - state stays correct in-memory either way.
+  }
 }
 
-export function addDecrypt(entry: TrackedDecrypt): void {
-  myDecryptsState.items = [entry, ...myDecryptsState.items];
+// Bound growth without hiding anything still in flight - drop the oldest finished entries first.
+function trimToMax(items: TrackedDecrypt[]): TrackedDecrypt[] {
+  if (items.length <= MAX_TRACKED) return items;
+  const active = items.filter((d) => d.status !== 'done' && d.status !== 'failed');
+  const finished = items.filter((d) => d.status === 'done' || d.status === 'failed');
+  const keepFinished = Math.max(0, MAX_TRACKED - active.length);
+  const keptFinished = new Set(finished.slice(0, keepFinished).map((d) => d.id));
+  return items.filter((d) => d.status !== 'done' && d.status !== 'failed' ? true : keptFinished.has(d.id));
+}
+
+export function addDecrypt(entry: Omit<TrackedDecrypt, 'createdAt'> & { createdAt?: number }): void {
+  myDecryptsState.items = trimToMax([{ ...entry, createdAt: entry.createdAt ?? Date.now() }, ...myDecryptsState.items]);
   persistDecrypts();
 }
 
@@ -62,4 +79,13 @@ export function removeRecentBundleId(bundleId: string): void {
   const items = recentBundleIdsState.items.filter((b) => b !== bundleId);
   recentBundleIdsState.items = items;
   localStorage.setItem('recentBundleIds', JSON.stringify(items));
+}
+
+// Keep tabs in sync - without this, two open dashboard tabs drift apart as each queues/dismisses
+// decrypts independently, and only the tab that made the last write wins on next reload.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'myDecrypts') myDecryptsState.items = loadDecrypts();
+    else if (e.key === 'recentBundleIds') recentBundleIdsState.items = loadRecentBundleIds();
+  });
 }

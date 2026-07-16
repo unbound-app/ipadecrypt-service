@@ -107,11 +107,11 @@ Two ways in:
   add them first (chicken-and-egg: add yourself via `ADMIN_PASSWORD`
   first).
 
-Access is eight independent, additive permissions, enforced server-side
-(the UI just hides what a user can't do). A newly-added user starts with
-none of them - pure read-only - and gains capabilities one at a time as an
+Access is ten independent, additive permissions, enforced server-side (the
+UI just hides what a user can't do). A newly-added user starts with none
+of them - pure read-only - and gains capabilities one at a time as an
 admin grants them, rather than picking from a fixed tier. A few imply
-others (checking a stronger box auto-checks the weaker one it needs):
+others (checking a stronger switch auto-checks the weaker one it needs):
 
 - **decrypt** - queue decrypts, and manage their own API keys (request,
   reveal-once, regenerate, revoke) - a request sits as `pending` until
@@ -122,24 +122,34 @@ others (checking a stronger box auto-checks the weaker one it needs):
   requests auto-approve instead of queuing.
 - **revokeApiKeys** - revoke or bulk-revoke any user's key, not just their
   own.
-- **manageScheduler** - the Scheduler settings sub-tab (watch/dispatch
-  config, cron, webhook, manual dispatch trigger) and dismissing App Store
-  auth-failure alerts.
+- **manageScheduler** - *configure* the scheduler: watch/dispatch repos,
+  workflow file, poll cron, notification webhook URL.
+- **triggerDispatch** - *operate* the scheduler without being able to
+  reconfigure it: manually trigger a check, preview the next dispatch,
+  send a test webhook notification, dismiss App Store auth-failure
+  alerts. Split from `manageScheduler` so an on-call operator can run
+  things without also being able to repoint what they run against.
 - **manageAppleAuth** - the Apple Auth sub-tab: runs the App Store
   re-authentication flow, which puts real Apple ID credentials through the
   pipeline. Its own dedicated permission rather than a side effect of
   another grant.
+- **viewLogs** - the Logs tab: the live scheduler/job log feed.
 - **viewUsers** - see the allowlist and everyone's permissions, read-only
   (implied by `manageUsers`).
 - **manageUsers** - add/remove people from the allowlist and change their
   permissions. A user can't remove their own `manageUsers` - get another
   user with it to do that, or fall back to `ADMIN_PASSWORD`.
 
-The Users tab presents these grouped by category, plus quick presets
-(Viewer / Member / Key manager / Ops admin / Admin) that just fill the
-checkboxes - any custom combination is still one edit away, and implied
-permissions are shown checked and disabled so the list always reflects
-what's actually granted.
+The Users tab is a compact allowlist table with an **Add user** button
+that opens a modal, and a **Manage** button per row that opens the same
+editor pre-filled - both modals cap their height and scroll internally
+instead of growing with the permission count. Permissions are grouped
+under small category headers with a name, one-line description, and a
+toggle switch per row (no walls of always-expanded checkbox cards), plus
+quick presets (Viewer / Member / Key manager / Ops admin / Admin) that
+just flip the switches - any custom combination is still one edit away,
+and implied permissions show as checked-and-locked so the list always
+reflects what's actually granted.
 
 Per-account preferences (currently just light/dark theme) are synced
 server-side, not just `localStorage` - switching browsers or devices keeps
@@ -171,18 +181,23 @@ Tabs:
   only ever shown once, right after approval/regeneration. The root
   `API_KEY` from `.env` always works too, is unrestricted, and isn't
   managed here.
-- **Logs** - a live feed of scheduler/job log lines, filterable by scope
-  (all/scheduler/jobs), level (info/warning/error), and free-text search,
-  with CSV/JSON export of whatever's currently filtered. Persisted to
-  disk (`logs.json` in `STATE_DIR`) so a restart doesn't lose history.
+- **Logs** (needs `viewLogs`) - a live feed of scheduler/job log lines,
+  filterable by scope (all/scheduler/jobs), level (info/warning/error),
+  and free-text search, with CSV/JSON export of whatever's currently
+  filtered. Persisted to disk (`logs.json` in `STATE_DIR`) so a restart
+  doesn't lose history.
 - **Docs** - copy-pasteable curl examples for using an API key, filled in
   with this instance's actual `PUBLIC_BASE_URL`.
-- **Settings** (needs `manageScheduler`, `manageAppleAuth`, `viewUsers`,
-  or `manageUsers`) - sub-tabs shown depend on which you have:
-  - *Scheduler* (`manageScheduler`) - edit the watch bundle ID,
-    watch/dispatch repos, workflow file, poll cron, and notification
-    webhook URL live, no restart needed. `GH_TOKEN` and `API_KEY` stay
-    env-only, not editable here.
+- **Settings** (needs `manageScheduler`, `triggerDispatch`,
+  `manageAppleAuth`, `viewUsers`, or `manageUsers`) - sub-tabs shown
+  depend on which you have:
+  - *Scheduler* (`manageScheduler` and/or `triggerDispatch`) - edit the
+    watch bundle ID, watch/dispatch repos, workflow file, poll cron, and
+    notification webhook URL live, no restart needed, if you have
+    `manageScheduler` (fields are read-only otherwise). The
+    preview/trigger/test-webhook/dismiss-alert actions need
+    `triggerDispatch` instead - an operator can have one without the
+    other. `GH_TOKEN` and `API_KEY` stay env-only, not editable here.
   - *Users* (`viewUsers` or `manageUsers`) - the GitHub OAuth allowlist:
     `viewUsers` alone gets a read-only list plus the audit log below it
     (who added/updated/removed which user, and what changed);

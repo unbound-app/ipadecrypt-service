@@ -60,4 +60,18 @@
   "{base}/v1/decrypt?bundleId=com.hammerandchisel.discord&externalVersionId=&lt;EXTERNAL_VERSION_ID&gt;" \
   -o discord.ipa</pre>
   </Card>
+
+  <Card title="Notes">
+    <ul class="list-disc space-y-1.5 pl-4 text-sm text-muted">
+      <li>
+        A key created with a bundle ID restriction (API Keys tab) gets a <code>403</code> from every endpoint above
+        for any bundle ID outside that list - unrestricted keys (the default, and the root <code>API_KEY</code>)
+        aren't affected.
+      </li>
+      <li>
+        TestFlight-build decryption and job history browsing are dashboard-only right now (session-based, not
+        available over the API-key endpoints above) - use the Home tab for those.
+      </li>
+    </ul>
+  </Card>
 </div>

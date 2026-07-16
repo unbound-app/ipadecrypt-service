@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ScrollText, UserX } from 'lucide-svelte';
+  import { Plus, ScrollText, UserX } from 'lucide-svelte';
   import EmptyState from '../../components/EmptyState.svelte';
   import PermissionEditor from '../../components/PermissionEditor.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
@@ -11,11 +11,12 @@
   import Dialog from '../../lib/components/ui/Dialog.svelte';
   import Input from '../../lib/components/ui/Input.svelte';
   import { scrollFade } from '../../lib/scrollFade';
-  import { PERMISSION_KEYS, PERMISSION_LABELS, sessionState, VIEWER_PERMISSIONS, type Permissions } from '../../lib/session.svelte';
+  import { PERMISSION_KEYS, PERMISSION_META, sessionState, VIEWER_PERMISSIONS, type Permissions } from '../../lib/session.svelte';
   import { confirmDialog } from '../../lib/ui.svelte';
 
   const canManage = $derived(!!sessionState.permissions?.manageUsers);
 
+  let addOpen = $state(false);
   let username = $state('');
   let newPermissions = $state<Permissions>({ ...VIEWER_PERMISSIONS });
   let users = $state<AllowedUser[] | null>(null);
@@ -36,7 +37,7 @@
   );
 
   function activePermissionLabels(p: Permissions): string[] {
-    return PERMISSION_LABELS.filter((f) => p[f.key] && !f.impliedBy?.some((k) => p[k])).map((f) => f.label);
+    return PERMISSION_META.filter((f) => p[f.key] && !f.impliedBy?.some((k) => p[k])).map((f) => f.label);
   }
 
   async function load(): Promise<void> {
@@ -48,6 +49,12 @@
     void load();
   });
 
+  function openAdd(): void {
+    username = '';
+    newPermissions = { ...VIEWER_PERMISSIONS };
+    addOpen = true;
+  }
+
   async function submit(): Promise<void> {
     const name = username.trim();
     if (!name) return;
@@ -55,8 +62,7 @@
     try {
       const { ok } = await addUser(name, newPermissions);
       if (ok) {
-        username = '';
-        newPermissions = { ...VIEWER_PERMISSIONS };
+        addOpen = false;
         void load();
       }
     } finally {
@@ -110,19 +116,15 @@
 </script>
 
 <div class="flex flex-col gap-4">
-  {#if canManage}
-    <Card title="Add an allowed GitHub user">
-      <label for="user-username" class="mb-1 block text-xs text-muted">GitHub username</label>
-      <Input id="user-username" placeholder="e.g. octocat" bind:value={username} class="max-w-sm" />
-      <div class="mt-3.5 text-xs text-muted">Starts read-only - grant more access below.</div>
-      <div class="mt-1.5">
-        <PermissionEditor bind:value={newPermissions} />
-      </div>
-      <Button class="mt-4" loading={submitting} onclick={submit}>Add</Button>
-    </Card>
-  {/if}
-
   <Card title="Allowlist">
+    {#snippet headerExtra()}
+      {#if canManage}
+        <Button size="sm" onclick={openAdd}>
+          <Plus class="h-3.5 w-3.5" />
+          Add user
+        </Button>
+      {/if}
+    {/snippet}
     {#if (users?.length ?? 0) > 5}
       <Input placeholder="Search by username…" bind:value={userSearch} class="mb-3 max-w-xs" />
     {/if}
@@ -213,10 +215,22 @@
 </div>
 
 {#if canManage}
-  <Dialog open={manageOpen} onOpenChange={(v) => (manageOpen = v)} class="max-w-sm">
+  <Dialog open={addOpen} onOpenChange={(v) => (addOpen = v)} class="max-w-md">
+    <div class="mb-3 text-sm font-medium">Add an allowed GitHub user</div>
+    <label for="user-username" class="mb-1 block text-xs text-muted">GitHub username</label>
+    <Input id="user-username" placeholder="e.g. octocat" bind:value={username} />
+    <div class="mt-3 max-h-[46vh] overflow-y-auto pr-0.5">
+      <PermissionEditor bind:value={newPermissions} />
+    </div>
+    <Button class="mt-3.5 w-full" loading={submitting} onclick={submit} disabled={!username.trim()}>Add</Button>
+  </Dialog>
+
+  <Dialog open={manageOpen} onOpenChange={(v) => (manageOpen = v)} class="max-w-md">
     {#if manageUser}
       <div class="mb-3 text-sm font-medium">Manage {manageUser.username}</div>
-      <PermissionEditor bind:value={managePermissions} />
+      <div class="max-h-[50vh] overflow-y-auto pr-0.5">
+        <PermissionEditor bind:value={managePermissions} />
+      </div>
       <Button class="mt-3.5 w-full" loading={savingPermissions} onclick={savePermissions} disabled={permissionsUnchanged}>
         Save permissions
       </Button>

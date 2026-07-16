@@ -17,8 +17,8 @@ export async function notify(message: string): Promise<void> {
   }
 }
 
-export async function sendTestNotification(): Promise<{ ok: boolean; error?: string }> {
-  const url = getEffectiveSettings().notifyWebhookUrl;
+export async function sendTestNotification(urlOverride?: string): Promise<{ ok: boolean; error?: string }> {
+  const url = urlOverride || getEffectiveSettings().notifyWebhookUrl;
   if (!url) return { ok: false, error: 'no webhook URL configured' };
 
   try {
