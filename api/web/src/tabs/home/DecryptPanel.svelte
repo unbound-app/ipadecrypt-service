@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FlaskConical, History, Search } from 'lucide-svelte';
+  import { FlaskConical, History } from 'lucide-svelte';
   import { queueDecrypt, queueTestFlightDecrypt, searchApps, type AppStoreSearchResult, type TFBuild } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
@@ -151,19 +151,13 @@
 </script>
 
 <Card title="Decrypt an app">
-  <div class="flex gap-2">
-    <Input
-      bind:ref={inputEl}
-      bind:value={term}
-      oninput={onInput}
-      onkeydown={onKeydown}
-      placeholder="Search the App Store to decrypt… (press / to focus)"
-    />
-    <Button onclick={() => runSearch(term)}>
-      <Search class="h-4 w-4" />
-      Search
-    </Button>
-  </div>
+  <Input
+    bind:ref={inputEl}
+    bind:value={term}
+    oninput={onInput}
+    onkeydown={onKeydown}
+    placeholder="Search the App Store to decrypt… (press / to focus)"
+  />
 
   {#if !term.trim() && recentBundleIdsState.items.length > 0}
     <div class="mt-2.5 flex flex-wrap gap-1.5">

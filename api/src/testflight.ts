@@ -7,6 +7,8 @@ const log = scopedLogger('testflight');
 
 const REQUEST_PATH = '/tmp/tfauto-request.json';
 const RESPONSE_PATH = '/tmp/tfauto-response.json';
+const SB_REQUEST_PATH = '/tmp/tfauto-sb-request.json';
+const SB_RESPONSE_PATH = '/tmp/tfauto-sb-response.json';
 
 interface DeviceAuth {
   host: string;
@@ -108,7 +110,10 @@ async function isTestFlightRunning(conn: Client): Promise<boolean> {
 }
 
 async function launchTestFlight(conn: Client): Promise<void> {
-  await execCommand(conn, 'uiopen --bundleid com.apple.TestFlight');
+  const response = await sendBridgeRequestRawTo(conn, SB_REQUEST_PATH, SB_RESPONSE_PATH, { action: 'launch_app', bundleId: 'com.apple.TestFlight' });
+  if (response?.launchResult !== 0) {
+    throw new Error(`tfauto SpringBoard launch_app failed: ${JSON.stringify(response)}`);
+  }
 }
 
 async function waitForBridgeReady(conn: Client, timeoutMs = 20_000): Promise<void> {
@@ -129,20 +134,26 @@ export async function ensureTestFlightRunning(): Promise<void> {
       log.info('TestFlight already running');
       return;
     }
-    log.info('launching TestFlight autonomously via uiopen');
+    log.info('launching TestFlight autonomously via tfauto SpringBoard bridge');
     await launchTestFlight(conn);
     await new Promise((r) => setTimeout(r, 3_000));
     await waitForBridgeReady(conn);
   });
 }
 
-async function sendBridgeRequestRaw(conn: Client, request: Record<string, unknown>, timeoutMs = 20_000): Promise<any> {
-  await execCommand(conn, `rm -f ${RESPONSE_PATH}`);
-  await writeRemoteFile(conn, REQUEST_PATH, JSON.stringify(request));
+async function sendBridgeRequestRawTo(
+  conn: Client,
+  requestPath: string,
+  responsePath: string,
+  request: Record<string, unknown>,
+  timeoutMs = 20_000,
+): Promise<any> {
+  await execCommand(conn, `rm -f ${responsePath}`);
+  await writeRemoteFile(conn, requestPath, JSON.stringify(request));
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const raw = await readRemoteFileIfExists(conn, RESPONSE_PATH);
+    const raw = await readRemoteFileIfExists(conn, responsePath);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed.ok === false) throw new Error(`tfauto bridge error: ${parsed.error}`);
@@ -151,6 +162,10 @@ async function sendBridgeRequestRaw(conn: Client, request: Record<string, unknow
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(`tfauto bridge request timed out: ${JSON.stringify(request)}`);
+}
+
+function sendBridgeRequestRaw(conn: Client, request: Record<string, unknown>, timeoutMs = 20_000): Promise<any> {
+  return sendBridgeRequestRawTo(conn, REQUEST_PATH, RESPONSE_PATH, request, timeoutMs);
 }
 
 export interface TFTrain {

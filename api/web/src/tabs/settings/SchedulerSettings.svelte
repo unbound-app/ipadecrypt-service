@@ -130,7 +130,7 @@
   <label for="s-notifyWebhookUrl" class="mt-3 mb-1 block text-xs text-muted">Notification webhook URL (Discord-compatible, optional)</label>
   <div class="flex gap-2">
     <Input id="s-notifyWebhookUrl" bind:value={form.notifyWebhookUrl} />
-    <Button variant="secondary" size="sm" disabled={testingWebhook} onclick={runTestWebhook}>Test</Button>
+    <Button variant="secondary" disabled={testingWebhook} onclick={runTestWebhook}>Test</Button>
   </div>
 
   <div class="mt-4 flex flex-wrap gap-2">
