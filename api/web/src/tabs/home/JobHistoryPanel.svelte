@@ -3,7 +3,7 @@
   import EmptyState from '../../components/EmptyState.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
-  import { fetchJobHistory, queueDecrypt, type JobHistoryEntry } from '../../lib/api';
+  import { fetchJobHistory, queueDecrypt, queueTestFlightDecrypt, type JobHistoryEntry } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
@@ -56,12 +56,15 @@
     }
   });
 
-  async function decryptAgain(bundleId: string, externalVersionId?: string): Promise<void> {
-    const { ok, data } = await queueDecrypt(bundleId, externalVersionId);
+  async function decryptAgain(entry: JobHistoryEntry): Promise<void> {
+    const { bundleId, testflight, externalVersionId, versionLabel } = entry;
+    const { ok, data } = testflight
+      ? await queueTestFlightDecrypt(bundleId, testflight.appId, testflight.build)
+      : await queueDecrypt(bundleId, externalVersionId, versionLabel);
     if (!ok) return;
-    addDecrypt({ id: data.id, bundleId, trackName: bundleId, status: data.status, progress: data.progress, queue: data.queue });
+    addDecrypt({ id: data.id, bundleId, trackName: bundleId, versionLabel, status: data.status, progress: data.progress, queue: data.queue });
     pushRecentBundleId(bundleId);
-    showToast(`Queued ${bundleId}`, 'success');
+    showToast(`Queued ${bundleId}${versionLabel ? ` (${versionLabel})` : ''}`, 'success');
   }
 
   function dayLabel(ms: number): string {
@@ -99,6 +102,7 @@
         <thead>
           <tr>
             <th>Bundle ID</th>
+            <th>Version</th>
             <th>Source</th>
             <th>Status</th>
             <th>Size</th>
@@ -109,17 +113,24 @@
         </thead>
         <tbody>
           {#if !loaded}
-            <SkeletonRows rows={4} colspan={7} />
+            <SkeletonRows rows={4} colspan={8} />
           {:else}
             {#each grouped as g (g.label)}
               <tr class="bg-panel sticky top-0 z-10">
-                <td colspan="7" class="border-b-0! py-1.5 text-xs font-semibold text-muted">{g.label}</td>
+                <td colspan="8" class="border-b-0! py-1.5 text-xs font-semibold text-muted">{g.label}</td>
               </tr>
               {#each g.items as j (j.id)}
                 <tr>
-                  <td class="max-w-40 truncate" title={j.bundleId}>
-                    {j.bundleId}
-                    {#if j.externalVersionId}
+                  <td class="max-w-40 truncate" title={j.bundleId}>{j.bundleId}</td>
+                  <td class="max-w-36 truncate" title={j.versionLabel ?? ''}>
+                    {#if j.versionLabel}
+                      {j.versionLabel}
+                    {:else}
+                      <span class="text-muted">-</span>
+                    {/if}
+                    {#if j.testflight}
+                      <Badge variant="secondary" class="ml-1">TF</Badge>
+                    {:else if j.externalVersionId}
                       <Badge variant="secondary" class="ml-1" title="pinned to external version id {j.externalVersionId}">pinned</Badge>
                     {/if}
                   </td>
@@ -129,7 +140,7 @@
                   <td class="text-muted"><RelativeTime ms={j.finishedAt} /></td>
                   <td class="max-w-52 truncate text-muted" title={j.error ?? ''}>{j.error ?? ''}</td>
                   <td>
-                    <Button size="sm" variant="secondary" onclick={() => decryptAgain(j.bundleId, j.externalVersionId)}>
+                    <Button size="sm" variant="secondary" onclick={() => decryptAgain(j)}>
                       Decrypt again
                     </Button>
                   </td>

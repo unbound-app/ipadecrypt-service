@@ -34,6 +34,7 @@
       <thead>
         <tr>
           <th>Bundle ID</th>
+          <th>Version</th>
           <th>Source</th>
           <th>Status</th>
           <th>Progress</th>
@@ -42,11 +43,21 @@
       </thead>
       <tbody>
         {#if !loaded}
-          <SkeletonRows rows={2} colspan={5} />
+          <SkeletonRows rows={2} colspan={6} />
         {:else}
           {#each jobs as j (j.id)}
             <tr>
               <td class="max-w-40 truncate" title={j.bundleId}>{j.bundleId}</td>
+              <td class="max-w-32 truncate" title={j.versionLabel}>
+                {#if j.versionLabel}
+                  {j.versionLabel}
+                {:else}
+                  <span class="text-muted">-</span>
+                {/if}
+                {#if j.testflight}
+                  <Badge variant="secondary">TF</Badge>
+                {/if}
+              </td>
               <td>{j.source}</td>
               <td><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
               <td class="max-w-52 text-muted">

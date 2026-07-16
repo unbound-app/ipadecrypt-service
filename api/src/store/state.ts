@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { emitHistoryAdded } from '../events.js';
+import type { TestFlightJobSource } from '../jobs/types.js';
 
 export type Role = 'admin' | 'operator' | 'member' | 'viewer';
 export type ApiKeyStatus = 'pending' | 'approved' | 'denied';
@@ -39,6 +40,8 @@ export interface JobHistoryEntry {
   id: string;
   bundleId: string;
   externalVersionId?: string;
+  testflight?: TestFlightJobSource;
+  versionLabel?: string;
   status: 'done' | 'failed';
   error?: string;
   sizeBytes?: number;

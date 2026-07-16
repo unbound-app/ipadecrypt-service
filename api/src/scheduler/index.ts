@@ -225,7 +225,7 @@ async function tickAppStore(settings: SchedulerSettings): Promise<void> {
   const normalized = check.normalizedVersion as string;
   log.info('no matching release found, decrypting', { bundleId: settings.watchBundleId, version: normalized });
 
-  const job = enqueueDecryptJob(settings.watchBundleId, 'scheduler');
+  const job = enqueueDecryptJob(settings.watchBundleId, 'scheduler', undefined, undefined, normalized);
   await decryptAndDispatch(job, settings, false, `v${normalized}`);
 }
 

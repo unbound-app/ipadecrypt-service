@@ -14,6 +14,7 @@ export interface Job {
   bundleId: string;
   externalVersionId?: string;
   testflight?: TestFlightJobSource;
+  versionLabel?: string;
   source: JobSource;
   status: JobStatus;
   progress: string;

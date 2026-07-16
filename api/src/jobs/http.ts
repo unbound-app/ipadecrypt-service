@@ -14,6 +14,7 @@ export function jobSummary(job: Job) {
     testflight: job.testflight
       ? { appId: job.testflight.appId, buildId: job.testflight.build.id, version: job.testflight.build.cfBundleShortVersion, buildNumber: job.testflight.build.cfBundleVersion }
       : undefined,
+    versionLabel: job.versionLabel,
     source: job.source,
     status: job.status,
     progress: job.progress,

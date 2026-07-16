@@ -68,6 +68,10 @@ function buildOverview() {
       source: j.source,
       status: j.status,
       progress: j.progress,
+      versionLabel: j.versionLabel,
+      testflight: j.testflight
+        ? { appId: j.testflight.appId, buildId: j.testflight.build.id, version: j.testflight.build.cfBundleShortVersion, buildNumber: j.testflight.build.cfBundleVersion }
+        : undefined,
       createdAt: j.createdAt,
     })),
   };
@@ -158,7 +162,9 @@ dashboardRouter.post('/v1/dashboard/decrypt', canDecrypt, (req, res) => {
       ? req.body.externalVersionId
       : undefined;
 
-  const job = enqueueDecryptJob(bundleId, 'manual', externalVersionId);
+  const versionLabel = typeof req.body?.versionLabel === 'string' ? req.body.versionLabel.trim().slice(0, 64) || undefined : undefined;
+
+  const job = enqueueDecryptJob(bundleId, 'manual', externalVersionId, undefined, versionLabel);
   res.status(202).json(jobSummary(job));
 });
 

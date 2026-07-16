@@ -39,15 +39,19 @@ export function enqueueDecryptJob(
   source: JobSource,
   externalVersionId?: string,
   testflight?: TestFlightJobSource,
+  versionLabel?: string,
 ): Job {
   const existing = findActiveJobForBundle(bundleId, externalVersionId, testflight?.build.id);
   if (existing) return existing;
+
+  const resolvedLabel = versionLabel ?? (testflight ? `${testflight.build.cfBundleShortVersion}_${testflight.build.cfBundleVersion}` : undefined);
 
   const job: Job = {
     id: randomUUID(),
     bundleId,
     externalVersionId,
     testflight,
+    versionLabel: resolvedLabel,
     source,
     status: 'queued',
     progress: 'queued',
@@ -143,6 +147,8 @@ async function runWorker(): Promise<void> {
         id: job.id,
         bundleId: job.bundleId,
         externalVersionId: job.externalVersionId,
+        testflight: job.testflight,
+        versionLabel: job.versionLabel,
         status: job.status as 'done' | 'failed',
         error: job.error,
         sizeBytes: job.fileSizeBytes,

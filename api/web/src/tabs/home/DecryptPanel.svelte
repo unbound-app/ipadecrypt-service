@@ -83,7 +83,7 @@
 
   async function queue(bundleId: string, trackName: string, externalVersionId?: string, versionLabel?: string): Promise<void> {
     if (!canDecrypt) return;
-    const { ok, data } = await queueDecrypt(bundleId, externalVersionId);
+    const { ok, data } = await queueDecrypt(bundleId, externalVersionId, versionLabel);
     if (!ok) return;
     addDecrypt({ id: data.id, bundleId, trackName, versionLabel, status: data.status, progress: data.progress, queue: data.queue });
     pushRecentBundleId(bundleId);

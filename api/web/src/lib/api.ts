@@ -38,10 +38,19 @@ export async function apiAction<T = Record<string, unknown>>(
   return { ok: true, data };
 }
 
+export interface JobTestFlightSummary {
+  appId: number;
+  buildId: number;
+  version: string;
+  buildNumber: string;
+}
+
 export interface JobSummary {
   id: string;
   bundleId: string;
   externalVersionId?: string;
+  testflight?: JobTestFlightSummary;
+  versionLabel?: string;
   source: 'manual' | 'scheduler';
   status: 'queued' | 'running' | 'done' | 'failed';
   progress: string;
@@ -61,6 +70,8 @@ export interface ActiveJob {
   source: 'manual' | 'scheduler';
   status: 'queued' | 'running';
   progress: string;
+  versionLabel?: string;
+  testflight?: JobTestFlightSummary;
   createdAt: number;
 }
 
@@ -91,6 +102,8 @@ export interface JobHistoryEntry {
   id: string;
   bundleId: string;
   externalVersionId?: string;
+  testflight?: { appId: number; build: TFBuild };
+  versionLabel?: string;
   status: 'done' | 'failed';
   error?: string;
   sizeBytes?: number;
@@ -174,8 +187,12 @@ export function searchApps(term: string): Promise<{ results: AppStoreSearchResul
   return apiJson(`/v1/dashboard/search?q=${encodeURIComponent(term)}`);
 }
 
-export function queueDecrypt(bundleId: string, externalVersionId?: string): Promise<{ ok: boolean; data: JobSummary }> {
-  return apiAction('/v1/dashboard/decrypt', { method: 'POST', body: JSON.stringify({ bundleId, externalVersionId }) });
+export function queueDecrypt(
+  bundleId: string,
+  externalVersionId?: string,
+  versionLabel?: string,
+): Promise<{ ok: boolean; data: JobSummary }> {
+  return apiAction('/v1/dashboard/decrypt', { method: 'POST', body: JSON.stringify({ bundleId, externalVersionId, versionLabel }) });
 }
 
 export interface AppVersionEntry {
