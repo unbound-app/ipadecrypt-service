@@ -96,11 +96,23 @@ export interface AppleAuthAlert {
   lastErrorAt?: number;
 }
 
+export interface SchedulerRunOutcome {
+  triggered: boolean;
+  reason: string;
+}
+
+export interface SchedulerRunEntry {
+  ts: number;
+  appStore: SchedulerRunOutcome;
+  testflight: SchedulerRunOutcome;
+}
+
 export interface OverviewPayload {
   schedulerEnabled: boolean;
   settings: SchedulerSettings;
   appleAuthAlert: AppleAuthAlert;
   lastSchedulerRunAt?: number;
+  schedulerRunHistory: SchedulerRunEntry[];
   activeJobs: ActiveJob[];
 }
 
@@ -129,12 +141,22 @@ export interface ApiKeyRecord {
   lastUsedAt?: number;
   expiresAt?: number;
   hasUnrevealedSecret: boolean;
+  allowedBundleIds?: string[];
 }
 
 export interface AllowedUser {
   username: string;
   permissions: Permissions;
   addedAt: number;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  ts: number;
+  actor: string;
+  action: 'user.add' | 'user.update' | 'user.remove';
+  target: string;
+  detail?: string;
 }
 
 export interface LogEntry {
@@ -180,6 +202,10 @@ export function fetchJobHistory(offset: number, limit: number, q?: string): Prom
 
 export function fetchLogs(): Promise<{ logs: LogEntry[] }> {
   return apiJson('/v1/dashboard/logs');
+}
+
+export function jobHistoryExportUrl(format: 'csv' | 'json'): string {
+  return `/v1/dashboard/jobs/export?format=${format}`;
 }
 
 export function fetchJobEta(bundleId: string): Promise<{ avgMs: number | null }> {
@@ -258,12 +284,16 @@ export function fetchPendingKeys(): Promise<{ keys: ApiKeyRecord[] }> {
   return apiJson('/v1/dashboard/keys/pending');
 }
 
-export function fetchAllKeys(): Promise<{ keys: ApiKeyRecord[] }> {
-  return apiJson('/v1/dashboard/keys/all');
+export function fetchAllKeys(offset = 0, limit = 25): Promise<{ keys: ApiKeyRecord[]; total: number }> {
+  return apiJson(`/v1/dashboard/keys/all?offset=${offset}&limit=${limit}`);
 }
 
-export function requestKey(name: string, expiresInDays?: number): Promise<{ ok: boolean; data: { key?: string; expiresAt?: number } }> {
-  return apiAction('/v1/dashboard/keys/request', { method: 'POST', body: JSON.stringify({ name, expiresInDays }) });
+export function requestKey(
+  name: string,
+  expiresInDays?: number,
+  allowedBundleIds?: string[],
+): Promise<{ ok: boolean; data: { key?: string; expiresAt?: number } }> {
+  return apiAction('/v1/dashboard/keys/request', { method: 'POST', body: JSON.stringify({ name, expiresInDays, allowedBundleIds }) });
 }
 
 export function revealKey(id: string): Promise<{ ok: boolean; data: { key: string } }> {
@@ -284,6 +314,10 @@ export function bulkRevokeKeys(ids: string[]): Promise<{ ok: boolean; data: { re
 
 export function approveKey(id: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/keys/${id}/approve`, { method: 'POST' }, 'Key approved');
+}
+
+export function bulkApproveKeys(ids: string[]): Promise<{ ok: boolean; data: { approved: string[] } }> {
+  return apiAction('/v1/dashboard/keys/bulk-approve', { method: 'POST', body: JSON.stringify({ ids }) }, 'Keys approved');
 }
 
 export function denyKey(id: string): Promise<{ ok: boolean }> {
@@ -333,6 +367,10 @@ export function triggerDispatch(): Promise<{ ok: boolean; data: { ok: boolean; e
 
 export function fetchUsers(): Promise<{ users: AllowedUser[] }> {
   return apiJson('/v1/dashboard/users');
+}
+
+export function fetchAuditLog(limit = 100): Promise<{ entries: AuditLogEntry[] }> {
+  return apiJson(`/v1/dashboard/audit-log?limit=${limit}`);
 }
 
 export function addUser(username: string, permissions: Permissions): Promise<{ ok: boolean }> {

@@ -3,12 +3,12 @@
   import EmptyState from '../../components/EmptyState.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
-  import { fetchJobHistory, queueDecrypt, queueTestFlightDecrypt, type JobHistoryEntry } from '../../lib/api';
+  import { fetchJobHistory, jobHistoryExportUrl, queueDecrypt, queueTestFlightDecrypt, type JobHistoryEntry } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import Input from '../../lib/components/ui/Input.svelte';
-  import { statusToBadgeVariant } from '../../lib/components/ui/variants';
+  import { buttonVariants, statusToBadgeVariant } from '../../lib/components/ui/variants';
   import { addDecrypt, pushRecentBundleId } from '../../lib/decrypts.svelte';
   import { debounce, fmtSize } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
@@ -125,6 +125,12 @@
 </script>
 
 <Card title="Job history">
+  {#snippet headerExtra()}
+    <div class="flex gap-1.5">
+      <a href={jobHistoryExportUrl('csv')} download class={buttonVariants('secondary', 'sm')}>Export CSV</a>
+      <a href={jobHistoryExportUrl('json')} download class={buttonVariants('secondary', 'sm')}>Export JSON</a>
+    </div>
+  {/snippet}
   <div class="relative mb-3.5 max-w-xs">
     <Input placeholder="Search by bundle ID…" bind:value={searchText} class="pr-8" />
     {#if searchText}

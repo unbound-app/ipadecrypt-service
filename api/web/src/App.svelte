@@ -8,11 +8,21 @@
   import Login from './components/Login.svelte';
   import SessionExpiryBanner from './components/SessionExpiryBanner.svelte';
   import ShortcutsHelp from './components/ShortcutsHelp.svelte';
+  import Badge from './lib/components/ui/Badge.svelte';
   import Button from './lib/components/ui/Button.svelte';
+  import Dialog from './lib/components/ui/Dialog.svelte';
   import Tabs from './lib/components/ui/Tabs.svelte';
   import { buttonVariants } from './lib/components/ui/variants';
   import { connectLive, disconnectLive } from './lib/live.svelte';
-  import { logout, permissionsSummary, pushThemePref, refreshSession, sessionState, type Permissions } from './lib/session.svelte';
+  import {
+    logout,
+    PERMISSION_LABELS,
+    permissionsSummary,
+    pushThemePref,
+    refreshSession,
+    sessionState,
+    type Permissions,
+  } from './lib/session.svelte';
   import { initTheme, openHelp, openPalette, setActiveTab, setTheme, tabState, themeState, type TabId } from './lib/ui.svelte';
 
   const REPO_URL = 'https://github.com/unbound-app/dkrypt';
@@ -27,13 +37,18 @@
 
   let homeRef: Home | undefined = $state();
   let loggingOut = $state(false);
+  let myPermsOpen = $state(false);
+
+  const myGrantedPermissions = $derived(
+    PERMISSION_LABELS.filter((f) => sessionState.permissions?.[f.key]).map((f) => f.label),
+  );
 
   const TABS: { id: TabId; label: string; requires?: (keyof Permissions)[] }[] = [
     { id: 'home', label: 'Home' },
-    { id: 'keys', label: 'API Keys', requires: ['decrypt', 'manageKeys'] },
+    { id: 'keys', label: 'API Keys', requires: ['decrypt', 'viewApiKeys', 'approveApiKeys', 'revokeApiKeys'] },
     { id: 'logs', label: 'Logs' },
     { id: 'docs', label: 'Docs' },
-    { id: 'settings', label: 'Settings', requires: ['manageSettings', 'manageUsers'] },
+    { id: 'settings', label: 'Settings', requires: ['manageScheduler', 'manageAppleAuth', 'viewUsers', 'manageUsers'] },
   ];
 
   const visibleTabs = $derived(
@@ -135,7 +150,14 @@
             <Sun class="h-4 w-4" />
           {/if}
         </Button>
-        <span class="max-w-[40vw] truncate text-[13px] text-muted sm:max-w-[55vw]">{sessionState.sub} ({permissionsSummary(sessionState.permissions)})</span>
+        <button
+          type="button"
+          class="max-w-[40vw] cursor-pointer truncate text-[13px] text-muted hover:text-text sm:max-w-[55vw]"
+          onclick={() => (myPermsOpen = true)}
+          title="View your permissions"
+        >
+          {sessionState.sub} ({permissionsSummary(sessionState.permissions)})
+        </button>
         <Button variant="secondary" size="sm" loading={loggingOut} onclick={doLogout}>Log out</Button>
       </div>
     </header>
@@ -157,7 +179,7 @@
       <div class:hidden={tabState.active !== 'docs'}>
         <Docs />
       </div>
-      {#if sessionState.permissions?.manageSettings || sessionState.permissions?.manageUsers}
+      {#if sessionState.permissions?.manageScheduler || sessionState.permissions?.manageAppleAuth || sessionState.permissions?.viewUsers || sessionState.permissions?.manageUsers}
         <div class:hidden={tabState.active !== 'settings'}>
           <Settings />
         </div>
@@ -169,3 +191,17 @@
 <ConfirmModal />
 <CommandPalette />
 <ShortcutsHelp />
+
+<Dialog open={myPermsOpen} onOpenChange={(v) => (myPermsOpen = v)} class="max-w-sm">
+  <div class="mb-3 text-sm font-medium">Your permissions</div>
+  <div class="mb-3 text-xs text-muted">Signed in as {sessionState.sub}</div>
+  {#if myGrantedPermissions.length === 0}
+    <div class="text-sm text-muted">Read-only - no permissions granted yet.</div>
+  {:else}
+    <div class="flex flex-wrap gap-1.5">
+      {#each myGrantedPermissions as label (label)}
+        <Badge variant="default">{label}</Badge>
+      {/each}
+    </div>
+  {/if}
+</Dialog>

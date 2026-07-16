@@ -1,3 +1,4 @@
+import type { Response } from 'express';
 import { Router } from 'express';
 import { config } from '../config.js';
 import { requireApiKey, requireApiKeyOrSignedToken } from '../auth.js';
@@ -9,10 +10,20 @@ export const decryptRouter = Router();
 const BUNDLE_ID_RE = /^[A-Za-z0-9.-]{3,200}$/;
 const EXTERNAL_VERSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
+function isBundleIdAllowed(res: Response, bundleId: string): boolean {
+  const scope = res.locals.apiKeyScope as string[] | undefined;
+  return !scope || scope.length === 0 || scope.includes(bundleId);
+}
+
 decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
   const bundleId = req.query.bundleId;
   if (typeof bundleId !== 'string' || !BUNDLE_ID_RE.test(bundleId)) {
     res.status(400).json({ error: 'query param bundleId is required and must look like a bundle identifier' });
+    return;
+  }
+
+  if (!isBundleIdAllowed(res, bundleId)) {
+    res.status(403).json({ error: 'this API key is not scoped to this bundleId' });
     return;
   }
 
@@ -42,6 +53,10 @@ decryptRouter.get('/v1/jobs/:id', requireApiKey, (req, res) => {
     res.status(404).json({ error: 'job not found (finished jobs are pruned after retention window)' });
     return;
   }
+  if (!isBundleIdAllowed(res, job.bundleId)) {
+    res.status(403).json({ error: 'this API key is not scoped to this bundleId' });
+    return;
+  }
   res.json(jobSummary(job));
 });
 
@@ -49,6 +64,10 @@ decryptRouter.get('/v1/jobs/:id/file', requireApiKeyOrSignedToken, async (req, r
   const job = getJob(req.params.id);
   if (!job) {
     res.status(404).json({ error: 'job not found' });
+    return;
+  }
+  if (!isBundleIdAllowed(res, job.bundleId)) {
+    res.status(403).json({ error: 'this API key is not scoped to this bundleId' });
     return;
   }
 

@@ -22,7 +22,12 @@
       { id: 'logs', label: 'Go to Logs', run: () => setActiveTab('logs') },
       { id: 'docs', label: 'Go to Docs', run: () => setActiveTab('docs') },
     ];
-    if (sessionState.permissions?.manageSettings || sessionState.permissions?.manageUsers) {
+    if (
+      sessionState.permissions?.manageScheduler ||
+      sessionState.permissions?.manageAppleAuth ||
+      sessionState.permissions?.viewUsers ||
+      sessionState.permissions?.manageUsers
+    ) {
       base.push({ id: 'settings', label: 'Go to Settings', run: () => setActiveTab('settings') });
     }
     base.push({ id: 'theme', label: 'Toggle light / dark theme', run: () => setTheme(themeState.value === 'dark' ? 'light' : 'dark') });

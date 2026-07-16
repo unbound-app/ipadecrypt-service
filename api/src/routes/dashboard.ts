@@ -12,7 +12,7 @@ import { jobSummary, streamJobFile } from '../jobs/http.js';
 import { enqueueDecryptJob, getActiveJobs, getJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
-import { sendTestNotification } from '../notify.js';
+import { notify, sendTestNotification } from '../notify.js';
 import { applySchedule, checkForTestFlightUpdate, checkForUpdate, triggerTickNow } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requirePermission, requireSession } from '../session.js';
@@ -21,22 +21,27 @@ import { listAppVersions } from '../versions.js';
 import {
   addAllowedUser,
   approveApiKey,
+  bulkApproveApiKeys,
   clearAppleAuthAlert,
   createApiKey,
   denyApiKey,
+  getAllJobHistory,
   getAppleAuthAlert,
+  getAuditLog,
   getAverageJobDurationMs,
   getDailyVolume,
   getEffectiveSettings,
   getJobHistoryPage,
   getLastSchedulerRunAt,
+  getSchedulerRunHistory,
   getUserPrefs,
   isSchedulerEnabled,
   type JobHistoryEntry,
-  listAllApiKeys,
+  listAllApiKeysPage,
   listAllowedUsers,
   listApiKeysForOwner,
   listPendingApiKeys,
+  PERMISSION_KEYS,
   type Permissions,
   regenerateApiKey,
   removeAllowedUser,
@@ -46,12 +51,15 @@ import {
   updateAllowedUserPermissions,
   updateSettings,
   updateUserPrefs,
+  wouldOrphanManageUsers,
 } from '../store/state.js';
 
-const PERMISSION_KEYS: (keyof Permissions)[] = ['decrypt', 'manageKeys', 'manageSettings', 'manageUsers'];
-const canManageKeys = requirePermission('manageKeys');
 const canDecrypt = requirePermission('decrypt');
-const canManageSettings = requirePermission('manageSettings');
+const canViewApiKeys = requirePermission('viewApiKeys');
+const canApproveApiKeys = requirePermission('approveApiKeys');
+const canManageScheduler = requirePermission('manageScheduler');
+const canManageAppleAuth = requirePermission('manageAppleAuth');
+const canViewUsers = requirePermission('viewUsers', 'manageUsers');
 const canManageUsers = requirePermission('manageUsers');
 
 export const dashboardRouter = Router();
@@ -64,6 +72,7 @@ function buildOverview() {
     settings: getEffectiveSettings(),
     appleAuthAlert: getAppleAuthAlert(),
     lastSchedulerRunAt: getLastSchedulerRunAt(),
+    schedulerRunHistory: getSchedulerRunHistory(10),
     activeJobs: getActiveJobs().map((j) => ({
       id: j.id,
       bundleId: j.bundleId,
@@ -123,6 +132,44 @@ dashboardRouter.get('/v1/dashboard/jobs', (req, res) => {
 
 dashboardRouter.get('/v1/dashboard/logs', (_req, res) => {
   res.json({ logs: getRecentLogs() });
+});
+
+const HISTORY_CSV_COLUMNS = [
+  'id',
+  'bundleId',
+  'externalVersionId',
+  'versionLabel',
+  'status',
+  'error',
+  'sizeBytes',
+  'source',
+  'createdAt',
+  'startedAt',
+  'finishedAt',
+] as const;
+
+function csvCell(value: unknown): string {
+  const str = value === undefined || value === null ? '' : String(value);
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+dashboardRouter.get('/v1/dashboard/jobs/export', (req, res) => {
+  const format = req.query.format === 'csv' ? 'csv' : 'json';
+  const entries = getAllJobHistory();
+
+  if (format === 'json') {
+    res.setHeader('Content-Disposition', 'attachment; filename="dkrypt-job-history.json"');
+    res.json(entries);
+    return;
+  }
+
+  const rows = [HISTORY_CSV_COLUMNS.join(',')];
+  for (const e of entries) {
+    rows.push(HISTORY_CSV_COLUMNS.map((c) => csvCell(e[c])).join(','));
+  }
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="dkrypt-job-history.csv"');
+  res.send(rows.join('\n'));
 });
 
 dashboardRouter.get('/v1/dashboard/jobs/eta/:bundleId', (req, res) => {
@@ -263,6 +310,17 @@ dashboardRouter.get('/v1/dashboard/keys/mine', (_req, res) => {
 });
 
 const EXPIRY_OPTIONS = new Set([1, 7, 30, 90]);
+const MAX_SCOPED_BUNDLE_IDS = 25;
+
+function parseAllowedBundleIds(body: unknown): string[] | undefined {
+  if (!Array.isArray(body)) return undefined;
+  const ids = body
+    .filter((v): v is string => typeof v === 'string')
+    .map((v) => v.trim())
+    .filter((v) => BUNDLE_ID_RE.test(v))
+    .slice(0, MAX_SCOPED_BUNDLE_IDS);
+  return ids.length > 0 ? [...new Set(ids)] : undefined;
+}
 
 dashboardRouter.post('/v1/dashboard/keys/request', canDecrypt, (req, res) => {
   const { sub, permissions } = res.locals.session;
@@ -275,13 +333,16 @@ dashboardRouter.post('/v1/dashboard/keys/request', canDecrypt, (req, res) => {
   const expiresInDays = typeof req.body?.expiresInDays === 'number' && EXPIRY_OPTIONS.has(req.body.expiresInDays)
     ? req.body.expiresInDays
     : undefined;
+  const allowedBundleIds = parseAllowedBundleIds(req.body?.allowedBundleIds);
 
-  if (permissions.manageKeys) {
-    res.status(201).json(createApiKey(name, sub, expiresInDays));
+  if (permissions.approveApiKeys) {
+    res.status(201).json(createApiKey(name, sub, expiresInDays, allowedBundleIds));
     return;
   }
 
-  res.status(201).json(requestApiKey(name, sub, expiresInDays));
+  const record = requestApiKey(name, sub, expiresInDays, allowedBundleIds);
+  void notify(`🔑 dkrypt: **${sub}** requested a new API key ("${name}") - approve it on the API Keys tab.`);
+  res.status(201).json(record);
 });
 
 dashboardRouter.post('/v1/dashboard/keys/:id/reveal', (req, res) => {
@@ -306,7 +367,7 @@ dashboardRouter.post('/v1/dashboard/keys/:id/regenerate', (req, res) => {
 
 dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
   const { sub, permissions } = res.locals.session;
-  const ok = revokeApiKey(req.params.id, sub, permissions.manageKeys);
+  const ok = revokeApiKey(req.params.id, sub, permissions.revokeApiKeys);
   if (!ok) {
     res.status(404).json({ error: 'key not found or not yours' });
     return;
@@ -317,19 +378,22 @@ dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
 dashboardRouter.post('/v1/dashboard/keys/bulk-revoke', (req, res) => {
   const { sub, permissions } = res.locals.session;
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown) => typeof id === 'string') : [];
-  const revoked = ids.filter((id: string) => revokeApiKey(id, sub, permissions.manageKeys));
+  const revoked = ids.filter((id: string) => revokeApiKey(id, sub, permissions.revokeApiKeys));
   res.json({ revoked });
 });
 
-dashboardRouter.get('/v1/dashboard/keys/pending', canManageKeys, (_req, res) => {
+dashboardRouter.get('/v1/dashboard/keys/pending', canApproveApiKeys, (_req, res) => {
   res.json({ keys: listPendingApiKeys() });
 });
 
-dashboardRouter.get('/v1/dashboard/keys/all', canManageKeys, (_req, res) => {
-  res.json({ keys: listAllApiKeys() });
+dashboardRouter.get('/v1/dashboard/keys/all', canViewApiKeys, (req, res) => {
+  const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '25'), 10) || 25, 1), 100);
+  const offset = Math.max(Number.parseInt(String(req.query.offset ?? '0'), 10) || 0, 0);
+  const { keys, total } = listAllApiKeysPage(offset, limit);
+  res.json({ keys, total });
 });
 
-dashboardRouter.post('/v1/dashboard/keys/:id/approve', canManageKeys, (req, res) => {
+dashboardRouter.post('/v1/dashboard/keys/:id/approve', canApproveApiKeys, (req, res) => {
   const ok = approveApiKey(req.params.id);
   if (!ok) {
     res.status(404).json({ error: 'no pending request with that id' });
@@ -338,7 +402,13 @@ dashboardRouter.post('/v1/dashboard/keys/:id/approve', canManageKeys, (req, res)
   res.json({ ok: true });
 });
 
-dashboardRouter.post('/v1/dashboard/keys/:id/deny', canManageKeys, (req, res) => {
+dashboardRouter.post('/v1/dashboard/keys/bulk-approve', canApproveApiKeys, (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown) => typeof id === 'string') : [];
+  const approved = bulkApproveApiKeys(ids);
+  res.json({ approved });
+});
+
+dashboardRouter.post('/v1/dashboard/keys/:id/deny', canApproveApiKeys, (req, res) => {
   const ok = denyApiKey(req.params.id);
   if (!ok) {
     res.status(404).json({ error: 'no pending request with that id' });
@@ -353,7 +423,7 @@ dashboardRouter.get('/v1/dashboard/settings', (_req, res) => {
 
 const SETTINGS_FIELDS = ['watchBundleId', 'watchAppRepo', 'ghDispatchRepo', 'ghWorkflowFile', 'pollCron', 'notifyWebhookUrl'] as const;
 
-dashboardRouter.put('/v1/dashboard/settings', canManageSettings, (req, res) => {
+dashboardRouter.put('/v1/dashboard/settings', canManageScheduler, (req, res) => {
   const body = req.body ?? {};
   const patch: Record<string, string> = {};
 
@@ -371,28 +441,28 @@ dashboardRouter.put('/v1/dashboard/settings', canManageSettings, (req, res) => {
   res.json(updated);
 });
 
-dashboardRouter.get('/v1/dashboard/settings/validate-cron', canManageSettings, (req, res) => {
+dashboardRouter.get('/v1/dashboard/settings/validate-cron', canManageScheduler, (req, res) => {
   const expr = typeof req.query.expr === 'string' ? req.query.expr : '';
   res.json({ valid: expr !== '' && validateCronExpr(expr) });
 });
 
-dashboardRouter.post('/v1/dashboard/settings/test-webhook', canManageSettings, async (_req, res) => {
+dashboardRouter.post('/v1/dashboard/settings/test-webhook', canManageScheduler, async (_req, res) => {
   const result = await sendTestNotification();
   res.status(result.ok ? 200 : 400).json(result);
 });
 
-dashboardRouter.get('/v1/dashboard/settings/preview-dispatch', canManageSettings, async (_req, res) => {
+dashboardRouter.get('/v1/dashboard/settings/preview-dispatch', canManageScheduler, async (_req, res) => {
   const settings = getEffectiveSettings();
   const [appStore, testflight] = await Promise.all([checkForUpdate(settings), checkForTestFlightUpdate(settings)]);
   res.json({ ...appStore, testflight });
 });
 
-dashboardRouter.post('/v1/dashboard/settings/trigger-dispatch', canManageSettings, async (_req, res) => {
+dashboardRouter.post('/v1/dashboard/settings/trigger-dispatch', canManageScheduler, async (_req, res) => {
   const result = await triggerTickNow();
   res.status(result.ok ? 202 : 409).json(result);
 });
 
-dashboardRouter.post('/v1/dashboard/auth-alert/clear', canManageSettings, (_req, res) => {
+dashboardRouter.post('/v1/dashboard/auth-alert/clear', canManageScheduler, (_req, res) => {
   clearAppleAuthAlert();
   res.json({ ok: true });
 });
@@ -401,16 +471,16 @@ function parsePermissions(body: unknown): Permissions | undefined {
   if (typeof body !== 'object' || body === null) return undefined;
   const b = body as Record<string, unknown>;
   if (!PERMISSION_KEYS.every((k) => typeof b[k] === 'boolean')) return undefined;
-  return {
-    decrypt: b.decrypt as boolean,
-    manageKeys: b.manageKeys as boolean,
-    manageSettings: b.manageSettings as boolean,
-    manageUsers: b.manageUsers as boolean,
-  };
+  return Object.fromEntries(PERMISSION_KEYS.map((k) => [k, b[k] as boolean])) as unknown as Permissions;
 }
 
-dashboardRouter.get('/v1/dashboard/users', canManageUsers, (_req, res) => {
+dashboardRouter.get('/v1/dashboard/users', canViewUsers, (_req, res) => {
   res.json({ users: listAllowedUsers() });
+});
+
+dashboardRouter.get('/v1/dashboard/audit-log', canViewUsers, (req, res) => {
+  const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '100'), 10) || 100, 1), 200);
+  res.json({ entries: getAuditLog(limit) });
 });
 
 dashboardRouter.post('/v1/dashboard/users', canManageUsers, (req, res) => {
@@ -420,7 +490,7 @@ dashboardRouter.post('/v1/dashboard/users', canManageUsers, (req, res) => {
     res.status(400).json({ error: `username and permissions (${PERMISSION_KEYS.join(', ')}) are required` });
     return;
   }
-  res.status(201).json(addAllowedUser(username, permissions));
+  res.status(201).json(addAllowedUser(username, permissions, res.locals.session.sub));
 });
 
 dashboardRouter.patch('/v1/dashboard/users/:username', canManageUsers, (req, res) => {
@@ -433,7 +503,11 @@ dashboardRouter.patch('/v1/dashboard/users/:username', canManageUsers, (req, res
     res.status(400).json({ error: "you can't remove your own ability to manage users" });
     return;
   }
-  const updated = updateAllowedUserPermissions(req.params.username, permissions);
+  if (wouldOrphanManageUsers(req.params.username, permissions)) {
+    res.status(400).json({ error: 'this would leave nobody on the allowlist able to manage users - grant it to someone else first' });
+    return;
+  }
+  const updated = updateAllowedUserPermissions(req.params.username, permissions, res.locals.session.sub);
   if (!updated) {
     res.status(404).json({ error: 'not on the allowlist' });
     return;
@@ -442,7 +516,11 @@ dashboardRouter.patch('/v1/dashboard/users/:username', canManageUsers, (req, res
 });
 
 dashboardRouter.delete('/v1/dashboard/users/:username', canManageUsers, (req, res) => {
-  const ok = removeAllowedUser(req.params.username);
+  if (wouldOrphanManageUsers(req.params.username, null)) {
+    res.status(400).json({ error: 'this would leave nobody on the allowlist able to manage users - grant it to someone else first' });
+    return;
+  }
+  const ok = removeAllowedUser(req.params.username, res.locals.session.sub);
   if (!ok) {
     res.status(404).json({ error: 'not on the allowlist' });
     return;
@@ -461,11 +539,11 @@ dashboardRouter.put('/v1/dashboard/me/prefs', (req, res) => {
   res.json(updateUserPrefs(res.locals.session.sub, patch));
 });
 
-dashboardRouter.get('/v1/dashboard/apple-auth/status', canManageSettings, canManageUsers, (_req, res) => {
+dashboardRouter.get('/v1/dashboard/apple-auth/status', canManageAppleAuth, (_req, res) => {
   res.json(getAppleAuthStatus());
 });
 
-dashboardRouter.post('/v1/dashboard/apple-auth/start', canManageSettings, canManageUsers, (_req, res) => {
+dashboardRouter.post('/v1/dashboard/apple-auth/start', canManageAppleAuth, (_req, res) => {
   if (isAppleAuthRunning()) {
     res.status(409).json({ error: 'already running' });
     return;
@@ -478,7 +556,7 @@ dashboardRouter.post('/v1/dashboard/apple-auth/start', canManageSettings, canMan
   }
 });
 
-dashboardRouter.post('/v1/dashboard/apple-auth/input', canManageSettings, canManageUsers, (req, res) => {
+dashboardRouter.post('/v1/dashboard/apple-auth/input', canManageAppleAuth, (req, res) => {
   const value = typeof req.body?.value === 'string' ? req.body.value : '';
   try {
     sendAppleAuthInput(value);
@@ -488,7 +566,7 @@ dashboardRouter.post('/v1/dashboard/apple-auth/input', canManageSettings, canMan
   }
 });
 
-dashboardRouter.post('/v1/dashboard/apple-auth/cancel', canManageSettings, canManageUsers, (_req, res) => {
+dashboardRouter.post('/v1/dashboard/apple-auth/cancel', canManageAppleAuth, (_req, res) => {
   cancelAppleAuth();
   res.json({ ok: true });
 });

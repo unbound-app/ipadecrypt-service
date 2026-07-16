@@ -6,6 +6,7 @@
   import SkeletonRows from '../components/SkeletonRows.svelte';
   import {
     approveKey,
+    bulkApproveKeys,
     bulkRevokeKeys,
     denyKey,
     fetchAllKeys,
@@ -28,17 +29,24 @@
   import { sessionState } from '../lib/session.svelte';
   import { confirmDialog, showToast } from '../lib/ui.svelte';
 
+  const PAGE_SIZE = 25;
+
   let keyName = $state('');
   let keyExpiry = $state('never');
+  let keyScope = $state('');
   let revealedKey = $state('');
   let mine = $state<ApiKeyRecord[] | null>(null);
   let pending = $state<ApiKeyRecord[] | null>(null);
   let all = $state<ApiKeyRecord[] | null>(null);
+  let allTotal = $state(0);
+  let loadingMoreAll = $state(false);
   let statusFilter = $state('all');
   let selected = $state<Set<string>>(new Set());
+  let selectedPending = $state<Set<string>>(new Set());
   let submitting = $state(false);
   let busyActions = $state<Set<string>>(new Set());
   let bulkRevoking = $state(false);
+  let bulkApproving = $state(false);
 
   function setBusy(action: string, id: string, busy: boolean): void {
     const key = `${action}:${id}`;
@@ -67,18 +75,45 @@
     { value: '90', label: 'In 90 days' },
   ];
 
-  const isKeyManager = $derived(!!sessionState.permissions?.manageKeys);
+  const canApprove = $derived(!!sessionState.permissions?.approveApiKeys);
+  const canViewAll = $derived(!!sessionState.permissions?.viewApiKeys);
+  const canRevokeAny = $derived(!!sessionState.permissions?.revokeApiKeys);
+
+  async function loadAllKeysPage(): Promise<void> {
+    const data = await fetchAllKeys(0, PAGE_SIZE);
+    all = data.keys;
+    allTotal = data.total;
+  }
+
+  async function loadMoreKeys(): Promise<void> {
+    if (!all) return;
+    loadingMoreAll = true;
+    try {
+      const data = await fetchAllKeys(all.length, PAGE_SIZE);
+      all = [...all, ...data.keys];
+      allTotal = data.total;
+    } finally {
+      loadingMoreAll = false;
+    }
+  }
 
   async function loadAll(): Promise<void> {
     mine = (await fetchMyKeys()).keys;
-    if (!isKeyManager) return;
-    pending = (await fetchPendingKeys()).keys;
-    all = (await fetchAllKeys()).keys;
+    if (canApprove) pending = (await fetchPendingKeys()).keys;
+    if (canViewAll) await loadAllKeysPage();
   }
 
   $effect(() => {
     void loadAll();
   });
+
+  function parseScope(raw: string): string[] | undefined {
+    const ids = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return ids.length > 0 ? ids : undefined;
+  }
 
   async function submitRequest(): Promise<void> {
     const name = keyName.trim();
@@ -86,9 +121,10 @@
     submitting = true;
     try {
       const expiresInDays = keyExpiry === 'never' ? undefined : Number(keyExpiry);
-      const { ok, data } = await requestKey(name, expiresInDays);
+      const { ok, data } = await requestKey(name, expiresInDays, parseScope(keyScope));
       if (!ok) return;
       keyName = '';
+      keyScope = '';
       if (data.key) {
         revealedKey = data.key;
         showToast('Key created', 'success');
@@ -167,6 +203,13 @@
     selected = next;
   }
 
+  function toggleSelectPending(id: string): void {
+    const next = new Set(selectedPending);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selectedPending = next;
+  }
+
   const filteredAll = $derived((all ?? []).filter((k) => statusFilter === 'all' || k.status === statusFilter));
 
   async function bulkRevoke(): Promise<void> {
@@ -181,18 +224,33 @@
       bulkRevoking = false;
     }
   }
+
+  async function bulkApprove(): Promise<void> {
+    if (selectedPending.size === 0) return;
+    bulkApproving = true;
+    try {
+      await bulkApproveKeys([...selectedPending]);
+      selectedPending = new Set();
+      void loadAll();
+    } finally {
+      bulkApproving = false;
+    }
+  }
 </script>
 
 <div class="flex flex-col gap-4">
-  <Card title={isKeyManager ? 'Get a key' : 'Request a key'}>
+  <Card title={canApprove ? 'Get a key' : 'Request a key'}>
     <div class="mb-2.5 text-sm text-muted">
-      {isKeyManager ? "You get it instantly - no approval needed." : 'Needs approval from an admin before it works.'}
+      {canApprove ? "You get it instantly - no approval needed." : 'Needs approval from an admin before it works.'}
     </div>
     <label for="key-name" class="mb-1 block text-xs text-muted">Name</label>
     <Input id="key-name" placeholder="e.g. laptop, ci-runner" bind:value={keyName} />
     <label for="key-expiry" class="mt-3 mb-1 block text-xs text-muted">Expires</label>
     <Select id="key-expiry" items={EXPIRY_OPTIONS} bind:value={keyExpiry} class="w-full" />
-    <Button class="mt-3" loading={submitting} onclick={submitRequest}>{isKeyManager ? 'Create' : 'Request'}</Button>
+    <label for="key-scope" class="mt-3 mb-1 block text-xs text-muted">Restrict to bundle IDs (optional)</label>
+    <Input id="key-scope" placeholder="e.g. com.example.app, com.example.app2" bind:value={keyScope} />
+    <div class="mt-1 text-xs text-muted">Comma-separated. Leave blank for a key that can decrypt anything.</div>
+    <Button class="mt-3" loading={submitting} onclick={submitRequest}>{canApprove ? 'Create' : 'Request'}</Button>
     {#if revealedKey}
       <div class="border-accent bg-panel-muted mt-3 rounded-md border p-2.5 text-xs break-all">
         Save this now, it won't be shown again:<br />
@@ -212,6 +270,7 @@
           <tr>
             <th>Name</th>
             <th>Status</th>
+            <th>Scope</th>
             <th>Created</th>
             <th>Last used</th>
             <th></th>
@@ -219,7 +278,7 @@
         </thead>
         <tbody>
           {#if mine === null}
-            <SkeletonRows rows={2} colspan={5} />
+            <SkeletonRows rows={2} colspan={6} />
           {:else}
             {#each mine as k (k.id)}
               <tr>
@@ -231,6 +290,13 @@
                       <Badge variant="secondary">expires {fmtUntil(k.expiresAt)}</Badge>
                     {/if}
                   </div>
+                </td>
+                <td class="max-w-40 truncate text-muted" title={k.allowedBundleIds?.join(', ') ?? ''}>
+                  {#if k.allowedBundleIds?.length}
+                    {k.allowedBundleIds.length} bundle{k.allowedBundleIds.length === 1 ? '' : 's'}
+                  {:else}
+                    <span class="text-muted">unrestricted</span>
+                  {/if}
                 </td>
                 <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                 <td class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
@@ -256,12 +322,18 @@
     {/if}
   </Card>
 
-  {#if isKeyManager}
+  {#if canApprove}
     <Card title="Pending requests">
+      {#snippet headerExtra()}
+        {#if selectedPending.size > 0}
+          <Button size="sm" loading={bulkApproving} onclick={bulkApprove}>Approve {selectedPending.size} selected</Button>
+        {/if}
+      {/snippet}
       <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
         <table class="min-w-[480px]">
           <thead>
             <tr>
+              <th></th>
               <th>Name</th>
               <th>Requested by</th>
               <th>Requested</th>
@@ -270,10 +342,11 @@
           </thead>
           <tbody>
             {#if pending === null}
-              <SkeletonRows rows={2} colspan={4} />
+              <SkeletonRows rows={2} colspan={5} />
             {:else}
               {#each pending as k (k.id)}
                 <tr>
+                  <td><input type="checkbox" checked={selectedPending.has(k.id)} onchange={() => toggleSelectPending(k.id)} /></td>
                   <td>
                     {k.name}
                     {#if k.expiresAt}
@@ -298,35 +371,40 @@
         <EmptyState icon={PackageSearch} message="Nothing pending." />
       {/if}
     </Card>
+  {/if}
 
+  {#if canViewAll}
     <Card title="All keys">
       {#snippet headerExtra()}
-        {#if selected.size > 0}
+        {#if canRevokeAny && selected.size > 0}
           <Button size="sm" variant="destructive" loading={bulkRevoking} onclick={bulkRevoke}>Revoke {selected.size} selected</Button>
         {/if}
       {/snippet}
       <Select items={STATUS_OPTIONS} bind:value={statusFilter} class="mb-3 w-44" />
       <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
-        <table class="min-w-[620px]">
+        <table class="min-w-[700px]">
           <thead>
             <tr>
-              <th></th>
+              {#if canRevokeAny}<th></th>{/if}
               <th>ID</th>
               <th>Name</th>
               <th>Owner</th>
               <th>Status</th>
+              <th>Scope</th>
               <th>Created</th>
               <th>Last used</th>
-              <th></th>
+              {#if canRevokeAny}<th></th>{/if}
             </tr>
           </thead>
           <tbody>
             {#if all === null}
-              <SkeletonRows rows={3} colspan={8} />
+              <SkeletonRows rows={3} colspan={canRevokeAny ? 9 : 7} />
             {:else}
               {#each filteredAll as k (k.id)}
                 <tr>
-                  <td><input type="checkbox" checked={selected.has(k.id)} onchange={() => toggleSelect(k.id)} /></td>
+                  {#if canRevokeAny}
+                    <td><input type="checkbox" checked={selected.has(k.id)} onchange={() => toggleSelect(k.id)} /></td>
+                  {/if}
                   <td>
                     <div class="flex items-center gap-1.5">
                       <code title={k.id}>{k.id.slice(0, 8)}</code>
@@ -343,9 +421,18 @@
                       {/if}
                     </div>
                   </td>
+                  <td class="max-w-32 truncate text-muted" title={k.allowedBundleIds?.join(', ') ?? ''}>
+                    {#if k.allowedBundleIds?.length}
+                      {k.allowedBundleIds.length} bundle{k.allowedBundleIds.length === 1 ? '' : 's'}
+                    {:else}
+                      <span class="text-muted">unrestricted</span>
+                    {/if}
+                  </td>
                   <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                   <td class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
-                  <td><Button size="sm" variant="destructive" loading={isBusy('revoke', k.id)} onclick={() => doRevoke(k.id)}>Revoke</Button></td>
+                  {#if canRevokeAny}
+                    <td><Button size="sm" variant="destructive" loading={isBusy('revoke', k.id)} onclick={() => doRevoke(k.id)}>Revoke</Button></td>
+                  {/if}
                 </tr>
               {/each}
             {/if}
@@ -354,6 +441,13 @@
       </div>
       {#if all !== null && filteredAll.length === 0}
         <EmptyState icon={PackageSearch} message="No keys match this filter." />
+      {/if}
+      {#if all !== null && all.length < allTotal}
+        <div class="mt-3 flex justify-center">
+          <Button size="sm" variant="secondary" loading={loadingMoreAll} onclick={loadMoreKeys}>
+            Load more ({allTotal - all.length} older)
+          </Button>
+        </div>
       {/if}
     </Card>
   {/if}

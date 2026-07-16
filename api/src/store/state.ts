@@ -9,25 +9,88 @@ export type ApiKeyStatus = 'pending' | 'approved' | 'denied';
 
 export interface Permissions {
   decrypt: boolean;
-  manageKeys: boolean;
-  manageSettings: boolean;
+  viewApiKeys: boolean;
+  approveApiKeys: boolean;
+  revokeApiKeys: boolean;
+  manageScheduler: boolean;
+  manageAppleAuth: boolean;
+  viewUsers: boolean;
   manageUsers: boolean;
 }
 
-export const VIEWER_PERMISSIONS: Permissions = { decrypt: false, manageKeys: false, manageSettings: false, manageUsers: false };
-export const ADMIN_PERMISSIONS: Permissions = { decrypt: true, manageKeys: true, manageSettings: true, manageUsers: true };
+export const PERMISSION_KEYS: (keyof Permissions)[] = [
+  'decrypt',
+  'viewApiKeys',
+  'approveApiKeys',
+  'revokeApiKeys',
+  'manageScheduler',
+  'manageAppleAuth',
+  'viewUsers',
+  'manageUsers',
+];
+
+export const VIEWER_PERMISSIONS: Permissions = {
+  decrypt: false,
+  viewApiKeys: false,
+  approveApiKeys: false,
+  revokeApiKeys: false,
+  manageScheduler: false,
+  manageAppleAuth: false,
+  viewUsers: false,
+  manageUsers: false,
+};
+
+export const ADMIN_PERMISSIONS: Permissions = {
+  decrypt: true,
+  viewApiKeys: true,
+  approveApiKeys: true,
+  revokeApiKeys: true,
+  manageScheduler: true,
+  manageAppleAuth: true,
+  viewUsers: true,
+  manageUsers: true,
+};
+
+// Some capabilities imply others - keep that consistent no matter how permissions were set.
+export function normalizePermissions(p: Permissions): Permissions {
+  return {
+    ...p,
+    viewApiKeys: p.viewApiKeys || p.approveApiKeys || p.revokeApiKeys,
+    viewUsers: p.viewUsers || p.manageUsers,
+  };
+}
 
 function legacyRoleToPermissions(role: string): Permissions {
   switch (role) {
     case 'admin':
       return { ...ADMIN_PERMISSIONS };
     case 'operator':
-      return { decrypt: true, manageKeys: true, manageSettings: false, manageUsers: false };
+      return { ...VIEWER_PERMISSIONS, decrypt: true, viewApiKeys: true, approveApiKeys: true, revokeApiKeys: true };
     case 'member':
-      return { decrypt: true, manageKeys: false, manageSettings: false, manageUsers: false };
+      return { ...VIEWER_PERMISSIONS, decrypt: true };
     default:
       return { ...VIEWER_PERMISSIONS };
   }
+}
+
+interface LegacyV3Permissions {
+  decrypt: boolean;
+  manageKeys: boolean;
+  manageSettings: boolean;
+  manageUsers: boolean;
+}
+
+function migratePermissionsV3(old: LegacyV3Permissions): Permissions {
+  return {
+    decrypt: old.decrypt,
+    viewApiKeys: old.manageKeys,
+    approveApiKeys: old.manageKeys,
+    revokeApiKeys: old.manageKeys,
+    manageScheduler: old.manageSettings,
+    manageAppleAuth: old.manageSettings && old.manageUsers,
+    viewUsers: old.manageUsers,
+    manageUsers: old.manageUsers,
+  };
 }
 
 export interface AllowedUser {
@@ -47,6 +110,12 @@ export interface ApiKeyRecord {
   approvedAt?: number;
   lastUsedAt?: number;
   expiresAt?: number;
+  allowedBundleIds?: string[];
+}
+
+export interface ApiKeyAuthResult {
+  // undefined = unrestricted (root key, or a key created with no scope)
+  allowedBundleIds?: string[];
 }
 
 export interface SchedulerSettings {
@@ -83,8 +152,30 @@ export interface UserPrefs {
   theme?: 'dark' | 'light';
 }
 
+export type AuditAction = 'user.add' | 'user.update' | 'user.remove';
+
+export interface AuditLogEntry {
+  id: string;
+  ts: number;
+  actor: string;
+  action: AuditAction;
+  target: string;
+  detail?: string;
+}
+
+export interface SchedulerRunOutcome {
+  triggered: boolean;
+  reason: string;
+}
+
+export interface SchedulerRunEntry {
+  ts: number;
+  appStore: SchedulerRunOutcome;
+  testflight: SchedulerRunOutcome;
+}
+
 interface PersistedState {
-  version: 3;
+  version: 4;
   apiKeys: ApiKeyRecord[];
   allowedUsers: AllowedUser[];
   settings: Partial<SchedulerSettings>;
@@ -92,32 +183,52 @@ interface PersistedState {
   appleAuthAlert: AppleAuthAlert;
   lastSchedulerRunAt?: number;
   userPrefs: Record<string, UserPrefs>;
+  auditLog: AuditLogEntry[];
+  schedulerRunHistory: SchedulerRunEntry[];
 }
 
 const MAX_HISTORY = 100;
+const MAX_AUDIT_LOG = 200;
+const MAX_SCHEDULER_RUNS = 20;
 const statePath = path.join(config.stateDir, 'state.json');
 
 function defaultState(): PersistedState {
   return {
-    version: 3,
+    version: 4,
     apiKeys: [],
     allowedUsers: [],
     settings: {},
     jobHistory: [],
     appleAuthAlert: { suspected: false },
     userPrefs: {},
+    auditLog: [],
+    schedulerRunHistory: [],
   };
 }
 
 function migrate(raw: Record<string, unknown>): PersistedState {
-  if (raw.version === 3) return { ...defaultState(), ...raw } as PersistedState;
+  if (raw.version === 4) return { ...defaultState(), ...raw } as PersistedState;
+
+  if (raw.version === 3) {
+    const v3Users = Array.isArray(raw.allowedUsers) ? (raw.allowedUsers as Record<string, unknown>[]) : [];
+    return {
+      ...defaultState(),
+      ...raw,
+      version: 4,
+      allowedUsers: v3Users.map((u) => ({
+        username: u.username as string,
+        permissions: migratePermissionsV3(u.permissions as LegacyV3Permissions),
+        addedAt: u.addedAt as number,
+      })),
+    } as PersistedState;
+  }
 
   if (raw.version === 2) {
     const legacyUsers = Array.isArray(raw.allowedUsers) ? (raw.allowedUsers as Record<string, unknown>[]) : [];
     return {
       ...defaultState(),
       ...raw,
-      version: 3,
+      version: 4,
       allowedUsers: legacyUsers.map((u) => ({
         username: u.username as string,
         permissions: legacyRoleToPermissions(String(u.role ?? '')),
@@ -188,33 +299,67 @@ export function getUserPermissions(username: string): Permissions | undefined {
   return state.allowedUsers.find((u) => u.username === username.toLowerCase())?.permissions;
 }
 
-export function addAllowedUser(username: string, permissions: Permissions): AllowedUser {
+// True if applying this change would leave nobody on the allowlist able to grant access back
+// (root's ADMIN_PASSWORD still works, but GitHub-OAuth-only teams would be locked out of self-service).
+export function wouldOrphanManageUsers(username: string, newPermissions: Permissions | null): boolean {
   const lower = username.toLowerCase();
+  const othersHaveIt = state.allowedUsers.some((u) => u.username !== lower && u.permissions.manageUsers);
+  if (othersHaveIt) return false;
+  return !newPermissions?.manageUsers;
+}
+
+function permissionDiff(before: Permissions, after: Permissions): string {
+  const changes = PERMISSION_KEYS.filter((k) => before[k] !== after[k]).map((k) => `${after[k] ? '+' : '-'}${k}`);
+  return changes.length > 0 ? changes.join(', ') : '(no change)';
+}
+
+export function recordAudit(actor: string, action: AuditAction, target: string, detail?: string): void {
+  state.auditLog.unshift({ id: randomUUID(), ts: Date.now(), actor, action, target, detail });
+  if (state.auditLog.length > MAX_AUDIT_LOG) state.auditLog.length = MAX_AUDIT_LOG;
+  persistNow();
+}
+
+export function getAuditLog(limit = 100): AuditLogEntry[] {
+  return state.auditLog.slice(0, limit);
+}
+
+export function addAllowedUser(username: string, permissions: Permissions, actor: string): AllowedUser {
+  const lower = username.toLowerCase();
+  const normalized = normalizePermissions(permissions);
   const existing = state.allowedUsers.find((u) => u.username === lower);
   if (existing) {
-    existing.permissions = permissions;
+    const detail = permissionDiff(existing.permissions, normalized);
+    existing.permissions = normalized;
     persistNow();
+    recordAudit(actor, 'user.update', lower, detail);
     return existing;
   }
-  const record: AllowedUser = { username: lower, permissions, addedAt: Date.now() };
+  const record: AllowedUser = { username: lower, permissions: normalized, addedAt: Date.now() };
   state.allowedUsers.push(record);
   persistNow();
+  recordAudit(actor, 'user.add', lower, permissionDiff(VIEWER_PERMISSIONS, normalized));
   return record;
 }
 
-export function updateAllowedUserPermissions(username: string, permissions: Permissions): AllowedUser | undefined {
+export function updateAllowedUserPermissions(username: string, permissions: Permissions, actor: string): AllowedUser | undefined {
   const existing = state.allowedUsers.find((u) => u.username === username.toLowerCase());
   if (!existing) return undefined;
-  existing.permissions = permissions;
+  const normalized = normalizePermissions(permissions);
+  const detail = permissionDiff(existing.permissions, normalized);
+  existing.permissions = normalized;
   persistNow();
+  recordAudit(actor, 'user.update', existing.username, detail);
   return existing;
 }
 
-export function removeAllowedUser(username: string): boolean {
+export function removeAllowedUser(username: string, actor: string): boolean {
   const before = state.allowedUsers.length;
   state.allowedUsers = state.allowedUsers.filter((u) => u.username !== username.toLowerCase());
   const changed = state.allowedUsers.length !== before;
-  if (changed) persistNow();
+  if (changed) {
+    persistNow();
+    recordAudit(actor, 'user.remove', username.toLowerCase());
+  }
   return changed;
 }
 
@@ -229,6 +374,7 @@ function redact(k: ApiKeyRecord) {
     lastUsedAt: k.lastUsedAt,
     expiresAt: k.expiresAt,
     hasUnrevealedSecret: !!k.pendingReveal,
+    allowedBundleIds: k.allowedBundleIds,
   };
 }
 
@@ -236,10 +382,15 @@ function expiresAtFromDays(expiresInDays?: number): number | undefined {
   return expiresInDays ? Date.now() + expiresInDays * 86_400_000 : undefined;
 }
 
+function sanitizeBundleIds(allowedBundleIds?: string[]): string[] | undefined {
+  return allowedBundleIds && allowedBundleIds.length > 0 ? allowedBundleIds : undefined;
+}
+
 export function createApiKey(
   name: string,
   ownerId: string,
   expiresInDays?: number,
+  allowedBundleIds?: string[],
 ): { id: string; name: string; key: string; createdAt: number; expiresAt?: number } {
   const key = randomBytes(32).toString('hex');
   const record: ApiKeyRecord = {
@@ -252,13 +403,14 @@ export function createApiKey(
     createdAt: Date.now(),
     approvedAt: Date.now(),
     expiresAt: expiresAtFromDays(expiresInDays),
+    allowedBundleIds: sanitizeBundleIds(allowedBundleIds),
   };
   state.apiKeys.push(record);
   persistNow();
   return { id: record.id, name: record.name, key, createdAt: record.createdAt, expiresAt: record.expiresAt };
 }
 
-export function requestApiKey(name: string, ownerId: string, expiresInDays?: number) {
+export function requestApiKey(name: string, ownerId: string, expiresInDays?: number, allowedBundleIds?: string[]) {
   const record: ApiKeyRecord = {
     id: randomUUID(),
     name,
@@ -266,6 +418,7 @@ export function requestApiKey(name: string, ownerId: string, expiresInDays?: num
     status: 'pending',
     createdAt: Date.now(),
     expiresAt: expiresAtFromDays(expiresInDays),
+    allowedBundleIds: sanitizeBundleIds(allowedBundleIds),
   };
   state.apiKeys.push(record);
   persistNow();
@@ -282,6 +435,10 @@ export function approveApiKey(id: string): boolean {
   record.approvedAt = Date.now();
   persistNow();
   return true;
+}
+
+export function bulkApproveApiKeys(ids: string[]): string[] {
+  return ids.filter((id) => approveApiKey(id));
 }
 
 export function denyApiKey(id: string): boolean {
@@ -319,6 +476,11 @@ export function listAllApiKeys() {
   return state.apiKeys.map(redact);
 }
 
+export function listAllApiKeysPage(offset: number, limit: number): { keys: ReturnType<typeof redact>[]; total: number } {
+  const sorted = [...state.apiKeys].sort((a, b) => b.createdAt - a.createdAt);
+  return { keys: sorted.slice(offset, offset + limit).map(redact), total: sorted.length };
+}
+
 export function listPendingApiKeys() {
   return state.apiKeys.filter((k) => k.status === 'pending').map(redact);
 }
@@ -333,17 +495,17 @@ export function revokeApiKey(id: string, requesterId: string, requesterIsAdmin: 
   return true;
 }
 
-export function verifyApiKey(candidate: string): boolean {
-  if (safeEqualStr(candidate, config.apiKey)) return true;
+export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined {
+  if (safeEqualStr(candidate, config.apiKey)) return {};
 
   const hash = hashKey(candidate);
   const record = state.apiKeys.find((k) => k.status === 'approved' && k.hash === hash);
-  if (!record) return false;
-  if (record.expiresAt && Date.now() > record.expiresAt) return false;
+  if (!record) return undefined;
+  if (record.expiresAt && Date.now() > record.expiresAt) return undefined;
 
   record.lastUsedAt = Date.now();
   dirty = true;
-  return true;
+  return { allowedBundleIds: record.allowedBundleIds };
 }
 
 export function startApiKeySweeper(): void {
@@ -391,6 +553,10 @@ export function getJobHistoryPage(offset: number, limit: number, bundleIdSearch?
   return { entries: filtered.slice(offset, offset + limit), total: filtered.length };
 }
 
+export function getAllJobHistory(): JobHistoryEntry[] {
+  return state.jobHistory;
+}
+
 export function getAverageJobDurationMs(bundleId: string): number | undefined {
   const durations = state.jobHistory
     .filter((j) => j.bundleId === bundleId && j.status === 'done' && j.startedAt)
@@ -422,6 +588,16 @@ export function recordSchedulerRun(): void {
 
 export function getLastSchedulerRunAt(): number | undefined {
   return state.lastSchedulerRunAt;
+}
+
+export function recordSchedulerRunOutcome(outcome: Omit<SchedulerRunEntry, 'ts'>): void {
+  state.schedulerRunHistory.unshift({ ts: Date.now(), ...outcome });
+  if (state.schedulerRunHistory.length > MAX_SCHEDULER_RUNS) state.schedulerRunHistory.length = MAX_SCHEDULER_RUNS;
+  persistNow();
+}
+
+export function getSchedulerRunHistory(limit = 10): SchedulerRunEntry[] {
+  return state.schedulerRunHistory.slice(0, limit);
 }
 
 export function getAppleAuthAlert(): AppleAuthAlert {

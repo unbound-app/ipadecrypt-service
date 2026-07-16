@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Permissions } from '../lib/session.svelte';
+  import { normalizePermissions, type Permissions } from '../lib/session.svelte';
   import { cn } from '../lib/utils';
 
   interface Props {
@@ -8,18 +8,75 @@
 
   let { value = $bindable() }: Props = $props();
 
-  const FIELDS: { key: keyof Permissions; label: string; description: string }[] = [
-    { key: 'decrypt', label: 'Decrypt apps', description: 'Queue decrypts and request their own API keys' },
-    { key: 'manageKeys', label: 'Manage API keys', description: "Approve or deny requests, revoke anyone's key" },
-    { key: 'manageSettings', label: 'Manage settings', description: 'Scheduler and dispatch configuration' },
-    { key: 'manageUsers', label: 'Manage users', description: 'Add or remove people, change their permissions' },
+  interface Field {
+    key: keyof Permissions;
+    label: string;
+    description: string;
+    impliedBy?: (keyof Permissions)[];
+  }
+
+  interface Group {
+    title: string;
+    fields: Field[];
+  }
+
+  const GROUPS: Group[] = [
+    {
+      title: 'Decryption',
+      fields: [{ key: 'decrypt', label: 'Decrypt apps', description: 'Queue decrypts and request their own API keys' }],
+    },
+    {
+      title: 'API keys',
+      fields: [
+        { key: 'viewApiKeys', label: 'View all keys', description: 'See every key across every user, not just their own', impliedBy: ['approveApiKeys', 'revokeApiKeys'] },
+        { key: 'approveApiKeys', label: 'Approve requests', description: 'Approve or deny pending key requests; their own requests auto-approve' },
+        { key: 'revokeApiKeys', label: "Revoke anyone's key", description: "Revoke or bulk-revoke any user's key, not just their own" },
+      ],
+    },
+    {
+      title: 'Scheduler & dispatch',
+      fields: [
+        { key: 'manageScheduler', label: 'Manage scheduler', description: 'Edit watch/dispatch settings, trigger dispatch, test the webhook, dismiss auth alerts' },
+      ],
+    },
+    {
+      title: 'Apple authentication',
+      fields: [
+        { key: 'manageAppleAuth', label: 'Apple ID re-authentication', description: 'Run the App Store sign-in flow - real Apple ID credentials pass through this' },
+      ],
+    },
+    {
+      title: 'Users',
+      fields: [
+        { key: 'viewUsers', label: 'View allowlist', description: 'See who has access and what they can do', impliedBy: ['manageUsers'] },
+        { key: 'manageUsers', label: 'Manage allowlist', description: "Add or remove people, change anyone's permissions" },
+      ],
+    },
   ];
 
+  const FIELDS = GROUPS.flatMap((g) => g.fields);
+
   const PRESETS: { label: string; permissions: Permissions }[] = [
-    { label: 'Viewer', permissions: { decrypt: false, manageKeys: false, manageSettings: false, manageUsers: false } },
-    { label: 'Member', permissions: { decrypt: true, manageKeys: false, manageSettings: false, manageUsers: false } },
-    { label: 'Manager', permissions: { decrypt: true, manageKeys: true, manageSettings: false, manageUsers: false } },
-    { label: 'Admin', permissions: { decrypt: true, manageKeys: true, manageSettings: true, manageUsers: true } },
+    {
+      label: 'Viewer',
+      permissions: { decrypt: false, viewApiKeys: false, approveApiKeys: false, revokeApiKeys: false, manageScheduler: false, manageAppleAuth: false, viewUsers: false, manageUsers: false },
+    },
+    {
+      label: 'Member',
+      permissions: { decrypt: true, viewApiKeys: false, approveApiKeys: false, revokeApiKeys: false, manageScheduler: false, manageAppleAuth: false, viewUsers: false, manageUsers: false },
+    },
+    {
+      label: 'Key manager',
+      permissions: { decrypt: true, viewApiKeys: true, approveApiKeys: true, revokeApiKeys: true, manageScheduler: false, manageAppleAuth: false, viewUsers: false, manageUsers: false },
+    },
+    {
+      label: 'Ops admin',
+      permissions: { decrypt: true, viewApiKeys: false, approveApiKeys: false, revokeApiKeys: false, manageScheduler: true, manageAppleAuth: true, viewUsers: false, manageUsers: false },
+    },
+    {
+      label: 'Admin',
+      permissions: { decrypt: true, viewApiKeys: true, approveApiKeys: true, revokeApiKeys: true, manageScheduler: true, manageAppleAuth: true, viewUsers: true, manageUsers: true },
+    },
   ];
 
   function applyPreset(p: Permissions): void {
@@ -31,7 +88,11 @@
   }
 
   function toggle(key: keyof Permissions): void {
-    value = { ...value, [key]: !value[key] };
+    value = normalizePermissions({ ...value, [key]: !value[key] });
+  }
+
+  function isImplied(f: Field): boolean {
+    return !!f.impliedBy?.some((k) => value[k]);
   }
 </script>
 
@@ -49,14 +110,33 @@
     </button>
   {/each}
 </div>
-<div class="mt-3 flex flex-col gap-2">
-  {#each FIELDS as f (f.key)}
-    <label class="border-border hover:bg-panel-muted flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5">
-      <input type="checkbox" class="mt-0.5 cursor-pointer" checked={value[f.key]} onchange={() => toggle(f.key)} />
-      <div class="min-w-0">
-        <div class="text-sm">{f.label}</div>
-        <div class="text-xs text-muted">{f.description}</div>
+<div class="mt-3 flex flex-col gap-3.5">
+  {#each GROUPS as group (group.title)}
+    <div>
+      <div class="mb-1.5 text-[11px] font-medium tracking-wide text-muted uppercase">{group.title}</div>
+      <div class="flex flex-col gap-2">
+        {#each group.fields as f (f.key)}
+          {@const implied = isImplied(f)}
+          <label
+            class={cn(
+              'border-border flex items-start gap-2.5 rounded-md border p-2.5',
+              implied ? 'cursor-not-allowed opacity-70' : 'hover:bg-panel-muted cursor-pointer',
+            )}
+          >
+            <input
+              type="checkbox"
+              class={cn('mt-0.5', implied ? 'cursor-not-allowed' : 'cursor-pointer')}
+              checked={value[f.key] || implied}
+              disabled={implied}
+              onchange={() => toggle(f.key)}
+            />
+            <div class="min-w-0">
+              <div class="text-sm">{f.label}</div>
+              <div class="text-xs text-muted">{implied ? `${f.description} (included above)` : f.description}</div>
+            </div>
+          </label>
+        {/each}
       </div>
-    </label>
+    </div>
   {/each}
 </div>

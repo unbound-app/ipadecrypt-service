@@ -7,13 +7,13 @@
   import UsersSettings from './settings/UsersSettings.svelte';
 
   const ALL_SUBTABS: { id: string; label: string; requires: (keyof Permissions)[] }[] = [
-    { id: 'scheduler', label: 'Scheduler', requires: ['manageSettings'] },
-    { id: 'users', label: 'Users', requires: ['manageUsers'] },
-    { id: 'apple', label: 'Apple Auth', requires: ['manageSettings', 'manageUsers'] },
+    { id: 'scheduler', label: 'Scheduler', requires: ['manageScheduler'] },
+    { id: 'users', label: 'Users', requires: ['viewUsers', 'manageUsers'] },
+    { id: 'apple', label: 'Apple Auth', requires: ['manageAppleAuth'] },
   ];
 
   function hasAccess(requires: (keyof Permissions)[]): boolean {
-    return requires.every((p) => sessionState.permissions?.[p]);
+    return requires.some((p) => sessionState.permissions?.[p]);
   }
 
   const visibleSubtabs = $derived(ALL_SUBTABS.filter((t) => hasAccess(t.requires)));
@@ -27,17 +27,17 @@
 
 <Tabs items={visibleSubtabs} value={tabState.settingsSubtab} onValueChange={setSettingsSubtab} class="mb-5" />
 
-{#if hasAccess(['manageSettings'])}
+{#if hasAccess(['manageScheduler'])}
   <div class:hidden={tabState.settingsSubtab !== 'scheduler'}>
     <SchedulerSettings />
   </div>
 {/if}
-{#if hasAccess(['manageUsers'])}
+{#if hasAccess(['viewUsers', 'manageUsers'])}
   <div class:hidden={tabState.settingsSubtab !== 'users'}>
     <UsersSettings />
   </div>
 {/if}
-{#if hasAccess(['manageSettings', 'manageUsers'])}
+{#if hasAccess(['manageAppleAuth'])}
   <div class:hidden={tabState.settingsSubtab !== 'apple'}>
     <AppleAuthSettings />
   </div>

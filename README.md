@@ -107,32 +107,39 @@ Two ways in:
   add them first (chicken-and-egg: add yourself via `ADMIN_PASSWORD`
   first).
 
-Access is four independent, additive permissions, enforced server-side (the
-UI just hides what a user can't do). A newly-added user starts with none of
-them - pure read-only - and gains capabilities as an admin grants them,
-rather than picking from a fixed tier:
+Access is eight independent, additive permissions, enforced server-side
+(the UI just hides what a user can't do). A newly-added user starts with
+none of them - pure read-only - and gains capabilities one at a time as an
+admin grants them, rather than picking from a fixed tier. A few imply
+others (checking a stronger box auto-checks the weaker one it needs):
 
 - **decrypt** - queue decrypts, and manage their own API keys (request,
   reveal-once, regenerate, revoke) - a request sits as `pending` until
-  someone with `manageKeys` approves it on the API Keys tab.
-- **manageKeys** - approve/deny pending key requests, view the full key
-  list across every user, bulk-revoke, and their own key requests
-  auto-approve instead of queuing.
-- **manageSettings** - the Scheduler settings sub-tab (watch/dispatch
-  config, cron, webhook, manual dispatch trigger).
-- **manageUsers** - the Users settings sub-tab: add/remove people from the
-  allowlist and change their permissions. A user can't remove their own
-  `manageUsers` - get another user with it to do that, or fall back to
-  `ADMIN_PASSWORD`.
+  someone with `approveApiKeys` approves it on the API Keys tab.
+- **viewApiKeys** - see the full key list across every user (implied by
+  `approveApiKeys` and `revokeApiKeys`).
+- **approveApiKeys** - approve/deny pending key requests; their own key
+  requests auto-approve instead of queuing.
+- **revokeApiKeys** - revoke or bulk-revoke any user's key, not just their
+  own.
+- **manageScheduler** - the Scheduler settings sub-tab (watch/dispatch
+  config, cron, webhook, manual dispatch trigger) and dismissing App Store
+  auth-failure alerts.
+- **manageAppleAuth** - the Apple Auth sub-tab: runs the App Store
+  re-authentication flow, which puts real Apple ID credentials through the
+  pipeline. Its own dedicated permission rather than a side effect of
+  another grant.
+- **viewUsers** - see the allowlist and everyone's permissions, read-only
+  (implied by `manageUsers`).
+- **manageUsers** - add/remove people from the allowlist and change their
+  permissions. A user can't remove their own `manageUsers` - get another
+  user with it to do that, or fall back to `ADMIN_PASSWORD`.
 
-Apple ID re-authentication needs **both** `manageSettings` and
-`manageUsers` - the same combination the old `admin` role uniquely had -
-since it puts real Apple ID credentials through the pipeline and shouldn't
-be reachable by a settings-only or users-only grant.
-
-The Users tab presents these as a checklist plus quick presets (Viewer /
-Member / Manager / Admin) that just fill the checkboxes - any custom
-combination is still one edit away.
+The Users tab presents these grouped by category, plus quick presets
+(Viewer / Member / Key manager / Ops admin / Admin) that just fill the
+checkboxes - any custom combination is still one edit away, and implied
+permissions are shown checked and disabled so the list always reflects
+what's actually granted.
 
 Per-account preferences (currently just light/dark theme) are synced
 server-side, not just `localStorage` - switching browsers or devices keeps
@@ -141,35 +148,51 @@ your last choice.
 Tabs:
 
 - **Home** - search the App Store and queue a decrypt, your own
-  queued/finished requests, scheduler on/off, active jobs, recent history,
-  and a banner if a decrypt failure looked like an App Store auth issue.
+  queued/finished requests, scheduler on/off, active jobs, recent history
+  (searchable and exportable as CSV/JSON), the last 10 scheduler run
+  outcomes, and a banner if a decrypt failure looked like an App Store
+  auth issue.
   Each free result has a clock-icon button that opens its App Store
   version history and lets you decrypt an older release instead of the
   current one (`ipadecrypt decrypt --external-version-id`) - see
   **Decrypting a specific version** below.
-- **API Keys** (needs `decrypt` or `manageKeys`) - request/reveal/
-  regenerate/revoke your own keys; anyone with `manageKeys` additionally
-  sees all pending requests (approve/deny), the full key list across every
-  user, and can create an auto-approved key directly (e.g. for a CI
-  runner). Keys are stored hashed - the plaintext is only ever shown once,
-  right after approval/regeneration. The root `API_KEY` from `.env` always
-  works too and isn't managed here.
+- **API Keys** (needs `decrypt`, `viewApiKeys`, `approveApiKeys`, or
+  `revokeApiKeys`) - request/reveal/regenerate/revoke your own keys, and
+  optionally restrict a key to a comma-separated list of bundle IDs at
+  creation time (e.g. for a CI runner that should only ever touch one
+  app) - the `/v1/decrypt` and `/v1/jobs/*` endpoints reject any bundle ID
+  outside that list with a 403. Anyone with `approveApiKeys` additionally
+  sees pending requests (approve/deny, individually or in bulk) and can
+  create an auto-approved key directly; anyone with `viewApiKeys` sees the
+  full key list across every user (paginated); anyone with `revokeApiKeys`
+  can revoke or bulk-revoke keys that aren't theirs. A pending request
+  posts to `NOTIFY_WEBHOOK_URL` (if configured) so an approver doesn't
+  have to keep checking the tab. Keys are stored hashed - the plaintext is
+  only ever shown once, right after approval/regeneration. The root
+  `API_KEY` from `.env` always works too, is unrestricted, and isn't
+  managed here.
 - **Logs** - a live feed of scheduler/job log lines, filterable by scope
-  (all/scheduler/jobs) and level (info/warning/error).
+  (all/scheduler/jobs), level (info/warning/error), and free-text search,
+  with CSV/JSON export of whatever's currently filtered. Persisted to
+  disk (`logs.json` in `STATE_DIR`) so a restart doesn't lose history.
 - **Docs** - copy-pasteable curl examples for using an API key, filled in
   with this instance's actual `PUBLIC_BASE_URL`.
-- **Settings** (needs `manageSettings` or `manageUsers`) - sub-tabs shown
-  depend on which of the two you have:
-  - *Scheduler* (`manageSettings`) - edit the watch bundle ID,
+- **Settings** (needs `manageScheduler`, `manageAppleAuth`, `viewUsers`,
+  or `manageUsers`) - sub-tabs shown depend on which you have:
+  - *Scheduler* (`manageScheduler`) - edit the watch bundle ID,
     watch/dispatch repos, workflow file, poll cron, and notification
     webhook URL live, no restart needed. `GH_TOKEN` and `API_KEY` stay
     env-only, not editable here.
-  - *Users* (`manageUsers`) - the GitHub OAuth allowlist: add a username
-    with a permission set, or open the Manage dialog on an existing entry
-    to change their permissions or remove them. A user can't remove their
-    own `manageUsers` permission - get someone else with it to do that, or
-    fall back to `ADMIN_PASSWORD`.
-  - *Apple Auth* (`manageSettings` + `manageUsers`) - re-runs just the App Store sign-in step of `ipadecrypt
+  - *Users* (`viewUsers` or `manageUsers`) - the GitHub OAuth allowlist:
+    `viewUsers` alone gets a read-only list plus the audit log below it
+    (who added/updated/removed which user, and what changed);
+    `manageUsers` additionally lets you add a username with a permission
+    set, or open the Manage dialog on an existing entry to change their
+    permissions or remove them. A user can't remove their own
+    `manageUsers` permission, and no change is allowed that would leave
+    the allowlist with zero `manageUsers` holders - get someone else with
+    it to do that, or fall back to `ADMIN_PASSWORD`.
+  - *Apple Auth* (`manageAppleAuth`) - re-runs just the App Store sign-in step of `ipadecrypt
     bootstrap` (email/password, and a 2FA code if Apple asks for one) as
     a piped child process, streaming its prompts to the page so you don't
     need to SSH in for routine re-auth. It deliberately can't drive the

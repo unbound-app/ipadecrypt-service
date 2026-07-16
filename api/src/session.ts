@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { config } from './config.js';
-import type { Permissions } from './store/state.js';
+import { PERMISSION_KEYS, type Permissions } from './store/state.js';
 
 const COOKIE_NAME = 'session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -15,12 +15,7 @@ export interface Session {
 function isPermissions(value: unknown): value is Permissions {
   if (typeof value !== 'object' || value === null) return false;
   const p = value as Record<string, unknown>;
-  return (
-    typeof p.decrypt === 'boolean' &&
-    typeof p.manageKeys === 'boolean' &&
-    typeof p.manageSettings === 'boolean' &&
-    typeof p.manageUsers === 'boolean'
-  );
+  return PERMISSION_KEYS.every((k) => typeof p[k] === 'boolean');
 }
 
 function safeEqualStr(a: string, b: string): boolean {

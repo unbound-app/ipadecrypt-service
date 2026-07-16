@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RelativeTime from '../../components/RelativeTime.svelte';
   import Sparkline from '../../components/Sparkline.svelte';
   import { fetchDeviceHealth, fetchJobVolume, type DeviceHealth } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
@@ -74,6 +75,20 @@
     <div class="border-border mt-1 border-t pt-3">
       <div class="mb-1.5 text-xs text-muted">{total} decrypt{total === 1 ? '' : 's'} · last 14 days</div>
       <Sparkline data={volume} width={280} ariaLabel="{total} decrypts over the last 14 days" />
+    </div>
+  {/if}
+  {#if overview?.schedulerRunHistory?.length}
+    <div class="border-border mt-3 border-t pt-3">
+      <div class="mb-1.5 text-xs text-muted">Last {overview.schedulerRunHistory.length} scheduler runs</div>
+      <div class="flex flex-col gap-1">
+        {#each overview.schedulerRunHistory as run (run.ts)}
+          <div class="flex items-center gap-1.5 text-xs">
+            <span class="w-16 shrink-0 text-muted"><RelativeTime ms={run.ts} /></span>
+            <Badge variant={run.appStore.triggered ? 'default' : 'secondary'} title={run.appStore.reason}>App Store</Badge>
+            <Badge variant={run.testflight.triggered ? 'default' : 'secondary'} title={run.testflight.reason}>TestFlight</Badge>
+          </div>
+        {/each}
+      </div>
     </div>
   {/if}
 </Card>

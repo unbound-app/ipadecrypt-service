@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { config } from './config.js';
 import { emitLogAdded } from './events.js';
 
 export type LogLevel = 'info' | 'warn' | 'error';
@@ -11,16 +14,43 @@ export interface LogEntry {
 }
 
 const MAX_LOG_ENTRIES = 500;
-const recentLogs: LogEntry[] = [];
+const logsPath = path.join(config.stateDir, 'logs.json');
+
+function loadPersistedLogs(): LogEntry[] {
+  try {
+    if (!existsSync(logsPath)) return [];
+    const raw: unknown = JSON.parse(readFileSync(logsPath, 'utf8'));
+    return Array.isArray(raw) ? (raw as LogEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+const recentLogs: LogEntry[] = loadPersistedLogs();
+let logsDirty = false;
 
 function record(entry: LogEntry): void {
   recentLogs.push(entry);
   if (recentLogs.length > MAX_LOG_ENTRIES) recentLogs.shift();
+  logsDirty = true;
   emitLogAdded(entry);
 }
 
 export function getRecentLogs(): LogEntry[] {
   return [...recentLogs].reverse();
+}
+
+export function startLogFlusher(): void {
+  setInterval(() => {
+    if (!logsDirty) return;
+    try {
+      mkdirSync(config.stateDir, { recursive: true });
+      writeFileSync(logsPath, JSON.stringify(recentLogs));
+      logsDirty = false;
+    } catch {
+      // best-effort persistence - logs still work in-memory even if the write fails
+    }
+  }, 30_000).unref();
 }
 
 function ts(): string {

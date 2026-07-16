@@ -84,6 +84,33 @@
     return merged;
   });
 
+  function downloadBlob(content: string, filename: string, type: string): void {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function csvCell(value: unknown): string {
+    const str = value === undefined || value === null ? '' : String(value);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  }
+
+  function exportCsv(): void {
+    const rows = ['ts,level,scope,message,meta'];
+    for (const l of filtered) {
+      rows.push([new Date(l.ts).toISOString(), l.level, l.scope, l.message, fmtLogMeta(l.meta)].map(csvCell).join(','));
+    }
+    downloadBlob(rows.join('\n'), 'dkrypt-logs.csv', 'text/csv');
+  }
+
+  function exportJson(): void {
+    downloadBlob(JSON.stringify(filtered, null, 2), 'dkrypt-logs.json', 'application/json');
+  }
+
   function fmtLogMeta(meta?: Record<string, unknown>): string {
     if (!meta) return '';
     return Object.entries(meta)
@@ -132,10 +159,14 @@
         </button>
       {/if}
     </div>
-    <label class="ml-auto flex items-center gap-1.5 text-xs text-muted">
-      <input type="checkbox" bind:checked={autoScroll} />
-      Auto-scroll to newest
-    </label>
+    <div class="ml-auto flex items-center gap-2.5">
+      <Button variant="secondary" size="sm" onclick={exportCsv}>Export CSV</Button>
+      <Button variant="secondary" size="sm" onclick={exportJson}>Export JSON</Button>
+      <label class="flex items-center gap-1.5 text-xs text-muted">
+        <input type="checkbox" bind:checked={autoScroll} />
+        Auto-scroll to newest
+      </label>
+    </div>
   </div>
 
   {#if initialLogs === null}

@@ -6,20 +6,26 @@ export function requireApiKey(req: Request, res: Response, next: NextFunction): 
   const header = req.header('authorization') ?? '';
   const [scheme, token] = header.split(' ');
 
-  if (scheme !== 'Bearer' || !token || !verifyApiKey(token)) {
+  const result = scheme === 'Bearer' && token ? verifyApiKey(token) : undefined;
+  if (!result) {
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
 
+  res.locals.apiKeyScope = result.allowedBundleIds;
   next();
 }
 
 export function requireApiKeyOrSignedToken(req: Request, res: Response, next: NextFunction): void {
   const header = req.header('authorization') ?? '';
   const [scheme, token] = header.split(' ');
-  if (scheme === 'Bearer' && token && verifyApiKey(token)) {
-    next();
-    return;
+  if (scheme === 'Bearer' && token) {
+    const result = verifyApiKey(token);
+    if (result) {
+      res.locals.apiKeyScope = result.allowedBundleIds;
+      next();
+      return;
+    }
   }
 
   const queryToken = req.query.token;

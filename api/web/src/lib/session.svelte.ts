@@ -2,13 +2,67 @@ import { setTheme, themeState, type Theme } from './ui.svelte';
 
 export interface Permissions {
   decrypt: boolean;
-  manageKeys: boolean;
-  manageSettings: boolean;
+  viewApiKeys: boolean;
+  approveApiKeys: boolean;
+  revokeApiKeys: boolean;
+  manageScheduler: boolean;
+  manageAppleAuth: boolean;
+  viewUsers: boolean;
   manageUsers: boolean;
 }
 
-export const VIEWER_PERMISSIONS: Permissions = { decrypt: false, manageKeys: false, manageSettings: false, manageUsers: false };
-export const ADMIN_PERMISSIONS: Permissions = { decrypt: true, manageKeys: true, manageSettings: true, manageUsers: true };
+export const PERMISSION_KEYS: (keyof Permissions)[] = [
+  'decrypt',
+  'viewApiKeys',
+  'approveApiKeys',
+  'revokeApiKeys',
+  'manageScheduler',
+  'manageAppleAuth',
+  'viewUsers',
+  'manageUsers',
+];
+
+export const VIEWER_PERMISSIONS: Permissions = {
+  decrypt: false,
+  viewApiKeys: false,
+  approveApiKeys: false,
+  revokeApiKeys: false,
+  manageScheduler: false,
+  manageAppleAuth: false,
+  viewUsers: false,
+  manageUsers: false,
+};
+
+export const ADMIN_PERMISSIONS: Permissions = {
+  decrypt: true,
+  viewApiKeys: true,
+  approveApiKeys: true,
+  revokeApiKeys: true,
+  manageScheduler: true,
+  manageAppleAuth: true,
+  viewUsers: true,
+  manageUsers: true,
+};
+
+// Some capabilities imply others - keep that consistent no matter how permissions were set.
+export function normalizePermissions(p: Permissions): Permissions {
+  return {
+    ...p,
+    viewApiKeys: p.viewApiKeys || p.approveApiKeys || p.revokeApiKeys,
+    viewUsers: p.viewUsers || p.manageUsers,
+  };
+}
+
+export const PERMISSION_LABELS: { key: keyof Permissions; label: string; impliedBy?: (keyof Permissions)[] }[] = [
+  { key: 'decrypt', label: 'Decrypt' },
+  { key: 'viewApiKeys', label: 'View keys', impliedBy: ['approveApiKeys', 'revokeApiKeys'] },
+  { key: 'approveApiKeys', label: 'Approve keys' },
+  { key: 'revokeApiKeys', label: 'Revoke keys' },
+  { key: 'manageScheduler', label: 'Scheduler' },
+  { key: 'manageAppleAuth', label: 'Apple auth' },
+  { key: 'viewUsers', label: 'View users', impliedBy: ['manageUsers'] },
+  { key: 'manageUsers', label: 'Manage users' },
+];
 
 export function permissionsSummary(p?: Permissions): string {
   if (!p) return '';

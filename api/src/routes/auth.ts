@@ -64,7 +64,17 @@ authRouter.post('/v1/auth/refresh', requireSession, (req, res) => {
     res.status(401).json({ error: 'not signed in' });
     return;
   }
-  const expiresAt = setSessionCookie(res, { sub: session.sub, permissions: session.permissions });
+
+  // Re-check current permissions rather than carrying the old cookie's forward -
+  // otherwise a revoked/downgraded user keeps stale access for as long as they keep refreshing.
+  const permissions = session.sub === 'root' ? ADMIN_PERMISSIONS : getUserPermissions(session.sub);
+  if (!permissions) {
+    clearSessionCookie(res);
+    res.status(401).json({ error: 'no longer allowed' });
+    return;
+  }
+
+  const expiresAt = setSessionCookie(res, { sub: session.sub, permissions });
   res.json({ ok: true, expiresAt });
 });
 

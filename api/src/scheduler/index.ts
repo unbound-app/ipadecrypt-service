@@ -6,7 +6,14 @@ import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('scheduler');
 import { notify } from '../notify.js';
-import { getEffectiveSettings, isSchedulerEnabled, recordSchedulerRun, type SchedulerSettings } from '../store/state.js';
+import {
+  getEffectiveSettings,
+  isSchedulerEnabled,
+  recordSchedulerRun,
+  recordSchedulerRunOutcome,
+  type SchedulerRunOutcome,
+  type SchedulerSettings,
+} from '../store/state.js';
 import type { TFBuild } from '../testflight.js';
 import { listBuilds, listTrains } from '../testflight.js';
 import { buildSignedFileUrl } from '../util/signedUrl.js';
@@ -208,7 +215,7 @@ async function decryptAndDispatch(
   }
 }
 
-async function tickAppStore(settings: SchedulerSettings): Promise<void> {
+async function tickAppStore(settings: SchedulerSettings): Promise<SchedulerRunOutcome> {
   const check = await checkForUpdate(settings);
   if (!check.wouldDispatch) {
     if (check.alreadyReleased) {
@@ -219,7 +226,7 @@ async function tickAppStore(settings: SchedulerSettings): Promise<void> {
     } else {
       log.error(check.reason, { bundleId: settings.watchBundleId });
     }
-    return;
+    return { triggered: false, reason: check.reason };
   }
 
   const normalized = check.normalizedVersion as string;
@@ -227,9 +234,10 @@ async function tickAppStore(settings: SchedulerSettings): Promise<void> {
 
   const job = enqueueDecryptJob(settings.watchBundleId, 'scheduler', undefined, undefined, normalized);
   await decryptAndDispatch(job, settings, false, `v${normalized}`);
+  return { triggered: true, reason: check.reason };
 }
 
-async function tickTestFlight(settings: SchedulerSettings): Promise<void> {
+async function tickTestFlight(settings: SchedulerSettings): Promise<SchedulerRunOutcome> {
   const check = await checkForTestFlightUpdate(settings);
   if (!check.wouldDispatch || !check.build) {
     if (check.alreadyReleased) {
@@ -240,7 +248,7 @@ async function tickTestFlight(settings: SchedulerSettings): Promise<void> {
     } else {
       log.error(check.reason, { bundleId: settings.watchBundleId });
     }
-    return;
+    return { triggered: false, reason: check.reason };
   }
 
   log.info('no matching release found for latest TestFlight build, installing and decrypting', {
@@ -250,6 +258,7 @@ async function tickTestFlight(settings: SchedulerSettings): Promise<void> {
 
   const job = enqueueDecryptJob(settings.watchBundleId, 'scheduler', undefined, { appId: check.appId as number, build: check.build });
   await decryptAndDispatch(job, settings, true, check.latestTag as string);
+  return { triggered: true, reason: check.reason };
 }
 
 let tickInProgress = false;
@@ -265,8 +274,9 @@ async function tick(): Promise<void> {
     const settings = getEffectiveSettings();
     log.info('scheduler tick', { bundleId: settings.watchBundleId, appRepo: settings.watchAppRepo });
 
-    await tickAppStore(settings);
-    await tickTestFlight(settings);
+    const appStore = await tickAppStore(settings);
+    const testflight = await tickTestFlight(settings);
+    recordSchedulerRunOutcome({ appStore, testflight });
   } finally {
     tickInProgress = false;
   }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { startJobSweeper } from './jobs/store.js';
-import { log } from './logger.js';
+import { log, startLogFlusher } from './logger.js';
 import { authRouter } from './routes/auth.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { decryptRouter } from './routes/decrypt.js';
@@ -52,6 +52,7 @@ app.use((_req, res) => {
 
 startJobSweeper();
 startStateFlusher();
+startLogFlusher();
 startApiKeySweeper();
 startScheduler();
 
