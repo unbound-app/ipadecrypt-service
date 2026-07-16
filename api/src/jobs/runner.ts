@@ -15,9 +15,10 @@ export async function runDecrypt(job: Job): Promise<void> {
   job.filePath = outputPath;
 
   if (job.testflight) {
-    job.progress = 'installing TestFlight build';
-    emitJobsChanged();
-    await installBuild(job.testflight.appId, job.testflight.build);
+    await installBuild(job.testflight.appId, job.testflight.build, (message) => {
+      job.progress = message;
+      emitJobsChanged();
+    });
   }
 
   const args = job.testflight

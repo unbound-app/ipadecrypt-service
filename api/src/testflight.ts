@@ -221,27 +221,49 @@ async function readInstalledBundleVersion(conn: Client, infoPlistPath: string): 
 
 const SAFE_BUNDLE_ID_RE = /^[A-Za-z0-9.-]{1,200}$/;
 
-export async function installBuild(appId: number, build: TFBuild, waitTimeoutMs = 5 * 60_000): Promise<void> {
+export async function installBuild(
+  appId: number,
+  build: TFBuild,
+  onProgress?: (message: string) => void,
+  waitTimeoutMs = 4 * 60_000,
+): Promise<void> {
   if (!SAFE_BUNDLE_ID_RE.test(build.bundleId)) {
     throw new Error(`refusing to install build with unsafe bundleId: ${JSON.stringify(build.bundleId)}`);
   }
-  await ensureTestFlightRunning();
-  await withSSH(async (conn) => {
-    await sendBridgeRequestRaw(conn, { action: 'install', appId, build });
 
-    const deadline = Date.now() + waitTimeoutMs;
+  const report = (message: string) => {
+    log.info(message, { bundleId: build.bundleId, targetVersion: build.cfBundleVersion });
+    onProgress?.(message);
+  };
+
+  report('ensuring TestFlight is running');
+  await ensureTestFlightRunning();
+
+  await withSSH(async (conn) => {
+    report('sending install request to TestFlight');
+    await sendBridgeRequestRaw(conn, { action: 'install', appId, build });
+    report('TestFlight accepted the install request, waiting for it to land');
+
+    const start = Date.now();
+    const deadline = start + waitTimeoutMs;
+    let lastReportedAt = 0;
     while (Date.now() < deadline) {
       const bundlePath = await findInstalledBundlePath(conn, build.bundleId);
       if (bundlePath) {
         const version = await readInstalledBundleVersion(conn, bundlePath);
         if (version === build.cfBundleVersion) {
-          log.info('TestFlight build installed', { bundleId: build.bundleId, version });
+          report(`install complete in ${Math.round((Date.now() - start) / 1000)}s`);
           return;
         }
       }
+      const elapsedSec = Math.round((Date.now() - start) / 1000);
+      if (elapsedSec - lastReportedAt >= 10) {
+        lastReportedAt = elapsedSec;
+        report(`still waiting for TestFlight to finish installing (${elapsedSec}s elapsed)`);
+      }
       await new Promise((r) => setTimeout(r, 5_000));
     }
-    throw new Error(`timed out waiting for ${build.bundleId} to reach build ${build.cfBundleVersion}`);
+    throw new Error(`timed out waiting for ${build.bundleId} to reach build ${build.cfBundleVersion} after ${Math.round(waitTimeoutMs / 1000)}s`);
   });
 }
 
