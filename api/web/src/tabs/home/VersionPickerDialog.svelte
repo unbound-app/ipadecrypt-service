@@ -49,10 +49,9 @@
   {:else if versions.length === 0}
     <div class="text-sm text-muted">No version history found.</div>
   {:else}
-    <div class="text-muted mb-3 text-xs">
-      Only versions someone has opened via <code>ipadecrypt versions</code> on the host show a version number - the
-      rest are listed by their opaque App Store ID.
-    </div>
+    {#if versions.some((v) => !v.displayVersion)}
+      <div class="text-muted mb-3 text-xs">Some versions have no known version number yet and are listed by their opaque App Store ID.</div>
+    {/if}
     <div class="max-h-[50vh] overflow-y-auto">
       {#each versions as v (v.externalVersionId)}
         <div class="border-border flex items-center justify-between gap-3 border-t py-2 first:border-t-0">

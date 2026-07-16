@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { config } from './config.js';
 import { scopedLogger } from './logger.js';
+import { lookupCurrentVersion } from './scheduler/itunes.js';
 
 const log = scopedLogger('versions');
 
@@ -128,6 +129,44 @@ function runIpadecryptVersions(bundleId: string): Promise<void> {
   });
 }
 
+interface CommunityVersionInfo {
+  displayVersion: string;
+  releaseDate?: string;
+}
+
+interface CommunityVersionRecord {
+  bundle_version?: string;
+  external_identifier?: number;
+  created_at?: string;
+}
+
+const COMMUNITY_LOOKUP_TIMEOUT_MS = 6_000;
+
+async function fetchCommunityVersionLabels(trackId: number): Promise<Map<string, CommunityVersionInfo>> {
+  const map = new Map<string, CommunityVersionInfo>();
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), COMMUNITY_LOOKUP_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://api.timbrd.com/apple/app-version/index.php?id=${trackId}`, { signal: controller.signal });
+    if (!res.ok) return map;
+
+    const body = (await res.json()) as CommunityVersionRecord[];
+    if (!Array.isArray(body)) return map;
+
+    for (const entry of body) {
+      if (entry.external_identifier == null || !entry.bundle_version) continue;
+      map.set(String(entry.external_identifier), { displayVersion: entry.bundle_version, releaseDate: entry.created_at });
+    }
+  } catch (err) {
+    log.info('community version history lookup failed, continuing without it', { trackId, error: String(err) });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  return map;
+}
+
 async function fetchAppVersions(bundleId: string): Promise<AppVersionEntry[]> {
   await runIpadecryptVersions(bundleId);
 
@@ -143,18 +182,27 @@ async function fetchAppVersions(bundleId: string): Promise<AppVersionEntry[]> {
 
   const cache = await readVersionsCache(bundleId);
 
+  let community = new Map<string, CommunityVersionInfo>();
+  try {
+    const { trackId } = await lookupCurrentVersion(bundleId);
+    community = await fetchCommunityVersionLabels(trackId);
+  } catch (err) {
+    log.info('skipping community version history lookup, trackId resolution failed', { bundleId, error: String(err) });
+  }
+
   return ids
     .slice()
     .reverse()
     .map((id) => {
       const isLatest = id === latestId;
       const cached = cache?.versions[id];
+      const communityEntry = community.get(id);
       return {
         externalVersionId: id,
         isLatest,
-        displayVersion: (isLatest ? metaStr(meta, 'bundleShortVersionString') : undefined) ?? cached?.displayVersion,
+        displayVersion: (isLatest ? metaStr(meta, 'bundleShortVersionString') : undefined) ?? cached?.displayVersion ?? communityEntry?.displayVersion,
         bundleVersion: (isLatest ? metaStr(meta, 'bundleVersion') : undefined) ?? cached?.bundleVersion,
-        releaseDate: (isLatest ? metaStr(meta, 'releaseDate') : undefined) ?? cached?.releaseDate,
+        releaseDate: (isLatest ? metaStr(meta, 'releaseDate') : undefined) ?? cached?.releaseDate ?? communityEntry?.releaseDate,
       };
     });
 }
