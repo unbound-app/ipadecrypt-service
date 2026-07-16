@@ -51,6 +51,13 @@ export async function loginRoot(password: string): Promise<{ ok: boolean; error?
   return { ok: false, error: res.status === 429 ? data.error : 'Wrong password.' };
 }
 
+export async function refreshSessionTtl(): Promise<boolean> {
+  const res = await fetch('/v1/auth/refresh', { method: 'POST' });
+  if (!res.ok) return false;
+  await refreshSession();
+  return true;
+}
+
 export async function logout(): Promise<void> {
   await fetch('/v1/auth/logout', { method: 'POST' });
   await refreshSession();

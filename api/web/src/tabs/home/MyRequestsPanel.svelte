@@ -1,14 +1,16 @@
 <script lang="ts">
   import { PackageSearch } from 'lucide-svelte';
-  import { fetchJobStatus } from '../../lib/api';
+  import { fetchJobStatus, queueDecrypt, queueTestFlightDecrypt } from '../../lib/api';
   import EmptyState from '../../components/EmptyState.svelte';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import { buttonVariants } from '../../lib/components/ui/variants';
-  import { dismissDecrypt, myDecryptsState, updateDecrypt } from '../../lib/decrypts.svelte';
+  import { addDecrypt, dismissDecrypt, myDecryptsState, pushRecentBundleId, updateDecrypt, type TrackedDecrypt } from '../../lib/decrypts.svelte';
+  import { showToast } from '../../lib/ui.svelte';
 
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let retrying = $state<Set<string>>(new Set());
 
   async function poll(): Promise<void> {
     clearTimeout(pollTimer);
@@ -29,6 +31,34 @@
     void poll();
     return () => clearTimeout(pollTimer);
   });
+
+  async function retry(d: TrackedDecrypt): Promise<void> {
+    retrying = new Set(retrying).add(d.id);
+    try {
+      const { ok, data } = d.testflight
+        ? await queueTestFlightDecrypt(d.bundleId, d.testflight.appId, d.testflight.build)
+        : await queueDecrypt(d.bundleId, d.externalVersionId, d.versionLabel);
+      if (!ok) return;
+      addDecrypt({
+        id: data.id,
+        bundleId: d.bundleId,
+        trackName: d.trackName,
+        versionLabel: d.versionLabel,
+        externalVersionId: d.externalVersionId,
+        testflight: d.testflight,
+        status: data.status,
+        progress: data.progress,
+        queue: data.queue,
+      });
+      pushRecentBundleId(d.bundleId);
+      dismissDecrypt(d.id);
+      showToast(`Queued ${d.trackName}${d.versionLabel ? ` (${d.versionLabel})` : ''}`, 'success');
+    } finally {
+      const next = new Set(retrying);
+      next.delete(d.id);
+      retrying = next;
+    }
+  }
 </script>
 
 <Card title="My requests">
@@ -65,11 +95,17 @@
               {/if}
             </td>
             <td>
-              {#if d.status === 'done'}
-                <a class={buttonVariants('default', 'sm')} href="/v1/dashboard/jobs/{d.id}/file">Download</a>
-              {:else}
-                <Button size="sm" variant="secondary" onclick={() => dismissDecrypt(d.id)}>Dismiss</Button>
-              {/if}
+              <div class="flex gap-1.5">
+                {#if d.status === 'done'}
+                  <a class={buttonVariants('default', 'sm')} href="/v1/dashboard/jobs/{d.id}/file">Download</a>
+                  <Button size="sm" variant="secondary" onclick={() => dismissDecrypt(d.id)}>Dismiss</Button>
+                {:else if d.status === 'failed'}
+                  <Button size="sm" loading={retrying.has(d.id)} onclick={() => retry(d)}>Retry</Button>
+                  <Button size="sm" variant="secondary" onclick={() => dismissDecrypt(d.id)}>Dismiss</Button>
+                {:else}
+                  <Button size="sm" variant="secondary" onclick={() => dismissDecrypt(d.id)}>Dismiss</Button>
+                {/if}
+              </div>
             </td>
           </tr>
         {/each}

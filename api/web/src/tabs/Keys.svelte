@@ -35,6 +35,16 @@
   let all = $state<ApiKeyRecord[] | null>(null);
   let statusFilter = $state('all');
   let selected = $state<Set<string>>(new Set());
+  let submitting = $state(false);
+  let busyIds = $state<Set<string>>(new Set());
+  let bulkRevoking = $state(false);
+
+  function setBusy(id: string, busy: boolean): void {
+    const next = new Set(busyIds);
+    if (busy) next.add(id);
+    else next.delete(id);
+    busyIds = next;
+  }
 
   const STATUS_OPTIONS = [
     { value: 'all', label: 'All statuses' },
@@ -67,17 +77,22 @@
   async function submitRequest(): Promise<void> {
     const name = keyName.trim();
     if (!name) return;
-    const expiresInDays = keyExpiry === 'never' ? undefined : Number(keyExpiry);
-    const { ok, data } = await requestKey(name, expiresInDays);
-    if (!ok) return;
-    keyName = '';
-    if (data.key) {
-      revealedKey = data.key;
-      showToast('Key created', 'success');
-    } else {
-      showToast('Request submitted - waiting on admin approval', 'success');
+    submitting = true;
+    try {
+      const expiresInDays = keyExpiry === 'never' ? undefined : Number(keyExpiry);
+      const { ok, data } = await requestKey(name, expiresInDays);
+      if (!ok) return;
+      keyName = '';
+      if (data.key) {
+        revealedKey = data.key;
+        showToast('Key created', 'success');
+      } else {
+        showToast('Request submitted - waiting on admin approval', 'success');
+      }
+      void loadAll();
+    } finally {
+      submitting = false;
     }
-    void loadAll();
   }
 
   function curlExample(key: string): string {
@@ -86,32 +101,57 @@
   }
 
   async function doReveal(id: string): Promise<void> {
-    const { ok, data } = await revealKey(id);
-    if (!ok) return;
-    revealedKey = data.key;
-    void loadAll();
+    setBusy(id, true);
+    try {
+      const { ok, data } = await revealKey(id);
+      if (!ok) return;
+      revealedKey = data.key;
+      void loadAll();
+    } finally {
+      setBusy(id, false);
+    }
   }
 
   async function doRegenerate(id: string): Promise<void> {
     if (!(await confirmDialog('Regenerate this key? The old secret stops working immediately.'))) return;
-    const { ok } = await regenerateKey(id);
-    if (ok) void loadAll();
+    setBusy(id, true);
+    try {
+      const { ok } = await regenerateKey(id);
+      if (ok) void loadAll();
+    } finally {
+      setBusy(id, false);
+    }
   }
 
   async function doRevoke(id: string): Promise<void> {
     if (!(await confirmDialog("Revoke this key? Anything using it will lose access immediately."))) return;
-    const { ok } = await revokeKey(id);
-    if (ok) void loadAll();
+    setBusy(id, true);
+    try {
+      const { ok } = await revokeKey(id);
+      if (ok) void loadAll();
+    } finally {
+      setBusy(id, false);
+    }
   }
 
   async function doApprove(id: string): Promise<void> {
-    const { ok } = await approveKey(id);
-    if (ok) void loadAll();
+    setBusy(id, true);
+    try {
+      const { ok } = await approveKey(id);
+      if (ok) void loadAll();
+    } finally {
+      setBusy(id, false);
+    }
   }
 
   async function doDeny(id: string): Promise<void> {
-    const { ok } = await denyKey(id);
-    if (ok) void loadAll();
+    setBusy(id, true);
+    try {
+      const { ok } = await denyKey(id);
+      if (ok) void loadAll();
+    } finally {
+      setBusy(id, false);
+    }
   }
 
   function toggleSelect(id: string): void {
@@ -126,9 +166,14 @@
   async function bulkRevoke(): Promise<void> {
     if (selected.size === 0) return;
     if (!(await confirmDialog(`Revoke ${selected.size} key(s)? This can't be undone.`))) return;
-    await bulkRevokeKeys([...selected]);
-    selected = new Set();
-    void loadAll();
+    bulkRevoking = true;
+    try {
+      await bulkRevokeKeys([...selected]);
+      selected = new Set();
+      void loadAll();
+    } finally {
+      bulkRevoking = false;
+    }
   }
 </script>
 
@@ -141,7 +186,7 @@
     <Input id="key-name" placeholder="e.g. laptop, ci-runner" bind:value={keyName} />
     <label for="key-expiry" class="mt-3 mb-1 block text-xs text-muted">Expires</label>
     <Select id="key-expiry" items={EXPIRY_OPTIONS} bind:value={keyExpiry} class="w-full" />
-    <Button class="mt-3" onclick={submitRequest}>{isKeyManager ? 'Create' : 'Request'}</Button>
+    <Button class="mt-3" loading={submitting} onclick={submitRequest}>{isKeyManager ? 'Create' : 'Request'}</Button>
     {#if revealedKey}
       <div class="border-accent bg-panel-muted mt-3 rounded-md border p-2.5 text-xs break-all">
         Save this now, it won't be shown again:<br />
@@ -186,12 +231,12 @@
                 <td>
                   <div class="flex flex-wrap gap-1.5">
                     {#if k.hasUnrevealedSecret}
-                      <Button size="sm" onclick={() => doReveal(k.id)}>Reveal</Button>
+                      <Button size="sm" loading={busyIds.has(k.id)} onclick={() => doReveal(k.id)}>Reveal</Button>
                     {/if}
                     {#if k.status === 'approved'}
-                      <Button size="sm" variant="secondary" onclick={() => doRegenerate(k.id)}>Regenerate</Button>
+                      <Button size="sm" variant="secondary" loading={busyIds.has(k.id)} onclick={() => doRegenerate(k.id)}>Regenerate</Button>
                     {/if}
-                    <Button size="sm" variant="destructive" onclick={() => doRevoke(k.id)}>Revoke</Button>
+                    <Button size="sm" variant="destructive" loading={busyIds.has(k.id)} onclick={() => doRevoke(k.id)}>Revoke</Button>
                   </div>
                 </td>
               </tr>
@@ -200,6 +245,9 @@
         </tbody>
       </table>
     </div>
+    {#if mine !== null && mine.length === 0}
+      <EmptyState icon={PackageSearch} message="No keys yet." />
+    {/if}
   </Card>
 
   {#if isKeyManager}
@@ -230,8 +278,8 @@
                   <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                   <td>
                     <div class="flex gap-1.5">
-                      <Button size="sm" onclick={() => doApprove(k.id)}>Approve</Button>
-                      <Button size="sm" variant="destructive" onclick={() => doDeny(k.id)}>Deny</Button>
+                      <Button size="sm" loading={busyIds.has(k.id)} onclick={() => doApprove(k.id)}>Approve</Button>
+                      <Button size="sm" variant="destructive" loading={busyIds.has(k.id)} onclick={() => doDeny(k.id)}>Deny</Button>
                     </div>
                   </td>
                 </tr>
@@ -248,7 +296,7 @@
     <Card title="All keys">
       {#snippet headerExtra()}
         {#if selected.size > 0}
-          <Button size="sm" variant="destructive" onclick={bulkRevoke}>Revoke {selected.size} selected</Button>
+          <Button size="sm" variant="destructive" loading={bulkRevoking} onclick={bulkRevoke}>Revoke {selected.size} selected</Button>
         {/if}
       {/snippet}
       <Select items={STATUS_OPTIONS} bind:value={statusFilter} class="mb-3 w-44" />
@@ -291,13 +339,16 @@
                   </td>
                   <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                   <td class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
-                  <td><Button size="sm" variant="destructive" onclick={() => doRevoke(k.id)}>Revoke</Button></td>
+                  <td><Button size="sm" variant="destructive" loading={busyIds.has(k.id)} onclick={() => doRevoke(k.id)}>Revoke</Button></td>
                 </tr>
               {/each}
             {/if}
           </tbody>
         </table>
       </div>
+      {#if all !== null && filteredAll.length === 0}
+        <EmptyState icon={PackageSearch} message="No keys match this filter." />
+      {/if}
     </Card>
   {/if}
 </div>

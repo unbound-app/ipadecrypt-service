@@ -59,12 +59,13 @@ export function checkRootPassword(candidate: string): boolean {
   return safeEqualStr(candidate, config.adminPassword);
 }
 
-export function setSessionCookie(res: Response, session: Omit<Session, 'exp'>): void {
+export function setSessionCookie(res: Response, session: Omit<Session, 'exp'>): number {
   const expiresAtMs = Date.now() + SESSION_TTL_MS;
   res.setHeader(
     'Set-Cookie',
     `${COOKIE_NAME}=${serialize(session, expiresAtMs)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`,
   );
+  return expiresAtMs;
 }
 
 export function clearSessionCookie(res: Response): void {

@@ -24,6 +24,12 @@
   let autoScroll = $state(localStorage.getItem('logAutoScroll') !== 'false');
   let initialLogs = $state<LogEntry[] | null>(null);
   let listEl: HTMLDivElement | undefined = $state();
+  let stickToTop = $state(true);
+
+  function onListScroll(): void {
+    if (!listEl) return;
+    stickToTop = listEl.scrollTop <= 4;
+  }
 
   const LEVEL_OPTIONS = [
     { value: 'all', label: 'All levels' },
@@ -100,7 +106,7 @@
 
   $effect(() => {
     filtered;
-    if (autoScroll && listEl) listEl.scrollTop = 0;
+    if (autoScroll && stickToTop && listEl) listEl.scrollTop = 0;
   });
 </script>
 
@@ -127,7 +133,7 @@
       {/each}
     </div>
   {:else}
-    <div class="flex max-h-[560px] flex-col gap-1.5 overflow-y-auto" bind:this={listEl}>
+    <div class="flex max-h-[560px] flex-col gap-1.5 overflow-y-auto" bind:this={listEl} onscroll={onListScroll}>
       {#each filtered as l (entryKey(l))}
         <div class={`border-border bg-panel-muted flex items-baseline gap-2 rounded-md border border-l-[3px] px-2.5 py-2 text-[12.5px] ${LEVEL_BORDER[l.level]}`}>
           <span class="shrink-0 font-mono text-[11.5px] whitespace-nowrap text-muted"><RelativeTime ms={l.ts} /></span>

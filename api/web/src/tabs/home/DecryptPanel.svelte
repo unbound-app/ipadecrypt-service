@@ -22,6 +22,7 @@
   let highlighted = $state(-1);
   let inputEl: HTMLInputElement | undefined = $state();
   let searchToken = 0;
+  let queueing = $state<Set<string>>(new Set());
 
   const statusByBundle = $derived.by(() => {
     const map = new Map<string, string>();
@@ -83,11 +84,18 @@
 
   async function queue(bundleId: string, trackName: string, externalVersionId?: string, versionLabel?: string): Promise<void> {
     if (!canDecrypt) return;
-    const { ok, data } = await queueDecrypt(bundleId, externalVersionId, versionLabel);
-    if (!ok) return;
-    addDecrypt({ id: data.id, bundleId, trackName, versionLabel, status: data.status, progress: data.progress, queue: data.queue });
-    pushRecentBundleId(bundleId);
-    showToast(`Queued ${trackName}${versionLabel ? ` (${versionLabel})` : ''}`, 'success');
+    queueing = new Set(queueing).add(bundleId);
+    try {
+      const { ok, data } = await queueDecrypt(bundleId, externalVersionId, versionLabel);
+      if (!ok) return;
+      addDecrypt({ id: data.id, bundleId, trackName, versionLabel, externalVersionId, status: data.status, progress: data.progress, queue: data.queue });
+      pushRecentBundleId(bundleId);
+      showToast(`Queued ${trackName}${versionLabel ? ` (${versionLabel})` : ''}`, 'success');
+    } finally {
+      const next = new Set(queueing);
+      next.delete(bundleId);
+      queueing = next;
+    }
   }
 
   function decryptVersion(bundleId: string, externalVersionId: string, label: string): void {
@@ -117,6 +125,7 @@
       bundleId,
       trackName: testflightTrackName,
       versionLabel: `TestFlight ${label}`,
+      testflight: { appId, build },
       status: data.status,
       progress: data.progress,
       queue: data.queue,
@@ -215,7 +224,7 @@
                 {@const status = statusByBundle.get(r.bundleId) ?? ''}
                 <Badge variant={statusToBadgeVariant(status)}>{status}</Badge>
               {:else if canDecrypt}
-                <Button size="sm" onclick={() => queue(r.bundleId, r.trackName)}>Decrypt</Button>
+                <Button size="sm" loading={queueing.has(r.bundleId)} onclick={() => queue(r.bundleId, r.trackName)}>Decrypt</Button>
               {:else}
                 <Badge variant="secondary" title="Viewers can't queue decrypts">view only</Badge>
               {/if}

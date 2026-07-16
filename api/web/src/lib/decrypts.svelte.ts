@@ -1,8 +1,12 @@
+import type { TFBuild } from './api';
+
 export interface TrackedDecrypt {
   id: string;
   bundleId: string;
   trackName: string;
   versionLabel?: string;
+  externalVersionId?: string;
+  testflight?: { appId: number; build: TFBuild };
   status: string;
   progress?: string;
   queue?: { position: number; total: number };

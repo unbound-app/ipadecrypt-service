@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ChevronDown } from 'lucide-svelte';
   import { fetchTestFlightBuilds, fetchTestFlightTrains, type TFBuild, type TFTrain } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
@@ -77,10 +78,13 @@
       {#each trains as t (t.trainVersion)}
         <div class="border-border border-t py-2 first:border-t-0">
           <button
-            class="flex w-full items-center justify-between gap-3 text-left text-[13px]"
+            class="flex w-full cursor-pointer items-center justify-between gap-3 text-left text-[13px]"
             onclick={() => toggleTrain(t.trainVersion)}
           >
-            <span>v{t.trainVersion}</span>
+            <span class="flex items-center gap-1.5">
+              <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted transition-transform {expandedTrain === t.trainVersion ? 'rotate-180' : ''}" />
+              v{t.trainVersion}
+            </span>
             <Badge variant="secondary">{t.buildCount} build{t.buildCount === 1 ? '' : 's'}</Badge>
           </button>
 

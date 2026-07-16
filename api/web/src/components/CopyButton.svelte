@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Check, Copy } from 'lucide-svelte';
+  import { showToast } from '../lib/ui.svelte';
   import { cn } from '../lib/utils';
 
   let { text, label }: { text: string; label?: string } = $props();
@@ -12,7 +13,9 @@
       setTimeout(() => {
         copied = false;
       }, 1200);
-    } catch {}
+    } catch {
+      showToast("Couldn't copy - your browser blocked clipboard access", 'error');
+    }
   }
 </script>
 

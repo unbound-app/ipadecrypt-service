@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { config, githubOauthEnabled } from '../config.js';
 import { log } from '../logger.js';
-import { checkRootPassword, clearSessionCookie, getSession, setSessionCookie } from '../session.js';
+import { checkRootPassword, clearSessionCookie, getSession, requireSession, setSessionCookie } from '../session.js';
 import { getUserRole } from '../store/state.js';
 
 export const authRouter = Router();
@@ -56,6 +56,16 @@ authRouter.get('/v1/auth/session', (req, res) => {
     githubOauthEnabled,
     publicBaseUrl: config.publicBaseUrl,
   });
+});
+
+authRouter.post('/v1/auth/refresh', requireSession, (req, res) => {
+  const session = getSession(req);
+  if (!session) {
+    res.status(401).json({ error: 'not signed in' });
+    return;
+  }
+  const expiresAt = setSessionCookie(res, { sub: session.sub, role: session.role });
+  res.json({ ok: true, expiresAt });
 });
 
 authRouter.post('/v1/auth/login', (req, res) => {

@@ -4,6 +4,7 @@
   import AlertBanner from './components/AlertBanner.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
   import ConfirmModal from './components/ConfirmModal.svelte';
+  import ConnectionBanner from './components/ConnectionBanner.svelte';
   import Login from './components/Login.svelte';
   import SessionExpiryBanner from './components/SessionExpiryBanner.svelte';
   import ShortcutsHelp from './components/ShortcutsHelp.svelte';
@@ -128,6 +129,7 @@
     </header>
     <main class="mx-auto max-w-[1120px] p-6">
       <SessionExpiryBanner />
+      <ConnectionBanner />
       <AlertBanner />
       <Tabs items={visibleTabs.map((t) => ({ id: t.id, label: t.label }))} value={tabState.active} onValueChange={(v) => setActiveTab(v as TabId)} class="mb-5" />
 

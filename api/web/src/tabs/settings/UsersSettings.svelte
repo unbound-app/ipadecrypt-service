@@ -15,6 +15,9 @@
   let username = $state('');
   let role = $state<Role>('member');
   let users = $state<AllowedUser[] | null>(null);
+  let submitting = $state(false);
+  let savingRole = $state(false);
+  let removing = $state(false);
 
   const ROLE_OPTIONS = [
     { value: 'viewer', label: 'viewer (read-only)' },
@@ -34,10 +37,15 @@
   async function submit(): Promise<void> {
     const name = username.trim();
     if (!name) return;
-    const { ok } = await addUser(name, role);
-    if (ok) {
-      username = '';
-      void load();
+    submitting = true;
+    try {
+      const { ok } = await addUser(name, role);
+      if (ok) {
+        username = '';
+        void load();
+      }
+    } finally {
+      submitting = false;
     }
   }
 
@@ -53,20 +61,30 @@
 
   async function saveRole(): Promise<void> {
     if (!manageUser || manageRole === manageUser.role) return;
-    const { ok } = await updateUserRole(manageUser.username, manageRole);
-    if (ok) {
-      manageOpen = false;
-      void load();
+    savingRole = true;
+    try {
+      const { ok } = await updateUserRole(manageUser.username, manageRole);
+      if (ok) {
+        manageOpen = false;
+        void load();
+      }
+    } finally {
+      savingRole = false;
     }
   }
 
   async function removeManaged(): Promise<void> {
     if (!manageUser) return;
     if (!(await confirmDialog(`Remove ${manageUser.username} from the allowlist?`))) return;
-    const { ok } = await removeUser(manageUser.username);
-    if (ok) {
-      manageOpen = false;
-      void load();
+    removing = true;
+    try {
+      const { ok } = await removeUser(manageUser.username);
+      if (ok) {
+        manageOpen = false;
+        void load();
+      }
+    } finally {
+      removing = false;
     }
   }
 </script>
@@ -77,7 +95,7 @@
     <Input id="user-username" placeholder="e.g. octocat" bind:value={username} />
     <label for="user-role" class="mt-3 mb-1 block text-xs text-muted">Role</label>
     <Select items={ROLE_OPTIONS} value={role} onValueChange={(v) => (role = v as Role)} class="w-full" />
-    <Button class="mt-4" onclick={submit}>Add</Button>
+    <Button class="mt-4" loading={submitting} onclick={submit}>Add</Button>
   </Card>
 
   <Card title="Allowlist">
@@ -122,9 +140,9 @@
     <div class="mb-3 text-sm font-medium">Manage {manageUser.username}</div>
     <label for="manage-role" class="mb-1 block text-xs text-muted">Role</label>
     <Select id="manage-role" items={ROLE_OPTIONS} value={manageRole} onValueChange={(v) => (manageRole = v as Role)} class="w-full" />
-    <Button class="mt-3 w-full" onclick={saveRole} disabled={manageRole === manageUser.role}>Save role</Button>
+    <Button class="mt-3 w-full" loading={savingRole} onclick={saveRole} disabled={manageRole === manageUser.role}>Save role</Button>
     <div class="border-border mt-4 border-t pt-4">
-      <Button variant="destructive" class="w-full" onclick={removeManaged}>Remove from allowlist</Button>
+      <Button variant="destructive" class="w-full" loading={removing} onclick={removeManaged}>Remove from allowlist</Button>
     </div>
   {/if}
 </Dialog>

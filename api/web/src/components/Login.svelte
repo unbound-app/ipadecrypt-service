@@ -10,6 +10,7 @@
   let loginError = $state('');
   let detailsOpen = $state(!sessionState.githubOauthEnabled);
   let oauthError = $state('');
+  let submitting = $state(false);
 
   const OAUTH_ERROR_MESSAGES: Record<string, string | ((user: string | null) => string)> = {
     state_mismatch: 'Sign-in session expired - please try again.',
@@ -28,8 +29,13 @@
   });
 
   async function submit(): Promise<void> {
-    const result = await loginRoot(password);
-    if (!result.ok) loginError = result.error ?? 'Wrong password.';
+    submitting = true;
+    try {
+      const result = await loginRoot(password);
+      if (!result.ok) loginError = result.error ?? 'Wrong password.';
+    } finally {
+      submitting = false;
+    }
   }
 
   function onKeydown(e: KeyboardEvent): void {
@@ -78,7 +84,7 @@
       <div class="pt-1.5" class:mt-1.5={detailsOpen}>
         <label for="password" class="mb-1 block text-xs text-muted">Root password</label>
         <Input type="password" id="password" autocomplete="current-password" bind:value={password} onkeydown={onKeydown} />
-        <Button variant="secondary" class="mt-3.5 w-full" onclick={submit}>Sign in</Button>
+        <Button variant="secondary" class="mt-3.5 w-full" loading={submitting} onclick={submit}>Sign in</Button>
         {#if loginError}
           <div class="mt-2 text-[13px] text-muted">{loginError}</div>
         {/if}

@@ -18,6 +18,9 @@
   let inputValue = $state('');
   let inputEl: HTMLInputElement | undefined = $state();
   let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let starting = $state(false);
+  let cancelling = $state(false);
+  let submitting = $state(false);
 
   async function refresh(): Promise<void> {
     status = await fetchAppleAuthStatus();
@@ -34,20 +37,35 @@
   });
 
   async function start(): Promise<void> {
-    const { ok } = await startAppleAuth();
-    if (ok) void refresh();
+    starting = true;
+    try {
+      const { ok } = await startAppleAuth();
+      if (ok) void refresh();
+    } finally {
+      starting = false;
+    }
   }
 
   async function cancel(): Promise<void> {
-    await cancelAppleAuth();
-    void refresh();
+    cancelling = true;
+    try {
+      await cancelAppleAuth();
+      void refresh();
+    } finally {
+      cancelling = false;
+    }
   }
 
   async function submit(): Promise<void> {
     const value = inputValue;
     inputValue = '';
-    await submitAppleInput(value);
-    void refresh();
+    submitting = true;
+    try {
+      await submitAppleInput(value);
+      void refresh();
+    } finally {
+      submitting = false;
+    }
   }
 
   function onKeydown(e: KeyboardEvent): void {
@@ -87,8 +105,8 @@
   {/if}
 
   <div class="flex gap-2">
-    <Button disabled={status?.running} onclick={start}>Start re-authentication</Button>
-    <Button variant="secondary" disabled={!status?.running} onclick={cancel}>Cancel</Button>
+    <Button disabled={status?.running} loading={starting} onclick={start}>Start re-authentication</Button>
+    <Button variant="secondary" disabled={!status?.running} loading={cancelling} onclick={cancel}>Cancel</Button>
   </div>
 
   <details class="mt-3.5">
@@ -100,7 +118,7 @@
   {#if status?.waitingForInput}
     <div class="mt-2.5 flex gap-2">
       <Input bind:ref={inputEl} bind:value={inputValue} onkeydown={onKeydown} placeholder="type the requested value and press Enter" />
-      <Button size="sm" onclick={submit}>Send</Button>
+      <Button size="sm" loading={submitting} onclick={submit}>Send</Button>
     </div>
   {/if}
 </Card>

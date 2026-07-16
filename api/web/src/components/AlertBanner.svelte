@@ -7,9 +7,15 @@
   import { sessionState } from '../lib/session.svelte';
 
   const alert = $derived(liveState.overview?.appleAuthAlert);
+  let dismissing = $state(false);
 
   async function dismiss(): Promise<void> {
-    await clearAuthAlert();
+    dismissing = true;
+    try {
+      await clearAuthAlert();
+    } finally {
+      dismissing = false;
+    }
   }
 </script>
 
@@ -22,7 +28,7 @@
       </div>
       <code class="mt-1 block break-all text-[12px]">{alert.lastError ?? ''}</code>
       {#if sessionState.role === 'admin'}
-        <Button variant="secondary" size="sm" class="mt-2" onclick={dismiss}>Dismiss</Button>
+        <Button variant="secondary" size="sm" class="mt-2" loading={dismissing} onclick={dismiss}>Dismiss</Button>
       {/if}
     </div>
   </div>

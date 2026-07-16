@@ -20,6 +20,7 @@
   let loaded = $state(false);
   let loadingMore = $state(false);
   let seenIds = new Set<string>();
+  let requeueing = $state<Set<string>>(new Set());
 
   async function loadInitial(): Promise<void> {
     const data = await fetchJobHistory(0, PAGE_SIZE);
@@ -58,13 +59,20 @@
 
   async function decryptAgain(entry: JobHistoryEntry): Promise<void> {
     const { bundleId, testflight, externalVersionId, versionLabel } = entry;
-    const { ok, data } = testflight
-      ? await queueTestFlightDecrypt(bundleId, testflight.appId, testflight.build)
-      : await queueDecrypt(bundleId, externalVersionId, versionLabel);
-    if (!ok) return;
-    addDecrypt({ id: data.id, bundleId, trackName: bundleId, versionLabel, status: data.status, progress: data.progress, queue: data.queue });
-    pushRecentBundleId(bundleId);
-    showToast(`Queued ${bundleId}${versionLabel ? ` (${versionLabel})` : ''}`, 'success');
+    requeueing = new Set(requeueing).add(entry.id);
+    try {
+      const { ok, data } = testflight
+        ? await queueTestFlightDecrypt(bundleId, testflight.appId, testflight.build)
+        : await queueDecrypt(bundleId, externalVersionId, versionLabel);
+      if (!ok) return;
+      addDecrypt({ id: data.id, bundleId, trackName: bundleId, versionLabel, status: data.status, progress: data.progress, queue: data.queue });
+      pushRecentBundleId(bundleId);
+      showToast(`Queued ${bundleId}${versionLabel ? ` (${versionLabel})` : ''}`, 'success');
+    } finally {
+      const next = new Set(requeueing);
+      next.delete(entry.id);
+      requeueing = next;
+    }
   }
 
   function dayLabel(ms: number): string {
@@ -140,7 +148,7 @@
                   <td class="text-muted"><RelativeTime ms={j.finishedAt} /></td>
                   <td class="max-w-52 truncate text-muted" title={j.error ?? ''}>{j.error ?? ''}</td>
                   <td>
-                    <Button size="sm" variant="secondary" onclick={() => decryptAgain(j)}>
+                    <Button size="sm" variant="secondary" loading={requeueing.has(j.id)} onclick={() => decryptAgain(j)}>
                       Decrypt again
                     </Button>
                   </td>
@@ -154,7 +162,7 @@
   {/if}
   {#if loaded && entries.length < total}
     <div class="mt-3 flex justify-center">
-      <Button size="sm" variant="secondary" disabled={loadingMore} onclick={loadMore}>
+      <Button size="sm" variant="secondary" loading={loadingMore} onclick={loadMore}>
         Load more ({total - entries.length} older)
       </Button>
     </div>
