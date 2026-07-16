@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { History, Search } from 'lucide-svelte';
-  import { queueDecrypt, searchApps, type AppStoreSearchResult } from '../../lib/api';
+  import { FlaskConical, History, Search } from 'lucide-svelte';
+  import { queueDecrypt, queueTestFlightDecrypt, searchApps, type AppStoreSearchResult, type TFBuild } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
@@ -12,6 +12,7 @@
   import { sessionState } from '../../lib/session.svelte';
   import { showToast } from '../../lib/ui.svelte';
   import { cn } from '../../lib/utils';
+  import TestFlightPickerDialog from './TestFlightPickerDialog.svelte';
   import VersionPickerDialog from './VersionPickerDialog.svelte';
 
   let term = $state('');
@@ -92,6 +93,36 @@
   function decryptVersion(bundleId: string, externalVersionId: string, label: string): void {
     versionsOpen = false;
     void queue(bundleId, versionsTrackName, externalVersionId, label);
+  }
+
+  let testflightOpen = $state(false);
+  let testflightBundleId = $state('');
+  let testflightAppId = $state(0);
+  let testflightTrackName = $state('');
+
+  function openTestFlight(bundleId: string, appId: number, trackName: string): void {
+    testflightBundleId = bundleId;
+    testflightAppId = appId;
+    testflightTrackName = trackName;
+    testflightOpen = true;
+  }
+
+  async function decryptTestFlightBuild(bundleId: string, appId: number, build: TFBuild, label: string): Promise<void> {
+    if (!canDecrypt) return;
+    testflightOpen = false;
+    const { ok, data } = await queueTestFlightDecrypt(bundleId, appId, build);
+    if (!ok) return;
+    addDecrypt({
+      id: data.id,
+      bundleId,
+      trackName: testflightTrackName,
+      versionLabel: `TestFlight ${label}`,
+      status: data.status,
+      progress: data.progress,
+      queue: data.queue,
+    });
+    pushRecentBundleId(bundleId);
+    showToast(`Queued ${testflightTrackName} (TestFlight ${label})`, 'success');
   }
 
   function onKeydown(e: KeyboardEvent): void {
@@ -176,6 +207,15 @@
                 >
                   <History class="h-3.5 w-3.5" />
                 </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onclick={() => openTestFlight(r.bundleId, r.trackId, r.trackName)}
+                  title="Browse TestFlight builds"
+                  aria-label="Browse TestFlight builds"
+                >
+                  <FlaskConical class="h-3.5 w-3.5" />
+                </Button>
               {/if}
               {#if statusByBundle.has(r.bundleId)}
                 {@const status = statusByBundle.get(r.bundleId) ?? ''}
@@ -199,4 +239,13 @@
   trackName={versionsTrackName}
   onOpenChange={(v) => (versionsOpen = v)}
   onDecrypt={decryptVersion}
+/>
+
+<TestFlightPickerDialog
+  open={testflightOpen}
+  bundleId={testflightBundleId}
+  appId={testflightAppId}
+  trackName={testflightTrackName}
+  onOpenChange={(v) => (testflightOpen = v)}
+  onDecrypt={decryptTestFlightBuild}
 />

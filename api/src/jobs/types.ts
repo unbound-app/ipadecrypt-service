@@ -1,11 +1,19 @@
+import type { TFBuild } from '../testflight.js';
+
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
 
 export type JobSource = 'manual' | 'scheduler';
+
+export interface TestFlightJobSource {
+  appId: number;
+  build: TFBuild;
+}
 
 export interface Job {
   id: string;
   bundleId: string;
   externalVersionId?: string;
+  testflight?: TestFlightJobSource;
   source: JobSource;
   status: JobStatus;
   progress: string;

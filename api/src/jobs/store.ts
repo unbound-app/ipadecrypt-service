@@ -9,18 +9,23 @@ import { notify } from '../notify.js';
 import { clearAppleAuthAlert, recordJobHistory, setAppleAuthAlert } from '../store/state.js';
 import { looksLikeAppleAuthFailure } from '../util/appleAuth.js';
 import { runDecrypt } from './runner.js';
-import type { Job, JobSource } from './types.js';
+import type { Job, JobSource, TestFlightJobSource } from './types.js';
 
 const jobs = new Map<string, Job>();
 
 const queue: string[] = [];
 let workerRunning = false;
 
-function findActiveJobForBundle(bundleId: string, externalVersionId: string | undefined): Job | undefined {
+function findActiveJobForBundle(
+  bundleId: string,
+  externalVersionId: string | undefined,
+  testflightBuildId: number | undefined,
+): Job | undefined {
   for (const job of jobs.values()) {
     if (
       job.bundleId === bundleId &&
       job.externalVersionId === externalVersionId &&
+      job.testflight?.build.id === testflightBuildId &&
       (job.status === 'queued' || job.status === 'running')
     ) {
       return job;
@@ -29,14 +34,20 @@ function findActiveJobForBundle(bundleId: string, externalVersionId: string | un
   return undefined;
 }
 
-export function enqueueDecryptJob(bundleId: string, source: JobSource, externalVersionId?: string): Job {
-  const existing = findActiveJobForBundle(bundleId, externalVersionId);
+export function enqueueDecryptJob(
+  bundleId: string,
+  source: JobSource,
+  externalVersionId?: string,
+  testflight?: TestFlightJobSource,
+): Job {
+  const existing = findActiveJobForBundle(bundleId, externalVersionId, testflight?.build.id);
   if (existing) return existing;
 
   const job: Job = {
     id: randomUUID(),
     bundleId,
     externalVersionId,
+    testflight,
     source,
     status: 'queued',
     progress: 'queued',

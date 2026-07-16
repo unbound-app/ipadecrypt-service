@@ -13,9 +13,10 @@ import { enqueueDecryptJob, getActiveJobs, getJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
 import { sendTestNotification } from '../notify.js';
-import { applySchedule, checkForUpdate } from '../scheduler/index.js';
+import { applySchedule, checkForTestFlightUpdate, checkForUpdate } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requireAdmin, requireRole, requireSession } from '../session.js';
+import { listBuilds, listTrains } from '../testflight.js';
 import { listAppVersions } from '../versions.js';
 import {
   addAllowedUser,
@@ -176,6 +177,54 @@ dashboardRouter.get('/v1/dashboard/versions/:bundleId', async (req, res) => {
   }
 });
 
+dashboardRouter.get('/v1/dashboard/testflight/:appId/trains', async (req, res) => {
+  const appId = Number.parseInt(req.params.appId, 10);
+  if (!Number.isInteger(appId) || appId <= 0) {
+    res.status(400).json({ error: 'appId must be a positive integer' });
+    return;
+  }
+
+  try {
+    const trains = await listTrains(appId);
+    res.json({ trains });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+dashboardRouter.get('/v1/dashboard/testflight/:appId/builds', async (req, res) => {
+  const appId = Number.parseInt(req.params.appId, 10);
+  const trainVersion = typeof req.query.trainVersion === 'string' ? req.query.trainVersion : '';
+  if (!Number.isInteger(appId) || appId <= 0 || !trainVersion) {
+    res.status(400).json({ error: 'appId (positive integer) and trainVersion are required' });
+    return;
+  }
+
+  try {
+    const builds = await listBuilds(appId, trainVersion);
+    res.json({ builds });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+dashboardRouter.post('/v1/dashboard/testflight/decrypt', canDecrypt, (req, res) => {
+  const bundleId = typeof req.body?.bundleId === 'string' ? req.body.bundleId.trim() : '';
+  const appId = Number.parseInt(req.body?.appId, 10);
+  const build = req.body?.build;
+  if (!BUNDLE_ID_RE.test(bundleId) || !Number.isInteger(appId) || appId <= 0 || !build || typeof build !== 'object') {
+    res.status(400).json({ error: 'bundleId, appId, and build are required' });
+    return;
+  }
+  if (build.bundleId !== bundleId) {
+    res.status(400).json({ error: 'build.bundleId does not match bundleId' });
+    return;
+  }
+
+  const job = enqueueDecryptJob(bundleId, 'manual', undefined, { appId, build });
+  res.status(202).json(jobSummary(job));
+});
+
 dashboardRouter.get('/v1/dashboard/jobs/:id/status', (req, res) => {
   const job = getJob(req.params.id);
   if (!job) {
@@ -288,7 +337,7 @@ dashboardRouter.get('/v1/dashboard/settings', (_req, res) => {
   res.json(getEffectiveSettings());
 });
 
-const SETTINGS_FIELDS = ['watchBundleId', 'watchAppRepo', 'ghDispatchRepo', 'ghWorkflowFile', 'pollCron', 'notifyWebhookUrl'] as const;
+const SETTINGS_FIELDS = ['watchBundleId', 'watchAppId', 'watchAppRepo', 'ghDispatchRepo', 'ghWorkflowFile', 'pollCron', 'notifyWebhookUrl'] as const;
 
 dashboardRouter.put('/v1/dashboard/settings', requireAdmin, (req, res) => {
   const body = req.body ?? {};
@@ -319,8 +368,9 @@ dashboardRouter.post('/v1/dashboard/settings/test-webhook', requireAdmin, async 
 });
 
 dashboardRouter.get('/v1/dashboard/settings/preview-dispatch', requireAdmin, async (_req, res) => {
-  const result = await checkForUpdate(getEffectiveSettings());
-  res.json(result);
+  const settings = getEffectiveSettings();
+  const [appStore, testflight] = await Promise.all([checkForUpdate(settings), checkForTestFlightUpdate(settings)]);
+  res.json({ ...appStore, testflight });
 });
 
 dashboardRouter.post('/v1/dashboard/auth-alert/clear', requireAdmin, (_req, res) => {

@@ -16,12 +16,21 @@ interface Release {
   created_at: string;
 }
 
-export async function listReleaseVersions(repo: string): Promise<Set<string>> {
+async function listReleases(repo: string): Promise<Release[]> {
   const res = await fetch(`${GITHUB_API}/repos/${repo}/releases?per_page=100`, { headers: headers() });
   if (!res.ok) throw new Error(`list releases failed for ${repo}: HTTP ${res.status}`);
+  return (await res.json()) as Release[];
+}
 
-  const releases = (await res.json()) as Release[];
+export async function listReleaseVersions(repo: string): Promise<Set<string>> {
+  const releases = await listReleases(repo);
   return new Set(releases.map((r) => normalizeVersion(r.tag_name)));
+}
+
+/** Raw, unnormalized tag names - needed for exact `v{shortVersion}_{buildNumber}` TestFlight tag matching. */
+export async function listReleaseTagNames(repo: string): Promise<Set<string>> {
+  const releases = await listReleases(repo);
+  return new Set(releases.map((r) => r.tag_name));
 }
 
 export async function dispatchIpaUpdate(dispatchRepo: string, ipaUrl: string, isTestflight: boolean): Promise<void> {

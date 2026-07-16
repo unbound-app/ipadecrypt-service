@@ -12,6 +12,7 @@
 
   let form = $state<SchedulerSettings>({
     watchBundleId: '',
+    watchAppId: '',
     watchAppRepo: '',
     ghDispatchRepo: '',
     ghWorkflowFile: '',
@@ -93,6 +94,9 @@
   <label for="s-watchBundleId" class="mb-1 block text-xs text-muted">Watch bundle ID</label>
   <Input id="s-watchBundleId" bind:value={form.watchBundleId} />
 
+  <label for="s-watchAppId" class="mt-3 mb-1 block text-xs text-muted">Watch App Store app ID (numeric, optional - enables TestFlight watching)</label>
+  <Input id="s-watchAppId" bind:value={form.watchAppId} placeholder="e.g. 985746746" />
+
   <label for="s-watchAppRepo" class="mt-3 mb-1 block text-xs text-muted">Watch app repo (releases tracked here)</label>
   <Input id="s-watchAppRepo" bind:value={form.watchAppRepo} />
   {#if repoErrors.watchAppRepo}
@@ -139,6 +143,14 @@
       <div class={previewResult.wouldDispatch ? 'text-ok' : 'text-muted'}>{previewResult.reason}</div>
       {#if previewResult.itunesVersion}
         <div class="mt-1 text-xs text-muted">iTunes version: {previewResult.itunesVersion}</div>
+      {/if}
+      {#if previewResult.testflight}
+        <div class="border-border mt-2 border-t pt-2">
+          <div class={previewResult.testflight.wouldDispatch ? 'text-ok' : 'text-muted'}>{previewResult.testflight.reason}</div>
+          {#if previewResult.testflight.latestTag}
+            <div class="mt-1 text-xs text-muted">Latest TestFlight tag: {previewResult.testflight.latestTag}</div>
+          {/if}
+        </div>
       {/if}
     </div>
   {/if}

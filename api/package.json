@@ -16,11 +16,13 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node-cron": "^3.0.11",
+    "@types/ssh2": "^1.15.5",
     "bun-types": "^1.2.0",
     "typescript": "^5.7.2"
   }

@@ -66,6 +66,7 @@ export interface ActiveJob {
 
 export interface SchedulerSettings {
   watchBundleId: string;
+  watchAppId: string;
   watchAppRepo: string;
   ghDispatchRepo: string;
   ghWorkflowFile: string;
@@ -128,6 +129,7 @@ export interface LogEntry {
 
 export interface AppStoreSearchResult {
   bundleId: string;
+  trackId: number;
   trackName: string;
   version: string;
   sellerName: string;
@@ -177,6 +179,34 @@ export function fetchAppVersions(bundleId: string): Promise<{ versions: AppVersi
 
 export function fetchJobStatus(id: string): Promise<JobSummary> {
   return apiJson(`/v1/dashboard/jobs/${id}/status`);
+}
+
+export interface TFTrain {
+  trainVersion: string;
+  buildCount: number;
+}
+
+export interface TFBuild {
+  id: number;
+  bundleId: string;
+  cfBundleShortVersion: string;
+  cfBundleVersion: string;
+  whatsNew?: string;
+  releaseDate?: string;
+  expiration?: string;
+  fileSize?: number;
+}
+
+export function fetchTestFlightTrains(appId: number): Promise<{ trains: TFTrain[] } | { error: string }> {
+  return apiJson(`/v1/dashboard/testflight/${appId}/trains`);
+}
+
+export function fetchTestFlightBuilds(appId: number, trainVersion: string): Promise<{ builds: TFBuild[] } | { error: string }> {
+  return apiJson(`/v1/dashboard/testflight/${appId}/builds?trainVersion=${encodeURIComponent(trainVersion)}`);
+}
+
+export function queueTestFlightDecrypt(bundleId: string, appId: number, build: TFBuild): Promise<{ ok: boolean; data: JobSummary }> {
+  return apiAction('/v1/dashboard/testflight/decrypt', { method: 'POST', body: JSON.stringify({ bundleId, appId, build }) });
 }
 
 export function clearAuthAlert(): Promise<{ ok: boolean }> {
@@ -239,12 +269,21 @@ export function testWebhook(): Promise<{ ok: boolean; data: { ok: boolean; error
   return apiAction('/v1/dashboard/settings/test-webhook', { method: 'POST' });
 }
 
+export interface TestFlightUpdateCheck {
+  appId?: number;
+  latestTag?: string;
+  alreadyReleased?: boolean;
+  wouldDispatch: boolean;
+  reason: string;
+}
+
 export interface UpdateCheck {
   itunesVersion?: string;
   normalizedVersion?: string;
   alreadyReleased?: boolean;
   wouldDispatch: boolean;
   reason: string;
+  testflight?: TestFlightUpdateCheck;
 }
 
 export function previewDispatch(): Promise<UpdateCheck> {

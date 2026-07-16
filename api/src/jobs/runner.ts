@@ -4,6 +4,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { emitJobsChanged } from '../events.js';
 import { scopedLogger } from '../logger.js';
+import { installBuild } from '../testflight.js';
 
 const log = scopedLogger('jobs');
 import type { Job } from './types.js';
@@ -13,7 +14,15 @@ export async function runDecrypt(job: Job): Promise<void> {
   const outputPath = path.join(config.outputDir, `${job.id}.ipa`);
   job.filePath = outputPath;
 
-  const args = ['decrypt', job.bundleId, '--from-appstore', '--output', outputPath];
+  if (job.testflight) {
+    job.progress = 'installing TestFlight build';
+    emitJobsChanged();
+    await installBuild(job.testflight.appId, job.testflight.build);
+  }
+
+  const args = job.testflight
+    ? ['decrypt', job.bundleId, '--use-installed', '--output', outputPath]
+    : ['decrypt', job.bundleId, '--from-appstore', '--output', outputPath];
   if (job.externalVersionId) args.push('--external-version-id', job.externalVersionId);
 
   await new Promise<void>((resolve, reject) => {

@@ -22,6 +22,7 @@ export async function lookupCurrentVersion(bundleId: string): Promise<ItunesLook
 
 export interface ItunesSearchResult {
   bundleId: string;
+  trackId: number;
   trackName: string;
   version: string;
   sellerName: string;
@@ -32,6 +33,7 @@ export interface ItunesSearchResult {
 interface ItunesSearchResponse {
   results: Array<{
     bundleId: string;
+    trackId: number;
     trackName: string;
     version: string;
     sellerName: string;
@@ -49,6 +51,7 @@ export async function searchApps(term: string, limit = 10): Promise<ItunesSearch
   const body = (await res.json()) as ItunesSearchResponse;
   return body.results.map((r) => ({
     bundleId: r.bundleId,
+    trackId: r.trackId,
     trackName: r.trackName,
     version: r.version,
     sellerName: r.sellerName,

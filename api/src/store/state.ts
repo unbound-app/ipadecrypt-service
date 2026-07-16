@@ -28,6 +28,7 @@ export interface ApiKeyRecord {
 
 export interface SchedulerSettings {
   watchBundleId: string;
+  watchAppId: string;
   watchAppRepo: string;
   ghDispatchRepo: string;
   ghWorkflowFile: string;
@@ -319,6 +320,7 @@ export function startApiKeySweeper(): void {
 export function getEffectiveSettings(): SchedulerSettings {
   return {
     watchBundleId: state.settings.watchBundleId ?? config.watchBundleId,
+    watchAppId: state.settings.watchAppId ?? config.watchAppId,
     watchAppRepo: state.settings.watchAppRepo ?? config.watchAppRepo,
     ghDispatchRepo: state.settings.ghDispatchRepo ?? config.ghDispatchRepo,
     ghWorkflowFile: state.settings.ghWorkflowFile ?? config.ghWorkflowFile,
