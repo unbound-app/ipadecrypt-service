@@ -71,22 +71,60 @@ function metaStr(meta: Record<string, unknown>, key: string): string | undefined
   return typeof v === 'string' ? v : undefined;
 }
 
+const SAFE_BUNDLE_ID_RE = /^[A-Za-z0-9.-]{1,200}$/;
+
 function runIpadecryptVersions(bundleId: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(config.ipadecryptBin, ['versions', bundleId, '--log-responses'], {
-      stdio: ['ignore', 'ignore', 'pipe'],
+  if (!SAFE_BUNDLE_ID_RE.test(bundleId)) {
+    return Promise.reject(new Error(`refusing to run ipadecrypt versions with unsafe bundleId: ${JSON.stringify(bundleId)}`));
+  }
+
+  return new Promise((resolve) => {
+    const innerCommand = `${config.ipadecryptBin} versions ${bundleId} --log-responses`;
+    const child = spawn('script', ['-qec', innerCommand, '/dev/null'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
-    });
+    let buf = '';
+    let sentEnter = false;
+    let sawCompletion = false;
+    let settled = false;
 
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) log.info('ipadecrypt versions exited non-zero (expected once the TUI hand-off is reached headlessly)', { bundleId, code, stderr: stderr.trim() });
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hardTimeout);
+      try {
+        child.kill('SIGKILL');
+      } catch {}
       resolve();
+    };
+
+    const onData = (chunk: Buffer) => {
+      buf += chunk.toString('utf8');
+      if (!sentEnter && buf.includes('Enter') && buf.includes('Ctrl-C')) {
+        sentEnter = true;
+        log.info('ipadecrypt versions: answering one-time consent prompt', { bundleId });
+        setTimeout(() => {
+          try {
+            child.stdin.write('\r');
+          } catch {}
+        }, 300);
+      }
+      if (!sawCompletion && /\d+ version\(s\)/.test(buf)) {
+        sawCompletion = true;
+        setTimeout(finish, 500);
+      }
+    };
+
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.on('error', (err) => {
+      log.info('ipadecrypt versions spawn error', { bundleId, error: String(err) });
+      finish();
     });
+    child.on('close', finish);
+
+    const hardTimeout = setTimeout(finish, 15_000);
   });
 }
 
@@ -95,9 +133,7 @@ async function fetchAppVersions(bundleId: string): Promise<AppVersionEntry[]> {
 
   const record = await readLastListVersionsRecord(bundleId);
   if (!record) {
-    throw new Error(
-      "no version data came back - if this is the first time this instance has listed versions, SSH in and run `ipadecrypt versions <bundle-id>` once interactively to accept Apple's rate-limit warning, then retry",
-    );
+    throw new Error('no version data came back from ipadecrypt versions - check the container logs for the underlying error (network issue, invalid bundle ID, or App Store lookup failure)');
   }
 
   const meta = record.metadata;
