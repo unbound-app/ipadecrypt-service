@@ -15,6 +15,11 @@ over SSH from the host. Two jobs:
 Both paths share one FIFO job queue, because the physical jailbroken device
 can only run one `ipadecrypt decrypt` at a time.
 
+A third path, **TestFlight builds**, lets you browse an app's beta trains,
+install a specific build, and decrypt it (`ipadecrypt decrypt
+--use-installed`) - see **TestFlight builds** below for the extra
+device-side setup this needs.
+
 ## Setup
 
 1. Jailbroken iDevice on the same network as this host, with OpenSSH,
@@ -183,12 +188,33 @@ cache plus its list of every external-version-id. Anything without a
 cached number is still fully decryptable, just labeled by its raw id
 instead of e.g. `v1.4.2`.
 
-The very first time this service tries to list any app's versions, it'll
-fail with a message telling you to SSH in and run
-`docker compose exec api ipadecrypt versions <any-bundle-id>` once,
-press Enter to accept Apple's rate-limit warning, and then Ctrl-C out -
-that's a one-time per-install step (the acceptance is persisted in the
-`appstore-config` volume), same as `ipadecrypt bootstrap`.
+`ipadecrypt versions` shows a one-time interactive warning before it'll
+fetch anything ("too many in a short window can get your Apple ID
+flagged..."). This service answers it automatically (spawns the CLI
+through a real pty and sends Enter the first time it sees the prompt,
+whether or not it's been answered before) - no manual step needed, and it
+survives a fresh `appstore-config` volume the same way `ipadecrypt
+bootstrap` doesn't (bootstrap's App Store login still has to be done once,
+interactively, per the Setup steps above).
+
+## TestFlight builds
+
+Browsing/installing TestFlight builds needs a small companion tweak,
+[unbound-app/tfauto](https://github.com/unbound-app/tfauto), installed on
+the jailbroken device (rootless, ElleKit). It does two things dkrypt's own
+SSH access can't: drives TestFlight's own installer to actually install a
+chosen build, and launches TestFlight in the first place in a way that
+still works with the device's screen off (SpringBoard normally refuses a
+foreground launch to anything if the display isn't lit - see that repo's
+README for how tfauto works around it). Without it installed, the
+TestFlight picker in the dashboard and the scheduler's TestFlight watch
+will fail with a connection/bridge error - the rest of dkrypt works fine
+without it.
+
+Once installed, nothing else is needed on dkrypt's side - `api/src/
+testflight.ts` talks to it over the same SSH connection already configured
+for `ipadecrypt` (reads the device host/port/key straight out of
+`ipadecrypt`'s own config, no separate credentials).
 
 ## Notes / limitations
 
@@ -196,8 +222,15 @@ that's a one-time per-install step (the acceptance is persisted in the
 - The queue is a simple in-memory FIFO - restarting the container drops
   any in-flight/queued jobs (the physical device only supports one worker
   anyway, so this hasn't been built out further).
-- Version matching for the automated watch compares the iTunes Lookup API
-  `version` field against release tags in `WATCH_APP_REPO`, normalizing a
-  leading `v` (`v334.0` vs `334.0`). It looks for an *exact* match, not
-  "newer than" - if your release tags diverge from the App Store version
-  scheme this will need adjusting in `api/src/util/version.ts`.
+- Version matching for the automated App Store watch compares the iTunes
+  Lookup API `version` field against release tags in `WATCH_APP_REPO`,
+  normalizing a leading `v` (`v334.0` vs `334.0`). It looks for an *exact*
+  match, not "newer than" - if your release tags diverge from the App
+  Store version scheme this will need adjusting in `api/src/util/
+  version.ts`.
+- If `WATCH_APP_ID` (the app's numeric App Store ID, not its bundle ID) is
+  also set, the scheduler separately watches TestFlight for new builds
+  too, matching tags shaped `v{shortVersion}_{buildNumber}` (e.g.
+  `v1.0.0_106191`) - a different, exact-string match against the *raw*
+  tag name, not the normalized App Store comparison above. Needs
+  `tfauto` installed (see **TestFlight builds**).
