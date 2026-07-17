@@ -93,6 +93,10 @@
     @apply py-1;
   }
 
+  [data-density='compact'] .log-row {
+    @apply py-1 text-[11.5px];
+  }
+
   code {
     @apply bg-panel-muted rounded px-1.5 py-0.5 font-mono text-xs;
   }

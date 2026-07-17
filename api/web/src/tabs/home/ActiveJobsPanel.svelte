@@ -3,7 +3,7 @@
   import CopyButton from '../../components/CopyButton.svelte';
   import EmptyState from '../../components/EmptyState.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
-  import { cancelJob, fetchJobEta } from '../../lib/api';
+  import { cancelJob, fetchJobEta, prioritizeJob } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
@@ -18,6 +18,7 @@
   const canCancel = $derived(!!sessionState.permissions?.decrypt);
 
   let cancelling = $state<Set<string>>(new Set());
+  let prioritizing = $state<Set<string>>(new Set());
 
   async function cancel(id: string): Promise<void> {
     cancelling = new Set(cancelling).add(id);
@@ -29,6 +30,19 @@
       cancelling = next;
     }
   }
+
+  async function prioritize(id: string): Promise<void> {
+    prioritizing = new Set(prioritizing).add(id);
+    try {
+      await prioritizeJob(id);
+    } finally {
+      const next = new Set(prioritizing);
+      next.delete(id);
+      prioritizing = next;
+    }
+  }
+
+  const queuedJobIds = $derived(jobs.filter((j) => j.status === 'queued').map((j) => j.id));
 
   let etaByBundle = $state<Record<string, number | null>>({});
   const fetchedBundles = new Set<string>();
@@ -110,7 +124,18 @@
               </td>
               <td>
                 {#if j.status === 'queued' && canCancel}
-                  <Button size="sm" variant="destructive" loading={cancelling.has(j.id)} onclick={() => cancel(j.id)}>Cancel</Button>
+                  <div class="flex justify-end gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={prioritizing.has(j.id)}
+                      disabled={queuedJobIds[0] === j.id}
+                      onclick={() => prioritize(j.id)}
+                    >
+                      Bump to front
+                    </Button>
+                    <Button size="sm" variant="destructive" loading={cancelling.has(j.id)} onclick={() => cancel(j.id)}>Cancel</Button>
+                  </div>
                 {/if}
               </td>
             </tr>

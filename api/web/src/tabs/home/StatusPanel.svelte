@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Circle, CircleCheck, TriangleAlert } from 'lucide-svelte';
+  import { BatteryCharging, BatteryMedium, Circle, CircleCheck, TriangleAlert } from 'lucide-svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import Sparkline from '../../components/Sparkline.svelte';
   import { fetchDeviceHealth, fetchDeviceHealthHistory, fetchJobVolume, type DeviceHealth, type HourlyHealthBucket, type SchedulerRunOutcome } from '../../lib/api';
@@ -117,6 +117,19 @@
       </Badge>
       {#if health.reachable}
         <Badge variant={health.testFlightRunning ? 'default' : 'secondary'}>TestFlight {health.testFlightRunning ? 'running' : 'idle'}</Badge>
+      {/if}
+      {#if health.reachable && health.batteryPercent !== undefined}
+        <Badge
+          variant={health.batteryPercent <= 20 && !health.batteryCharging ? 'destructive' : 'secondary'}
+          title={health.batteryTemperatureC !== undefined ? `${health.batteryTemperatureC.toFixed(1)}°C` : undefined}
+        >
+          {#if health.batteryCharging}
+            <BatteryCharging class="mr-1 inline h-3 w-3" />
+          {:else}
+            <BatteryMedium class="mr-1 inline h-3 w-3" />
+          {/if}
+          {health.batteryPercent}%
+        </Badge>
       {/if}
     {:else}
       <Badge variant="secondary">iDevice …</Badge>

@@ -35,6 +35,7 @@
   let keyName = $state('');
   let keyExpiry = $state('never');
   let keyScope = $state('');
+  let keyDailyLimit = $state('');
   let revealedKey = $state('');
   let mine = $state<ApiKeyRecord[] | null>(null);
   let pending = $state<ApiKeyRecord[] | null>(null);
@@ -72,10 +73,12 @@
   let usageOpen = $state(false);
   let usageKeyId = $state('');
   let usageKeyName = $state('');
+  let usageKeyDailyLimit = $state<number | undefined>(undefined);
 
   function openUsage(k: ApiKeyRecord): void {
     usageKeyId = k.id;
     usageKeyName = k.name;
+    usageKeyDailyLimit = k.dailyLimit;
     usageOpen = true;
   }
 
@@ -140,10 +143,12 @@
     submitting = true;
     try {
       const expiresInDays = keyExpiry === 'never' ? undefined : Number(keyExpiry);
-      const { ok, data } = await requestKey(name, expiresInDays, parseScope(keyScope));
+      const dailyLimit = keyDailyLimit.trim() ? Number(keyDailyLimit) : undefined;
+      const { ok, data } = await requestKey(name, expiresInDays, parseScope(keyScope), dailyLimit);
       if (!ok) return;
       keyName = '';
       keyScope = '';
+      keyDailyLimit = '';
       if (data.key) {
         revealedKey = data.key;
         showToast('Key created', 'success');
@@ -269,6 +274,9 @@
     <label for="key-scope" class="mt-3 mb-1 block text-xs text-muted">Restrict to bundle IDs (optional)</label>
     <Input id="key-scope" placeholder="e.g. com.example.app, com.example.app2" bind:value={keyScope} />
     <div class="mt-1 text-xs text-muted">Comma-separated. Leave blank for a key that can decrypt anything.</div>
+    <label for="key-daily-limit" class="mt-3 mb-1 block text-xs text-muted">Daily request limit (optional)</label>
+    <Input id="key-daily-limit" type="number" min="1" placeholder="e.g. 100" bind:value={keyDailyLimit} />
+    <div class="mt-1 text-xs text-muted">Leave blank for no limit. Requests past the limit get a 429 until the next day.</div>
     <Button class="mt-3" loading={submitting} onclick={submitRequest}>{canApprove ? 'Create' : 'Request'}</Button>
     {#if revealedKey}
       <div class="border-accent bg-panel-muted mt-3 rounded-md border p-2.5 text-xs break-all">
@@ -310,6 +318,9 @@
                     {/if}
                     {#if isStale(k)}
                       <Badge variant="secondary" title="Not used in 90+ days">unused 90+d</Badge>
+                    {/if}
+                    {#if k.dailyLimit}
+                      <Badge variant="secondary" title="{k.dailyLimit} requests/day">{k.dailyLimit}/day</Badge>
                     {/if}
                   </div>
                 </td>
@@ -446,6 +457,9 @@
                       {#if isStale(k)}
                         <Badge variant="secondary" title="Not used in 90+ days">unused 90+d</Badge>
                       {/if}
+                      {#if k.dailyLimit}
+                        <Badge variant="secondary" title="{k.dailyLimit} requests/day">{k.dailyLimit}/day</Badge>
+                      {/if}
                     </div>
                   </td>
                   <td data-label="Scope" class="max-w-32 truncate text-muted" title={k.allowedBundleIds?.join(', ') ?? ''}>
@@ -485,4 +499,10 @@
   {/if}
 </div>
 
-<KeyUsageDialog open={usageOpen} keyId={usageKeyId} keyName={usageKeyName} onOpenChange={(v) => (usageOpen = v)} />
+<KeyUsageDialog
+  open={usageOpen}
+  keyId={usageKeyId}
+  keyName={usageKeyName}
+  dailyLimit={usageKeyDailyLimit}
+  onOpenChange={(v) => (usageOpen = v)}
+/>

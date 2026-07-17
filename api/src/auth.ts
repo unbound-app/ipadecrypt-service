@@ -7,6 +7,10 @@ export function requireApiKey(req: Request, res: Response, next: NextFunction): 
   const [scheme, token] = header.split(' ');
 
   const result = scheme === 'Bearer' && token ? verifyApiKey(token) : undefined;
+  if (result === 'rate-limited') {
+    res.status(429).json({ error: 'this API key has hit its daily request limit' });
+    return;
+  }
   if (!result) {
     res.status(401).json({ error: 'unauthorized' });
     return;
@@ -22,6 +26,10 @@ export function requireApiKeyOrSignedToken(req: Request, res: Response, next: Ne
   const [scheme, token] = header.split(' ');
   if (scheme === 'Bearer' && token) {
     const result = verifyApiKey(token);
+    if (result === 'rate-limited') {
+      res.status(429).json({ error: 'this API key has hit its daily request limit' });
+      return;
+    }
     if (result) {
       res.locals.apiKeyScope = result.allowedBundleIds;
       res.locals.apiKeyOwner = result.ownerId;

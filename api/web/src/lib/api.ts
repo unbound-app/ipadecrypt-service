@@ -99,6 +99,10 @@ export interface SchedulerSettings {
   notifyOnDispatchSuccess: boolean;
   notifyOnDispatchFailure: boolean;
   notifyOnAppleAuthAlert: boolean;
+  notifyOnKeyExpiringSoon: boolean;
+  notifyOnDeviceOffline: boolean;
+  schedulerRetryCount: number;
+  deviceOfflineAlertMinutes: number;
 }
 
 export interface AppleAuthAlert {
@@ -166,6 +170,7 @@ export interface ApiKeyRecord {
   expiresAt?: number;
   hasUnrevealedSecret: boolean;
   allowedBundleIds?: string[];
+  dailyLimit?: number;
 }
 
 export interface AllowedUser {
@@ -179,7 +184,7 @@ export interface AuditLogEntry {
   id: string;
   ts: number;
   actor: string;
-  action: 'user.add' | 'user.update' | 'user.remove' | 'state.import';
+  action: 'user.add' | 'user.update' | 'user.remove' | 'state.import' | 'settings.update';
   target: string;
   detail?: string;
 }
@@ -213,6 +218,9 @@ export interface DeviceHealth {
   darkEnabled?: boolean;
   screenIsOn?: boolean;
   backlightState?: number;
+  batteryPercent?: number;
+  batteryCharging?: boolean;
+  batteryTemperatureC?: number;
   checkedAt: number;
 }
 
@@ -264,6 +272,10 @@ export function cancelJob(id: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/jobs/${id}/cancel`, { method: 'POST' }, 'Cancelled').then((r) => ({ ok: r.ok }));
 }
 
+export function prioritizeJob(id: string): Promise<{ ok: boolean }> {
+  return apiAction(`/v1/dashboard/jobs/${id}/prioritize`, { method: 'POST' }, 'Moved to front of queue').then((r) => ({ ok: r.ok }));
+}
+
 export interface ApiKeyUsageBucket {
   date: string;
   count: number;
@@ -308,6 +320,7 @@ export interface InsightsSummary {
   schedulerCount: number;
   topApps: InsightsAppStats[];
   trend: { date: string; count: number }[];
+  failureBreakdown: { category: string; count: number }[];
 }
 
 export function fetchInsights(): Promise<InsightsSummary> {
@@ -390,8 +403,12 @@ export function requestKey(
   name: string,
   expiresInDays?: number,
   allowedBundleIds?: string[],
+  dailyLimit?: number,
 ): Promise<{ ok: boolean; data: { key?: string; expiresAt?: number } }> {
-  return apiAction('/v1/dashboard/keys/request', { method: 'POST', body: JSON.stringify({ name, expiresInDays, allowedBundleIds }) });
+  return apiAction('/v1/dashboard/keys/request', {
+    method: 'POST',
+    body: JSON.stringify({ name, expiresInDays, allowedBundleIds, dailyLimit }),
+  });
 }
 
 export function revealKey(id: string): Promise<{ ok: boolean; data: { key: string } }> {

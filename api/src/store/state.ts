@@ -4,6 +4,7 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { emitHistoryAdded } from '../events.js';
 import type { TestFlightJobSource } from '../jobs/types.js';
+import { categorizeFailure } from '../util/failureCategory.js';
 
 export type ApiKeyStatus = 'pending' | 'approved' | 'denied';
 
@@ -153,6 +154,8 @@ export interface ApiKeyRecord {
   lastUsedAt?: number;
   expiresAt?: number;
   allowedBundleIds?: string[];
+  dailyLimit?: number;
+  expiryNotifiedAt?: number;
 }
 
 export interface ApiKeyAuthResult {
@@ -174,6 +177,10 @@ export interface SchedulerSettings {
   notifyOnDispatchSuccess: boolean;
   notifyOnDispatchFailure: boolean;
   notifyOnAppleAuthAlert: boolean;
+  notifyOnKeyExpiringSoon: boolean;
+  notifyOnDeviceOffline: boolean;
+  schedulerRetryCount: number;
+  deviceOfflineAlertMinutes: number;
 }
 
 export interface JobHistoryEntry {
@@ -203,7 +210,7 @@ export interface UserPrefs {
   density?: 'comfortable' | 'compact';
 }
 
-export type AuditAction = 'user.add' | 'user.update' | 'user.remove' | 'state.import';
+export type AuditAction = 'user.add' | 'user.update' | 'user.remove' | 'state.import' | 'settings.update';
 
 export interface AuditLogEntry {
   id: string;
@@ -341,11 +348,32 @@ function migrate(raw: Record<string, unknown>): PersistedState {
   };
 }
 
+function normalizeLegacySchedulerRunOutcome(raw: unknown): SchedulerRunOutcome {
+  const o = (raw ?? {}) as Partial<SchedulerRunOutcome>;
+  return {
+    ok: typeof o.ok === 'boolean' ? o.ok : true,
+    triggered: Boolean(o.triggered),
+    reason: o.reason ?? '',
+    runUrl: o.runUrl,
+  };
+}
+
+function normalizeLegacySchedulerRunHistory(entries: unknown): SchedulerRunEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return (entries as Record<string, unknown>[]).map((e) => ({
+    ts: e.ts as number,
+    appStore: normalizeLegacySchedulerRunOutcome(e.appStore),
+    testflight: normalizeLegacySchedulerRunOutcome(e.testflight),
+  }));
+}
+
 function load(): PersistedState {
   mkdirSync(config.stateDir, { recursive: true });
   if (!existsSync(statePath)) return defaultState();
   try {
-    return migrate(JSON.parse(readFileSync(statePath, 'utf8')));
+    const migrated = migrate(JSON.parse(readFileSync(statePath, 'utf8')));
+    migrated.schedulerRunHistory = normalizeLegacySchedulerRunHistory(migrated.schedulerRunHistory);
+    return migrated;
   } catch {
     return defaultState();
   }
@@ -497,6 +525,7 @@ function redact(k: ApiKeyRecord) {
     expiresAt: k.expiresAt,
     hasUnrevealedSecret: !!k.pendingReveal,
     allowedBundleIds: k.allowedBundleIds,
+    dailyLimit: k.dailyLimit,
   };
 }
 
@@ -513,6 +542,7 @@ export function createApiKey(
   ownerId: string,
   expiresInDays?: number,
   allowedBundleIds?: string[],
+  dailyLimit?: number,
 ): { id: string; name: string; key: string; createdAt: number; expiresAt?: number } {
   const key = randomBytes(32).toString('hex');
   const record: ApiKeyRecord = {
@@ -526,13 +556,14 @@ export function createApiKey(
     approvedAt: Date.now(),
     expiresAt: expiresAtFromDays(expiresInDays),
     allowedBundleIds: sanitizeBundleIds(allowedBundleIds),
+    dailyLimit,
   };
   state.apiKeys.push(record);
   persistNow();
   return { id: record.id, name: record.name, key, createdAt: record.createdAt, expiresAt: record.expiresAt };
 }
 
-export function requestApiKey(name: string, ownerId: string, expiresInDays?: number, allowedBundleIds?: string[]) {
+export function requestApiKey(name: string, ownerId: string, expiresInDays?: number, allowedBundleIds?: string[], dailyLimit?: number) {
   const record: ApiKeyRecord = {
     id: randomUUID(),
     name,
@@ -541,6 +572,7 @@ export function requestApiKey(name: string, ownerId: string, expiresInDays?: num
     createdAt: Date.now(),
     expiresAt: expiresAtFromDays(expiresInDays),
     allowedBundleIds: sanitizeBundleIds(allowedBundleIds),
+    dailyLimit,
   };
   state.apiKeys.push(record);
   persistNow();
@@ -623,6 +655,12 @@ export function revokeApiKey(id: string, requesterId: string, requesterIsAdmin: 
   return true;
 }
 
+function todayUsageCount(id: string): number {
+  const today = new Date().toISOString().slice(0, 10);
+  const buckets = state.apiKeyUsage[id] ?? [];
+  return buckets[buckets.length - 1]?.date === today ? buckets[buckets.length - 1].count : 0;
+}
+
 function recordApiKeyUsage(id: string): void {
   const today = new Date().toISOString().slice(0, 10);
   const buckets = state.apiKeyUsage[id] ?? [];
@@ -650,18 +688,31 @@ export function getApiKeyUsage(id: string, days: number): ApiKeyUsageBucket[] {
   return out;
 }
 
-export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined {
+export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined | 'rate-limited' {
   if (safeEqualStr(candidate, config.apiKey)) return {};
 
   const hash = hashKey(candidate);
   const record = state.apiKeys.find((k) => k.status === 'approved' && k.hash === hash);
   if (!record) return undefined;
   if (record.expiresAt && Date.now() > record.expiresAt) return undefined;
+  if (record.dailyLimit && todayUsageCount(record.id) >= record.dailyLimit) return 'rate-limited';
 
   record.lastUsedAt = Date.now();
   recordApiKeyUsage(record.id);
   dirty = true;
   return { allowedBundleIds: record.allowedBundleIds, ownerId: record.ownerId };
+}
+
+const KEY_EXPIRY_WARNING_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function claimExpiringApiKeysToNotify(): { id: string; name: string; ownerId: string; expiresAt: number }[] {
+  const now = Date.now();
+  const due = state.apiKeys.filter(
+    (k) => k.status === 'approved' && k.expiresAt && k.expiresAt - now <= KEY_EXPIRY_WARNING_MS && k.expiresAt > now && !k.expiryNotifiedAt,
+  );
+  for (const k of due) k.expiryNotifiedAt = now;
+  if (due.length > 0) persistNow();
+  return due.map((k) => ({ id: k.id, name: k.name, ownerId: k.ownerId, expiresAt: k.expiresAt as number }));
 }
 
 export function startApiKeySweeper(): void {
@@ -686,13 +737,28 @@ export function getEffectiveSettings(): SchedulerSettings {
     notifyOnDispatchSuccess: state.settings.notifyOnDispatchSuccess ?? true,
     notifyOnDispatchFailure: state.settings.notifyOnDispatchFailure ?? true,
     notifyOnAppleAuthAlert: state.settings.notifyOnAppleAuthAlert ?? true,
+    notifyOnKeyExpiringSoon: state.settings.notifyOnKeyExpiringSoon ?? true,
+    notifyOnDeviceOffline: state.settings.notifyOnDeviceOffline ?? true,
+    schedulerRetryCount: state.settings.schedulerRetryCount ?? 0,
+    deviceOfflineAlertMinutes: state.settings.deviceOfflineAlertMinutes ?? 15,
   };
 }
 
-export function updateSettings(patch: Partial<SchedulerSettings>): SchedulerSettings {
+function diffSettings(before: SchedulerSettings, after: SchedulerSettings): string {
+  const changed = (Object.keys(after) as (keyof SchedulerSettings)[]).filter((k) => before[k] !== after[k]);
+  return changed.map((k) => `${k}: ${String(before[k])} -> ${String(after[k])}`).join(', ');
+}
+
+export function updateSettings(patch: Partial<SchedulerSettings>, actor?: string): SchedulerSettings {
+  const before = getEffectiveSettings();
   state.settings = { ...state.settings, ...patch };
   persistNow();
-  return getEffectiveSettings();
+  const after = getEffectiveSettings();
+  if (actor) {
+    const detail = diffSettings(before, after);
+    if (detail) recordAudit(actor, 'settings.update', 'scheduler', detail);
+  }
+  return after;
 }
 
 export function isSchedulerEnabled(): boolean {
@@ -819,6 +885,17 @@ export interface InsightsSummary {
   schedulerCount: number;
   topApps: InsightsAppStats[];
   trend: { date: string; count: number }[];
+  failureBreakdown: { category: string; count: number }[];
+}
+
+function getFailureBreakdown(runs: JobHistoryEntry[]): { category: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const j of runs) {
+    if (j.status !== 'failed') continue;
+    const category = categorizeFailure(j.error);
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count);
 }
 
 export function getInsightsSummary(topAppsLimit = 5, trendDays = 14): InsightsSummary {
@@ -858,6 +935,7 @@ export function getInsightsSummary(topAppsLimit = 5, trendDays = 14): InsightsSu
     schedulerCount: runs.filter((j) => j.source === 'scheduler').length,
     topApps,
     trend: getDailyVolume(trendDays),
+    failureBreakdown: getFailureBreakdown(runs),
   };
 }
 

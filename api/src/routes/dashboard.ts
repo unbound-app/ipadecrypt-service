@@ -10,7 +10,7 @@ import {
 } from '../appleAuthRunner.js';
 import { dashboardEvents } from '../events.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
-import { cancelQueuedJob, enqueueDecryptJob, getActiveJobs, getJob } from '../jobs/store.js';
+import { cancelQueuedJob, enqueueDecryptJob, getActiveJobs, getJob, prioritizeQueuedJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
 import { EMBED_COLOR, notify, sendTestNotification } from '../notify.js';
@@ -349,6 +349,15 @@ dashboardRouter.post('/v1/dashboard/jobs/:id/cancel', canDecrypt, (req, res) => 
   res.json({ ok: true });
 });
 
+dashboardRouter.post('/v1/dashboard/jobs/:id/prioritize', canDecrypt, (req, res) => {
+  const ok = prioritizeQueuedJob(req.params.id);
+  if (!ok) {
+    res.status(409).json({ error: 'job is not queued (already running, finished, or not found)' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
 dashboardRouter.get('/v1/dashboard/jobs/:id/file', async (req, res) => {
   const job = getJob(req.params.id);
   if (!job) {
@@ -385,6 +394,13 @@ dashboardRouter.get('/v1/dashboard/keys/mine', (_req, res) => {
 
 const EXPIRY_OPTIONS = new Set([1, 7, 30, 90]);
 const MAX_SCOPED_BUNDLE_IDS = 25;
+const MIN_DAILY_LIMIT = 1;
+const MAX_DAILY_LIMIT = 10_000;
+
+function parseDailyLimit(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return Math.min(Math.max(Math.round(value), MIN_DAILY_LIMIT), MAX_DAILY_LIMIT);
+}
 
 function parseAllowedBundleIds(body: unknown): string[] | undefined {
   if (!Array.isArray(body)) return undefined;
@@ -408,13 +424,14 @@ dashboardRouter.post('/v1/dashboard/keys/request', canDecrypt, (req, res) => {
     ? req.body.expiresInDays
     : undefined;
   const allowedBundleIds = parseAllowedBundleIds(req.body?.allowedBundleIds);
+  const dailyLimit = parseDailyLimit(req.body?.dailyLimit);
 
   if (permissions.approveApiKeys) {
-    res.status(201).json(createApiKey(name, sub, expiresInDays, allowedBundleIds));
+    res.status(201).json(createApiKey(name, sub, expiresInDays, allowedBundleIds, dailyLimit));
     return;
   }
 
-  const record = requestApiKey(name, sub, expiresInDays, allowedBundleIds);
+  const record = requestApiKey(name, sub, expiresInDays, allowedBundleIds, dailyLimit);
   void notify('keyRequest', {
     title: 'New API key request',
     description: `**${sub}** requested a new key ("${name}") - approve it on the API Keys tab.`,
@@ -515,7 +532,17 @@ dashboardRouter.get('/v1/dashboard/settings', (_req, res) => {
 });
 
 const SETTINGS_STRING_FIELDS = ['watchBundleId', 'watchAppRepo', 'ghDispatchRepo', 'ghWorkflowFile', 'pollCron', 'notifyWebhookUrl'] as const;
-const SETTINGS_BOOL_FIELDS = ['notifyOnKeyRequest', 'notifyOnDispatchSuccess', 'notifyOnDispatchFailure', 'notifyOnAppleAuthAlert'] as const;
+const SETTINGS_BOOL_FIELDS = [
+  'notifyOnKeyRequest',
+  'notifyOnDispatchSuccess',
+  'notifyOnDispatchFailure',
+  'notifyOnAppleAuthAlert',
+  'notifyOnKeyExpiringSoon',
+  'notifyOnDeviceOffline',
+] as const;
+const MAX_SCHEDULER_RETRY_COUNT = 5;
+const MIN_DEVICE_OFFLINE_ALERT_MINUTES = 5;
+const MAX_DEVICE_OFFLINE_ALERT_MINUTES = 180;
 
 dashboardRouter.put('/v1/dashboard/settings', canManageScheduler, (req, res) => {
   const body = req.body ?? {};
@@ -530,13 +557,22 @@ dashboardRouter.put('/v1/dashboard/settings', canManageScheduler, (req, res) => 
   if (body.notifyFormat === 'embed' || body.notifyFormat === 'plain') {
     patch.notifyFormat = body.notifyFormat;
   }
+  if (typeof body.schedulerRetryCount === 'number') {
+    patch.schedulerRetryCount = Math.min(Math.max(Math.round(body.schedulerRetryCount), 0), MAX_SCHEDULER_RETRY_COUNT);
+  }
+  if (typeof body.deviceOfflineAlertMinutes === 'number') {
+    patch.deviceOfflineAlertMinutes = Math.min(
+      Math.max(Math.round(body.deviceOfflineAlertMinutes), MIN_DEVICE_OFFLINE_ALERT_MINUTES),
+      MAX_DEVICE_OFFLINE_ALERT_MINUTES,
+    );
+  }
 
   if (typeof patch.pollCron === 'string' && patch.pollCron !== '' && !validateCronExpr(patch.pollCron)) {
     res.status(400).json({ error: 'pollCron is not a valid cron expression' });
     return;
   }
 
-  const updated = updateSettings(patch);
+  const updated = updateSettings(patch, res.locals.session.sub);
   applySchedule();
   res.json(updated);
 });

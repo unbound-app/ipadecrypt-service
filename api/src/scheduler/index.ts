@@ -284,6 +284,23 @@ async function tickTestFlight(settings: SchedulerSettings): Promise<SchedulerRun
   return { ok, triggered: true, reason: check.reason, runUrl };
 }
 
+const RETRY_BASE_DELAY_MS = 30_000;
+
+async function tickWithRetry(
+  fn: (settings: SchedulerSettings) => Promise<SchedulerRunOutcome>,
+  settings: SchedulerSettings,
+  label: string,
+): Promise<SchedulerRunOutcome> {
+  let outcome = await fn(settings);
+  for (let attempt = 1; attempt <= settings.schedulerRetryCount && !outcome.ok; attempt++) {
+    const delayMs = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+    log.warn('scheduler check failed, retrying', { source: label, attempt, maxRetries: settings.schedulerRetryCount, delayMs, reason: outcome.reason });
+    await sleep(delayMs);
+    outcome = await fn(settings);
+  }
+  return outcome;
+}
+
 let tickInProgress = false;
 
 async function tick(): Promise<void> {
@@ -297,8 +314,8 @@ async function tick(): Promise<void> {
     const settings = getEffectiveSettings();
     log.info('scheduler tick', { bundleId: settings.watchBundleId, appRepo: settings.watchAppRepo });
 
-    const appStore = await tickAppStore(settings);
-    const testflight = await tickTestFlight(settings);
+    const appStore = await tickWithRetry(tickAppStore, settings, 'App Store');
+    const testflight = await tickWithRetry(tickTestFlight, settings, 'TestFlight');
     recordSchedulerRunOutcome({ appStore, testflight });
   } finally {
     tickInProgress = false;

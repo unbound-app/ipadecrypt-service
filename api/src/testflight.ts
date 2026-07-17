@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { Client } from 'ssh2';
 import { config } from './config.js';
 import { scopedLogger } from './logger.js';
-import { recordDeviceHealthCheck } from './store/state.js';
+import { EMBED_COLOR, notify } from './notify.js';
+import { getEffectiveSettings, recordDeviceHealthCheck } from './store/state.js';
 
 const log = scopedLogger('testflight');
 
@@ -307,7 +308,36 @@ export interface DeviceHealth {
   darkEnabled?: boolean;
   screenIsOn?: boolean;
   backlightState?: number;
+  batteryPercent?: number;
+  batteryCharging?: boolean;
+  batteryTemperatureC?: number;
   checkedAt: number;
+}
+
+function parseIoregValue(output: string, key: string): string | undefined {
+  return new RegExp(`"${key}"\\s*=\\s*([^\\n]+)`).exec(output)?.[1]?.trim();
+}
+
+interface BatteryStatus {
+  batteryPercent?: number;
+  batteryCharging?: boolean;
+  batteryTemperatureC?: number;
+}
+
+async function queryBatteryStatus(conn: Client): Promise<BatteryStatus | undefined> {
+  const { stdout, code } = await execCommand(conn, 'ioreg -rn AppleSmartBattery -w0');
+  if (code !== 0 || !stdout) return undefined;
+
+  const currentCapacity = Number(parseIoregValue(stdout, 'CurrentCapacity'));
+  const maxCapacity = Number(parseIoregValue(stdout, 'MaxCapacity'));
+  const isCharging = parseIoregValue(stdout, 'IsCharging');
+  const temperature = Number(parseIoregValue(stdout, 'Temperature'));
+
+  return {
+    batteryPercent: Number.isFinite(currentCapacity) && maxCapacity ? Math.round((currentCapacity / maxCapacity) * 100) : undefined,
+    batteryCharging: isCharging === undefined ? undefined : isCharging === 'Yes',
+    batteryTemperatureC: Number.isFinite(temperature) ? temperature / 100 : undefined,
+  };
 }
 
 const HEALTH_CACHE_TTL_MS = 20_000;
@@ -316,9 +346,10 @@ let healthCache: { at: number; value: DeviceHealth } | undefined;
 async function computeDeviceHealth(): Promise<DeviceHealth> {
   try {
     return await withSSH(async (conn) => {
-      const [tfRunning, sbStatus] = await Promise.all([
+      const [tfRunning, sbStatus, battery] = await Promise.all([
         isTestFlightRunning(conn),
         sendBridgeRequestRawTo(conn, SB_REQUEST_PATH, SB_RESPONSE_PATH, { action: 'screen_status' }, 8_000).catch(() => undefined),
+        queryBatteryStatus(conn).catch(() => undefined),
       ]);
       return {
         reachable: true,
@@ -326,6 +357,9 @@ async function computeDeviceHealth(): Promise<DeviceHealth> {
         darkEnabled: sbStatus?.darkEnabled,
         screenIsOn: sbStatus?.screenIsOn,
         backlightState: sbStatus?.backlightState,
+        batteryPercent: battery?.batteryPercent,
+        batteryCharging: battery?.batteryCharging,
+        batteryTemperatureC: battery?.batteryTemperatureC,
         checkedAt: Date.now(),
       };
     });
@@ -343,12 +377,40 @@ export async function getDeviceHealth(): Promise<DeviceHealth> {
 
 const HEALTH_POLL_INTERVAL_MS = 5 * 60_000;
 
+let unreachableSince: number | undefined;
+let offlineAlertSentAt: number | undefined;
+
+async function checkOfflineAlert(reachable: boolean): Promise<void> {
+  if (reachable) {
+    unreachableSince = undefined;
+    offlineAlertSentAt = undefined;
+    return;
+  }
+
+  if (unreachableSince === undefined) unreachableSince = Date.now();
+  if (offlineAlertSentAt !== undefined) return;
+
+  const settings = getEffectiveSettings();
+  const thresholdMs = settings.deviceOfflineAlertMinutes * 60_000;
+  if (Date.now() - unreachableSince < thresholdMs) return;
+
+  offlineAlertSentAt = Date.now();
+  await notify('deviceOffline', {
+    title: 'iDevice unreachable',
+    description: `The iDevice has been unreachable for at least ${settings.deviceOfflineAlertMinutes} minutes - decrypts and the scheduler can't run until it's back.`,
+    color: EMBED_COLOR.err,
+  });
+}
+
 // Independent of whether anyone has the dashboard open (the 20s cache above only gets refreshed
 // by an actual dashboard request) - this is what builds the reachability-over-time history.
 export function startDeviceHealthPoller(): void {
   setInterval(() => {
     void getDeviceHealth()
-      .then((health) => recordDeviceHealthCheck(health.reachable))
+      .then((health) => {
+        recordDeviceHealthCheck(health.reachable);
+        return checkOfflineAlert(health.reachable);
+      })
       .catch((err) => log.warn('device health poll failed', { error: String(err) }));
   }, HEALTH_POLL_INTERVAL_MS).unref();
 }

@@ -243,7 +243,7 @@
         <Button variant="secondary" size="sm" loading={loggingOut} onclick={doLogout}>Log out</Button>
       </div>
     </header>
-    <main class="mx-auto max-w-[1120px] p-6">
+    <main class="mx-auto max-w-[1680px] px-4 py-6 lg:px-6">
       <SessionExpiryBanner />
       <ConnectionBanner />
       <AlertBanner />

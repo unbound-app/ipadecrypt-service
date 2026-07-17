@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { startJobSweeper } from './jobs/store.js';
+import { startKeyExpiryPoller } from './keyExpiryPoller.js';
 import { log, startLogFlusher } from './logger.js';
 import { authRouter } from './routes/auth.js';
 import { dashboardRouter } from './routes/dashboard.js';
@@ -58,6 +59,7 @@ startLogFlusher();
 startApiKeySweeper();
 startScheduler();
 startDeviceHealthPoller();
+startKeyExpiryPoller();
 
 app.listen(config.port, config.bindHost, () => {
   log.info(`dkrypt listening on ${config.bindHost}:${config.port}`);

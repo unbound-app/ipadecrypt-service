@@ -151,6 +151,20 @@ export function cancelQueuedJob(id: string, cancelledBy: string): boolean {
   return true;
 }
 
+export function prioritizeQueuedJob(id: string): boolean {
+  const job = jobs.get(id);
+  if (!job || job.status !== 'queued') return false;
+
+  const idx = queue.indexOf(id);
+  if (idx <= 0) return idx === 0;
+
+  queue.splice(idx, 1);
+  queue.unshift(id);
+  log.info('job bumped to front of queue', { jobId: id, bundleId: job.bundleId });
+  emitJobsChanged();
+  return true;
+}
+
 async function runWorker(): Promise<void> {
   if (workerRunning) return;
   workerRunning = true;

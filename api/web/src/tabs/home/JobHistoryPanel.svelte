@@ -12,15 +12,25 @@
   import Input from '../../lib/components/ui/Input.svelte';
   import { buttonVariants, statusToBadgeVariant } from '../../lib/components/ui/variants';
   import { addDecrypt, pushRecentBundleId } from '../../lib/decrypts.svelte';
+  import { loadFilterPresets, saveFilterPresets } from '../../lib/filterPresets';
   import { csvCell, debounce, downloadBlob, fmtSize } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
   import { scrollFade } from '../../lib/scrollFade';
   import { confirmDialog, historyJumpState, showToast } from '../../lib/ui.svelte';
 
   const PAGE_SIZE = 15;
+  const PRESETS_KEY = 'jobHistoryFilterPresets';
+  const MAX_PRESETS = 10;
 
   type SourceFilter = 'all' | 'manual' | 'scheduler';
   type StatusFilter = 'all' | 'done' | 'failed';
+
+  interface FilterPreset {
+    name: string;
+    query: string;
+    source: SourceFilter;
+    status: StatusFilter;
+  }
 
   let entries = $state<JobHistoryEntry[]>([]);
   let total = $state(0);
@@ -34,6 +44,28 @@
   let statusFilter = $state<StatusFilter>('all');
   let selected = $state<Set<string>>(new Set());
   let bulkRequeueing = $state(false);
+  let presets = $state<FilterPreset[]>(loadFilterPresets<FilterPreset>(PRESETS_KEY));
+  let newPresetName = $state('');
+
+  function applyPreset(p: FilterPreset): void {
+    searchText = p.query;
+    sourceFilter = p.source;
+    statusFilter = p.status;
+  }
+
+  function savePreset(): void {
+    const name = newPresetName.trim();
+    if (!name) return;
+    const preset: FilterPreset = { name, query: searchText.trim(), source: sourceFilter, status: statusFilter };
+    presets = [...presets.filter((p) => p.name !== name), preset].slice(-MAX_PRESETS);
+    saveFilterPresets(PRESETS_KEY, presets);
+    newPresetName = '';
+  }
+
+  function removePreset(name: string): void {
+    presets = presets.filter((p) => p.name !== name);
+    saveFilterPresets(PRESETS_KEY, presets);
+  }
 
   function matchesFilters(h: JobHistoryEntry): boolean {
     return (
@@ -260,6 +292,26 @@
       <Button variant={sourceFilter === 'scheduler' ? 'default' : 'secondary'} onclick={() => (sourceFilter = 'scheduler')}>
         Scheduler
       </Button>
+    </div>
+  </div>
+
+  <div class="mb-3 flex flex-wrap items-center gap-1.5">
+    {#each presets as p (p.name)}
+      <span class="border-border text-muted hover:text-text hover:border-accent inline-flex items-center gap-1 rounded-full border pr-1 pl-2.5 py-1 text-[12px]">
+        <button class="cursor-pointer" onclick={() => applyPreset(p)}>{p.name}</button>
+        <button
+          class="text-muted hover:text-err cursor-pointer rounded-full p-0.5"
+          onclick={() => removePreset(p.name)}
+          aria-label="Delete preset {p.name}"
+          title="Delete preset"
+        >
+          <X class="h-3 w-3" />
+        </button>
+      </span>
+    {/each}
+    <div class="flex items-center gap-1.5">
+      <Input placeholder="Preset name…" bind:value={newPresetName} class="h-7 w-32 text-xs" />
+      <Button size="sm" variant="secondary" disabled={!newPresetName.trim()} onclick={savePreset}>Save filters</Button>
     </div>
   </div>
 

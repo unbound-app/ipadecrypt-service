@@ -28,6 +28,7 @@
   }
 
   const trend = $derived(insights?.trend.map((d) => ({ label: fmtDayLabel(d.date), value: d.count })) ?? []);
+  const maxFailureCount = $derived(Math.max(1, ...(insights?.failureBreakdown.map((f) => f.count) ?? [1])));
 
   let statsOpen = $state(false);
   let statsBundleId = $state('');
@@ -73,6 +74,23 @@
         <Sparkline data={trend} width={560} ariaLabel="Decrypt volume over the last 14 days" />
       </div>
     </div>
+
+    {#if insights.failureBreakdown.length > 0}
+      <div class="border-border mb-4 border-t pt-3">
+        <div class="mb-2 text-xs text-muted">Failure reasons</div>
+        <div class="flex flex-col gap-1.5">
+          {#each insights.failureBreakdown as f (f.category)}
+            <div class="flex items-center gap-2.5">
+              <span class="w-32 shrink-0 truncate text-xs" title={f.category}>{f.category}</span>
+              <div class="bg-panel-muted h-2 flex-1 overflow-hidden rounded-full">
+                <div class="bg-err h-full rounded-full" style="width: {(f.count / maxFailureCount) * 100}%"></div>
+              </div>
+              <span class="w-6 shrink-0 text-right text-xs text-muted">{f.count}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
 
     <div class="border-border border-t pt-3">
       <div class="mb-2 text-xs text-muted">Busiest apps</div>

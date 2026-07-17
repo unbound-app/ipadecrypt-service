@@ -10,9 +10,21 @@
   import Input from '../lib/components/ui/Input.svelte';
   import Select from '../lib/components/ui/Select.svelte';
   import type { BadgeVariant } from '../lib/components/ui/variants';
+  import { loadFilterPresets, saveFilterPresets } from '../lib/filterPresets';
   import { csvCell, downloadBlob } from '../lib/format';
   import { liveState } from '../lib/live.svelte';
   import { cn } from '../lib/utils';
+
+  const PRESETS_KEY = 'logFilterPresets';
+  const MAX_PRESETS = 10;
+
+  interface LogFilterPreset {
+    name: string;
+    scope: string;
+    level: string;
+    query: string;
+    regex: boolean;
+  }
 
   const LEVEL_BORDER: Record<LogEntry['level'], string> = {
     info: 'border-l-accent',
@@ -28,6 +40,29 @@
   let initialLogs = $state<LogEntry[] | null>(null);
   let listEl: HTMLDivElement | undefined = $state();
   let stickToTop = $state(true);
+  let presets = $state<LogFilterPreset[]>(loadFilterPresets<LogFilterPreset>(PRESETS_KEY));
+  let newPresetName = $state('');
+
+  function applyPreset(p: LogFilterPreset): void {
+    scopeFilter = p.scope;
+    levelFilter = p.level;
+    searchText = p.query;
+    regexMode = p.regex;
+  }
+
+  function savePreset(): void {
+    const name = newPresetName.trim();
+    if (!name) return;
+    const preset: LogFilterPreset = { name, scope: scopeFilter, level: levelFilter, query: searchText.trim(), regex: regexMode };
+    presets = [...presets.filter((p) => p.name !== name), preset].slice(-MAX_PRESETS);
+    saveFilterPresets(PRESETS_KEY, presets);
+    newPresetName = '';
+  }
+
+  function removePreset(name: string): void {
+    presets = presets.filter((p) => p.name !== name);
+    saveFilterPresets(PRESETS_KEY, presets);
+  }
 
   function onListScroll(): void {
     if (!listEl) return;
@@ -218,6 +253,26 @@
     </div>
   </div>
 
+  <div class="mb-3.5 flex flex-wrap items-center gap-1.5">
+    {#each presets as p (p.name)}
+      <span class="border-border text-muted hover:text-text hover:border-accent inline-flex items-center gap-1 rounded-full border pr-1 pl-2.5 py-1 text-[12px]">
+        <button class="cursor-pointer" onclick={() => applyPreset(p)}>{p.name}</button>
+        <button
+          class="text-muted hover:text-err cursor-pointer rounded-full p-0.5"
+          onclick={() => removePreset(p.name)}
+          aria-label="Delete preset {p.name}"
+          title="Delete preset"
+        >
+          <X class="h-3 w-3" />
+        </button>
+      </span>
+    {/each}
+    <div class="flex items-center gap-1.5">
+      <Input placeholder="Preset name…" bind:value={newPresetName} class="h-7 w-32 text-xs" />
+      <Button size="sm" variant="secondary" disabled={!newPresetName.trim()} onclick={savePreset}>Save filters</Button>
+    </div>
+  </div>
+
   {#if initialLogs === null}
     <div class="flex flex-col gap-1.5">
       {#each Array(6) as _, i (i)}
@@ -236,7 +291,7 @@
       {/if}
       <div class="flex max-h-[560px] flex-col gap-1.5 overflow-y-auto" bind:this={listEl} onscroll={onListScroll}>
         {#each filtered as l (entryKey(l))}
-          <div class={`border-border bg-panel-muted flex items-baseline gap-2 rounded-md border border-l-[3px] px-2.5 py-2 text-[12.5px] ${LEVEL_BORDER[l.level]}`}>
+          <div class={`log-row border-border bg-panel-muted flex items-baseline gap-2 rounded-md border border-l-[3px] px-2.5 py-2 text-[12.5px] ${LEVEL_BORDER[l.level]}`}>
             <span class="shrink-0 font-mono text-[11.5px] whitespace-nowrap text-muted"><RelativeTime ms={l.ts} /></span>
             <Badge variant={LEVEL_BADGE[l.level]} class="shrink-0">{l.level}</Badge>
             <Badge variant="secondary" class="shrink-0">{l.scope}</Badge>

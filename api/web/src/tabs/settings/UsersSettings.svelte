@@ -31,6 +31,7 @@
     'user.update': 'updated',
     'user.remove': 'removed',
     'state.import': 'restored backup',
+    'settings.update': 'updated scheduler settings',
   };
 
   const filteredUsers = $derived(

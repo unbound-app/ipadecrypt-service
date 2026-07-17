@@ -21,6 +21,24 @@
     { key: 'notifyOnDispatchSuccess', label: 'Dispatch succeeded', description: 'The scheduler decrypted and dispatched a new version' },
     { key: 'notifyOnDispatchFailure', label: 'Dispatch failed', description: 'A scheduled decrypt, dispatch, or workflow-run poll failed' },
     { key: 'notifyOnAppleAuthAlert', label: 'App Store auth issues', description: 'A decrypt failed in a way that looks like an auth problem' },
+    { key: 'notifyOnKeyExpiringSoon', label: 'API key expiring soon', description: 'An approved key has 7 days or less left before it expires' },
+    { key: 'notifyOnDeviceOffline', label: 'iDevice unreachable', description: 'The iDevice stays unreachable past the alert threshold below' },
+  ];
+
+  const RETRY_OPTIONS = [
+    { value: '0', label: 'Off (no retry)' },
+    { value: '1', label: '1 retry' },
+    { value: '2', label: '2 retries' },
+    { value: '3', label: '3 retries' },
+    { value: '5', label: '5 retries' },
+  ];
+
+  const OFFLINE_ALERT_OPTIONS = [
+    { value: '5', label: '5 minutes' },
+    { value: '15', label: '15 minutes' },
+    { value: '30', label: '30 minutes' },
+    { value: '60', label: '1 hour' },
+    { value: '180', label: '3 hours' },
   ];
 
   const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
@@ -41,6 +59,10 @@
     notifyOnDispatchSuccess: true,
     notifyOnDispatchFailure: true,
     notifyOnAppleAuthAlert: true,
+    notifyOnKeyExpiringSoon: true,
+    notifyOnDeviceOffline: true,
+    schedulerRetryCount: 0,
+    deviceOfflineAlertMinutes: 15,
   };
 
   let form = $state<SchedulerSettings>({ ...DEFAULT_FORM });
@@ -189,6 +211,17 @@
     <div class="mt-1 text-xs text-err">Not a valid cron expression</div>
   {/if}
 
+  <label for="s-retryCount" class="mt-3 mb-1 block text-xs text-muted">Retry a failed check before recording/notifying failure</label>
+  <Select
+    id="s-retryCount"
+    items={RETRY_OPTIONS}
+    value={String(form.schedulerRetryCount)}
+    onValueChange={(v) => (form = { ...form, schedulerRetryCount: Number(v) })}
+    disabled={!canManageScheduler}
+    class="w-full"
+  />
+  <div class="mt-1 text-xs text-muted">Each retry waits longer than the last (30s, then 60s, then 120s, ...) before trying again.</div>
+
   <label for="s-notifyWebhookUrl" class="mt-3 mb-1 block text-xs text-muted">Notification webhook URL (Discord-compatible, optional)</label>
   <div class="flex gap-2">
     <Input id="s-notifyWebhookUrl" bind:value={form.notifyWebhookUrl} disabled={!canManageScheduler} />
@@ -207,6 +240,16 @@
     items={FORMAT_OPTIONS}
     value={form.notifyFormat}
     onValueChange={(v) => (form = { ...form, notifyFormat: v as SchedulerSettings['notifyFormat'] })}
+    disabled={!canManageScheduler}
+    class="w-full"
+  />
+
+  <label for="s-offlineMinutes" class="mt-3 mb-1 block text-xs text-muted">iDevice offline alert threshold</label>
+  <Select
+    id="s-offlineMinutes"
+    items={OFFLINE_ALERT_OPTIONS}
+    value={String(form.deviceOfflineAlertMinutes)}
+    onValueChange={(v) => (form = { ...form, deviceOfflineAlertMinutes: Number(v) })}
     disabled={!canManageScheduler}
     class="w-full"
   />
