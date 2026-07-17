@@ -394,8 +394,8 @@ async function computeDeviceHealth(): Promise<DeviceHealth> {
   }
 }
 
-export async function getDeviceHealth(): Promise<DeviceHealth> {
-  if (healthCache && Date.now() - healthCache.at < HEALTH_CACHE_TTL_MS) return healthCache.value;
+export async function getDeviceHealth(force = false): Promise<DeviceHealth> {
+  if (!force && healthCache && Date.now() - healthCache.at < HEALTH_CACHE_TTL_MS) return healthCache.value;
   const value = await computeDeviceHealth();
   healthCache = { at: Date.now(), value };
   return value;
@@ -428,15 +428,33 @@ async function checkOfflineAlert(reachable: boolean): Promise<void> {
   });
 }
 
+function warnOnMissingTelemetry(health: DeviceHealth): void {
+  if (!health.reachable) return;
+  const missing = (
+    [
+      ['testFlightRunning', health.testFlightRunning],
+      ['screenIsOn', health.screenIsOn],
+      ['batteryPercent', health.batteryPercent],
+      ['batteryTemperatureC', health.batteryTemperatureC],
+    ] as const
+  )
+    .filter(([, value]) => value === undefined)
+    .map(([key]) => key);
+  if (missing.length > 0) log.warn('device is reachable but missing expected telemetry fields', { missing });
+}
+
 // Independent of whether anyone has the dashboard open (the 20s cache above only gets refreshed
 // by an actual dashboard request) - this is what builds the reachability-over-time history.
 export function startDeviceHealthPoller(): void {
-  setInterval(() => {
+  const poll = () =>
     void getDeviceHealth()
       .then((health) => {
+        warnOnMissingTelemetry(health);
         recordDeviceHealthCheck(health.reachable, health.batteryPercent);
         return checkOfflineAlert(health.reachable);
       })
       .catch((err) => log.warn('device health poll failed', { error: String(err) }));
-  }, HEALTH_POLL_INTERVAL_MS).unref();
+
+  poll();
+  setInterval(poll, HEALTH_POLL_INTERVAL_MS).unref();
 }

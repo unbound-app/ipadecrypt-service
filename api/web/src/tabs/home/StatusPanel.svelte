@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BatteryCharging, BatteryMedium, Circle, CircleCheck, TriangleAlert } from 'lucide-svelte';
+  import { BatteryCharging, BatteryMedium, Circle, CircleCheck, Thermometer, TriangleAlert } from 'lucide-svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import Sparkline from '../../components/Sparkline.svelte';
   import {
@@ -54,6 +54,12 @@
     if (pct >= 0.75) return 'bg-warn';
     return 'bg-accent';
   });
+
+  function thermalBadgeVariant(tempC: number): 'destructive' | 'warning' | 'secondary' {
+    if (tempC >= 42) return 'destructive';
+    if (tempC >= 37) return 'warning';
+    return 'secondary';
+  }
 
   function fmtDayLabel(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -152,16 +158,19 @@
         <Badge variant={health.testFlightRunning ? 'default' : 'secondary'}>TestFlight {health.testFlightRunning ? 'running' : 'idle'}</Badge>
       {/if}
       {#if health.reachable && health.batteryPercent !== undefined}
-        <Badge
-          variant={health.batteryPercent <= 20 && !health.batteryCharging ? 'destructive' : 'secondary'}
-          title={health.batteryTemperatureC !== undefined ? `${health.batteryTemperatureC.toFixed(1)}°C` : undefined}
-        >
+        <Badge variant={health.batteryPercent <= 20 && !health.batteryCharging ? 'destructive' : 'secondary'}>
           {#if health.batteryCharging}
             <BatteryCharging class="mr-1 inline h-3 w-3" />
           {:else}
             <BatteryMedium class="mr-1 inline h-3 w-3" />
           {/if}
           {health.batteryPercent}%
+        </Badge>
+      {/if}
+      {#if health.reachable && health.batteryTemperatureC !== undefined}
+        <Badge variant={thermalBadgeVariant(health.batteryTemperatureC)}>
+          <Thermometer class="mr-1 inline h-3 w-3" />
+          {health.batteryTemperatureC.toFixed(1)}°C
         </Badge>
       {/if}
     {:else}

@@ -274,8 +274,8 @@ dashboardRouter.get('/v1/dashboard/versions/:bundleId', async (req, res) => {
   }
 });
 
-dashboardRouter.get('/v1/dashboard/device/health', async (_req, res) => {
-  const health = await getDeviceHealth();
+dashboardRouter.get('/v1/dashboard/device/health', async (req, res) => {
+  const health = await getDeviceHealth(req.query.force === 'true');
   res.json(health);
 });
 
