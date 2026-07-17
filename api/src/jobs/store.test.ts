@@ -4,7 +4,7 @@ mock.module('./runner.js', () => ({
   runDecrypt: () => new Promise<void>(() => {}),
 }));
 
-const { cancelQueuedJob, enqueueDecryptJob, getActiveJobs, getJob, getQueueInfo } = await import('./store.js');
+const { cancelJob, cancelQueuedJob, enqueueDecryptJob, getActiveJobs, getJob, getQueueInfo } = await import('./store.js');
 
 describe('enqueueDecryptJob', () => {
   test('scheduler jumps queued dashboard jobs, dedupes same bundle, never overtakes a running job', () => {
@@ -45,5 +45,22 @@ describe('cancelQueuedJob', () => {
     expect(getJob(queued.id)?.error).toBe('cancelled by tester');
 
     expect(cancelQueuedJob('does-not-exist', 'tester')).toBe(false);
+  });
+});
+
+describe('cancelJob', () => {
+  test('falls back to killing a running job process when it is not queued', () => {
+    const running = enqueueDecryptJob('com.test.running', 'manual');
+    expect(running.status).toBe('running');
+
+    let killedWith: string | undefined;
+    const job = getJob(running.id)!;
+    job.childProcess = { kill: (signal: string) => (killedWith = signal) } as unknown as typeof job.childProcess;
+
+    expect(cancelJob(running.id, 'tester')).toBe(true);
+    expect(killedWith).toBe('SIGTERM');
+    expect(getJob(running.id)?.cancelledBy).toBe('tester');
+
+    expect(cancelJob('does-not-exist', 'tester')).toBe(false);
   });
 });

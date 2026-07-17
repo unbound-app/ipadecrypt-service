@@ -1,8 +1,10 @@
 <script lang="ts">
   import { cancelAppleAuth, fetchAppleAuthStatus, startAppleAuth, submitAppleInput, type AppleAuthStatus } from '../../lib/api';
+  import CopyButton from '../../components/CopyButton.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import Input from '../../lib/components/ui/Input.svelte';
+  import { liveState } from '../../lib/live.svelte';
   import { cn } from '../../lib/utils';
 
   type Step = 'idle' | 'connecting' | 'signing-in' | '2fa' | 'done' | 'failed';
@@ -14,33 +16,34 @@
     { id: 'done', label: 'Done' },
   ];
 
-  let status = $state<AppleAuthStatus | null>(null);
+  let fallbackStatus = $state<AppleAuthStatus | null>(null);
   let inputValue = $state('');
   let inputEl: HTMLInputElement | undefined = $state();
-  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let outputEl: HTMLPreElement | undefined = $state();
+  let outputOpen = $state(false);
   let starting = $state(false);
   let cancelling = $state(false);
   let submitting = $state(false);
 
-  async function refresh(): Promise<void> {
-    status = await fetchAppleAuthStatus();
-  }
+  const status = $derived(liveState.appleAuthStatus ?? fallbackStatus);
 
   $effect(() => {
-    void refresh();
-    pollTimer = setInterval(() => void refresh(), 1200);
-    return () => clearInterval(pollTimer);
+    if (!liveState.appleAuthStatus) void fetchAppleAuthStatus().then((s) => (fallbackStatus = s));
   });
 
   $effect(() => {
     if (status?.waitingForInput) inputEl?.focus();
   });
 
+  $effect(() => {
+    void status?.log;
+    if (outputOpen && outputEl) outputEl.scrollTop = outputEl.scrollHeight;
+  });
+
   async function start(): Promise<void> {
     starting = true;
     try {
-      const { ok } = await startAppleAuth();
-      if (ok) void refresh();
+      await startAppleAuth();
     } finally {
       starting = false;
     }
@@ -50,7 +53,6 @@
     cancelling = true;
     try {
       await cancelAppleAuth();
-      void refresh();
     } finally {
       cancelling = false;
     }
@@ -62,7 +64,6 @@
     submitting = true;
     try {
       await submitAppleInput(value);
-      void refresh();
     } finally {
       submitting = false;
     }
@@ -109,9 +110,14 @@
     <Button variant="secondary" disabled={!status?.running} loading={cancelling} onclick={cancel}>Cancel</Button>
   </div>
 
-  <details class="mt-3.5">
+  <details class="mt-3.5" bind:open={outputOpen}>
     <summary class="cursor-pointer text-sm text-muted">Raw output</summary>
-    <pre class="border-border bg-panel-muted mt-2 max-h-64 overflow-y-auto rounded-md border p-2.5 text-xs break-all whitespace-pre-wrap">{status?.log ||
+    <div class="mt-2 flex justify-end">
+      <CopyButton text={status?.log || ''} label="Copy" />
+    </div>
+    <pre
+      bind:this={outputEl}
+      class="border-border bg-panel-muted mt-2 max-h-64 overflow-y-auto rounded-md border p-2.5 text-xs break-all whitespace-pre-wrap">{status?.log ||
         '(not started)'}</pre>
   </details>
 

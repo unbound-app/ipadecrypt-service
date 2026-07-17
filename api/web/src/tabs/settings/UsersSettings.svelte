@@ -25,6 +25,7 @@
   let savingPermissions = $state(false);
   let removing = $state(false);
   let auditLog = $state<AuditLogEntry[] | null>(null);
+  let auditSearch = $state('');
 
   const AUDIT_ACTION_LABEL: Record<AuditLogEntry['action'], string> = {
     'user.add': 'added',
@@ -38,13 +39,25 @@
     (users ?? []).filter((u) => u.username.includes(userSearch.trim().toLowerCase())),
   );
 
+  const filteredAuditLog = $derived.by(() => {
+    const needle = auditSearch.trim().toLowerCase();
+    if (!needle) return auditLog ?? [];
+    return (auditLog ?? []).filter(
+      (e) =>
+        e.actor.toLowerCase().includes(needle) ||
+        e.target.toLowerCase().includes(needle) ||
+        AUDIT_ACTION_LABEL[e.action].toLowerCase().includes(needle) ||
+        (e.detail ?? '').toLowerCase().includes(needle),
+    );
+  });
+
   function activePermissionLabels(p: Permissions): string[] {
     return PERMISSION_META.filter((f) => p[f.key] && !f.impliedBy?.some((k) => p[k])).map((f) => f.label);
   }
 
   async function load(): Promise<void> {
     users = (await fetchUsers()).users;
-    auditLog = (await fetchAuditLog(50)).entries;
+    auditLog = (await fetchAuditLog(200)).entries;
   }
 
   $effect(() => {
@@ -190,6 +203,9 @@
   </Card>
 
   <Card title="Audit log">
+    {#if (auditLog?.length ?? 0) > 5}
+      <Input placeholder="Search by actor, action, target, or detail…" bind:value={auditSearch} class="mb-3 max-w-xs" />
+    {/if}
     <div class="scroll-fade-x max-h-80 overflow-auto" use:scrollFade>
       <table class="min-w-[480px]">
         <thead>
@@ -205,7 +221,7 @@
           {#if auditLog === null}
             <SkeletonRows rows={3} colspan={5} />
           {:else}
-            {#each auditLog as entry (entry.id)}
+            {#each filteredAuditLog as entry (entry.id)}
               <tr>
                 <td class="text-muted"><RelativeTime ms={entry.ts} /></td>
                 <td>{entry.actor}</td>
@@ -220,6 +236,8 @@
     </div>
     {#if auditLog !== null && auditLog.length === 0}
       <EmptyState icon={ScrollText} message="No changes recorded yet." />
+    {:else if auditLog !== null && filteredAuditLog.length === 0}
+      <EmptyState icon={ScrollText} message={`No changes match "${auditSearch}".`} />
     {/if}
   </Card>
 </div>

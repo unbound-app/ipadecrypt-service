@@ -10,7 +10,7 @@ import {
 } from '../appleAuthRunner.js';
 import { dashboardEvents } from '../events.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
-import { cancelQueuedJob, enqueueDecryptJob, getActiveJobs, getJob, prioritizeQueuedJob } from '../jobs/store.js';
+import { cancelJob, enqueueDecryptJob, getActiveJobs, getJob, prioritizeQueuedJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
 import { EMBED_COLOR, notify, sendTestNotification } from '../notify.js';
@@ -136,10 +136,15 @@ dashboardRouter.get('/v1/dashboard/events', (req, res) => {
   const onJobsChanged = () => sendEvent('overview', buildOverview());
   const onLogAdded = (entry: LogEntry) => sendEvent('log', entry);
   const onHistoryAdded = (entry: JobHistoryEntry) => sendEvent('history', entry);
+  const onAppleAuthChanged = () => sendEvent('appleAuth', getAppleAuthStatus());
 
   dashboardEvents.on('jobsChanged', onJobsChanged);
   if (res.locals.session.permissions.viewLogs) dashboardEvents.on('logAdded', onLogAdded);
   dashboardEvents.on('historyAdded', onHistoryAdded);
+  if (res.locals.session.permissions.manageAppleAuth) {
+    sendEvent('appleAuth', getAppleAuthStatus());
+    dashboardEvents.on('appleAuthChanged', onAppleAuthChanged);
+  }
 
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
 
@@ -148,6 +153,7 @@ dashboardRouter.get('/v1/dashboard/events', (req, res) => {
     dashboardEvents.off('jobsChanged', onJobsChanged);
     dashboardEvents.off('logAdded', onLogAdded);
     dashboardEvents.off('historyAdded', onHistoryAdded);
+    dashboardEvents.off('appleAuthChanged', onAppleAuthChanged);
   });
 });
 
@@ -353,9 +359,9 @@ dashboardRouter.get('/v1/dashboard/jobs/:id/status', (req, res) => {
 });
 
 dashboardRouter.post('/v1/dashboard/jobs/:id/cancel', canDecrypt, (req, res) => {
-  const ok = cancelQueuedJob(req.params.id, res.locals.session.sub);
+  const ok = cancelJob(req.params.id, res.locals.session.sub);
   if (!ok) {
-    res.status(409).json({ error: 'job is not queued (already running, finished, or not found)' });
+    res.status(409).json({ error: 'job is not queued or running (already finished, or not found)' });
     return;
   }
   res.json({ ok: true });
@@ -511,7 +517,8 @@ dashboardRouter.get('/v1/dashboard/keys/pending', canApproveApiKeys, (_req, res)
 dashboardRouter.get('/v1/dashboard/keys/all', canViewApiKeys, (req, res) => {
   const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '25'), 10) || 25, 1), 100);
   const offset = Math.max(Number.parseInt(String(req.query.offset ?? '0'), 10) || 0, 0);
-  const { keys, total } = listAllApiKeysPage(offset, limit);
+  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  const { keys, total } = listAllApiKeysPage(offset, limit, search);
   res.json({ keys, total });
 });
 

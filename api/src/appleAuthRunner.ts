@@ -1,6 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { config } from './config.js';
+import { emitAppleAuthChanged } from './events.js';
 import { log } from './logger.js';
 import { clearAppleAuthAlert, setAppleAuthAlert } from './store/state.js';
 
@@ -16,7 +17,10 @@ interface RunnerState {
   finished: boolean;
   success?: boolean;
   idleTimer?: ReturnType<typeof setTimeout>;
+  lastEmitAt: number;
 }
+
+const CHUNK_EMIT_THROTTLE_MS = 300;
 
 let current: RunnerState | undefined;
 
@@ -75,8 +79,9 @@ export function startAppleReauth(): void {
   if (isAppleAuthRunning()) throw new Error('a re-authentication is already running');
 
   const child = spawn(config.ipadecryptBin, ['bootstrap'], { stdio: ['pipe', 'pipe', 'pipe'] });
-  const state: RunnerState = { child, headLines: [], recentLines: [], totalLineCount: 0, waitingForInput: false, finished: false };
+  const state: RunnerState = { child, headLines: [], recentLines: [], totalLineCount: 0, waitingForInput: false, finished: false, lastEmitAt: 0 };
   current = state;
+  emitAppleAuthChanged();
 
   // Only wipe the previous App Store session once the process has actually spawned - if spawn
   // fails (e.g. missing binary), 'spawn' never fires and the working config is left untouched
@@ -101,7 +106,14 @@ export function startAppleReauth(): void {
     if (state.idleTimer) clearTimeout(state.idleTimer);
     state.idleTimer = setTimeout(() => {
       state.waitingForInput = true;
+      emitAppleAuthChanged();
     }, IDLE_MS);
+
+    const now = Date.now();
+    if (now - state.lastEmitAt >= CHUNK_EMIT_THROTTLE_MS) {
+      state.lastEmitAt = now;
+      emitAppleAuthChanged();
+    }
   };
 
   child.stdout.on('data', onChunk);
@@ -121,12 +133,14 @@ export function startAppleReauth(): void {
       setAppleAuthAlert(`re-auth process exited with code ${code}: ${tail}`);
       log.error('apple re-authentication failed', { code, tail });
     }
+    emitAppleAuthChanged();
   });
 
   child.on('error', (err) => {
     state.finished = true;
     state.success = false;
     pushLine(state, `spawn error: ${err.message}`);
+    emitAppleAuthChanged();
   });
 }
 
@@ -134,6 +148,7 @@ export function sendAppleAuthInput(value: string): void {
   if (!current || current.finished) throw new Error('no re-authentication is running');
   current.waitingForInput = false;
   current.child.stdin.write(`${value}\n`);
+  emitAppleAuthChanged();
 }
 
 export function cancelAppleAuth(): void {

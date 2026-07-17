@@ -25,7 +25,7 @@
   import Input from '../lib/components/ui/Input.svelte';
   import Select from '../lib/components/ui/Select.svelte';
   import { statusToBadgeVariant } from '../lib/components/ui/variants';
-  import { fmtUntil } from '../lib/format';
+  import { debounce, fmtUntil } from '../lib/format';
   import { scrollFade } from '../lib/scrollFade';
   import { sessionState } from '../lib/session.svelte';
   import { confirmDialog, keyUsageJumpState, showToast } from '../lib/ui.svelte';
@@ -43,6 +43,7 @@
   let allTotal = $state(0);
   let loadingMoreAll = $state(false);
   let statusFilter = $state('all');
+  let allSearch = $state('');
   let selected = $state<Set<string>>(new Set());
   let selectedPending = $state<Set<string>>(new Set());
   let submitting = $state(false);
@@ -102,7 +103,7 @@
   const canRevokeAny = $derived(!!sessionState.permissions?.revokeApiKeys);
 
   async function loadAllKeysPage(): Promise<void> {
-    const data = await fetchAllKeys(0, PAGE_SIZE);
+    const data = await fetchAllKeys(0, PAGE_SIZE, allSearch);
     all = data.keys;
     allTotal = data.total;
   }
@@ -111,13 +112,20 @@
     if (!all) return;
     loadingMoreAll = true;
     try {
-      const data = await fetchAllKeys(all.length, PAGE_SIZE);
+      const data = await fetchAllKeys(all.length, PAGE_SIZE, allSearch);
       all = [...all, ...data.keys];
       allTotal = data.total;
     } finally {
       loadingMoreAll = false;
     }
   }
+
+  const debouncedSearchAllKeys = debounce(() => void loadAllKeysPage(), 300);
+
+  $effect(() => {
+    void allSearch;
+    debouncedSearchAllKeys();
+  });
 
   async function loadAll(): Promise<void> {
     mine = (await fetchMyKeys()).keys;
@@ -423,7 +431,10 @@
           <Button size="sm" variant="destructive" loading={bulkRevoking} onclick={bulkRevoke}>Revoke {selected.size} selected</Button>
         {/if}
       {/snippet}
-      <Select items={STATUS_OPTIONS} bind:value={statusFilter} class="mb-3 w-44" />
+      <div class="mb-3 flex flex-wrap gap-2">
+        <Input placeholder="Search by name or owner…" bind:value={allSearch} class="w-56" />
+        <Select items={STATUS_OPTIONS} bind:value={statusFilter} class="w-44" />
+      </div>
       <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
         <table class="responsive-table sm:min-w-[700px]">
           <thead>

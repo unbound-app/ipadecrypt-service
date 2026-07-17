@@ -128,8 +128,6 @@ function toHistoryEntry(job: Job) {
   };
 }
 
-// Only a still-queued job can be cancelled - once it's running, the physical device is already
-// mid-decrypt and there's no way to interrupt it short of killing the ipadecrypt process.
 export function cancelQueuedJob(id: string, cancelledBy: string): boolean {
   const job = jobs.get(id);
   if (!job || job.status !== 'queued') return false;
@@ -149,6 +147,20 @@ export function cancelQueuedJob(id: string, cancelledBy: string): boolean {
   // the sweeper already reclaims failed jobs after the usual retention window.
   emitJobsChanged();
   return true;
+}
+
+export function cancelRunningJob(id: string, cancelledBy: string): boolean {
+  const job = jobs.get(id);
+  if (!job || job.status !== 'running' || !job.childProcess) return false;
+
+  job.cancelledBy = cancelledBy;
+  job.childProcess.kill('SIGTERM');
+  log.info('job cancel requested', { jobId: id, bundleId: job.bundleId, cancelledBy });
+  return true;
+}
+
+export function cancelJob(id: string, cancelledBy: string): boolean {
+  return cancelQueuedJob(id, cancelledBy) || cancelRunningJob(id, cancelledBy);
 }
 
 export function prioritizeQueuedJob(id: string): boolean {

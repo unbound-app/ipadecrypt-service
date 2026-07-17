@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import type { TFBuild } from '../testflight.js';
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';
@@ -20,6 +21,8 @@ export interface Job {
   status: JobStatus;
   progress: string;
   error?: string;
+  cancelledBy?: string;
+  childProcess?: ChildProcess;
   filePath?: string;
   fileSizeBytes?: number;
   createdAt: number;

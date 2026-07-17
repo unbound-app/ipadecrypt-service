@@ -12,6 +12,7 @@
   import { liveState } from '../../lib/live.svelte';
   import { scrollFade } from '../../lib/scrollFade';
   import { sessionState } from '../../lib/session.svelte';
+  import { confirmDialog } from '../../lib/ui.svelte';
 
   const jobs = $derived(liveState.overview?.activeJobs ?? []);
   const loaded = $derived(liveState.overview !== null);
@@ -20,7 +21,10 @@
   let cancelling = $state<Set<string>>(new Set());
   let prioritizing = $state<Set<string>>(new Set());
 
-  async function cancel(id: string): Promise<void> {
+  async function cancel(id: string, status: 'queued' | 'running'): Promise<void> {
+    if (status === 'running' && !(await confirmDialog('This kills the in-progress decrypt on the device. Cancel it anyway?', { confirmLabel: 'Cancel job' }))) {
+      return;
+    }
     cancelling = new Set(cancelling).add(id);
     try {
       await cancelJob(id);
@@ -123,18 +127,20 @@
                 </div>
               </td>
               <td>
-                {#if j.status === 'queued' && canCancel}
+                {#if canCancel && (j.status === 'queued' || j.status === 'running')}
                   <div class="flex justify-end gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      loading={prioritizing.has(j.id)}
-                      disabled={queuedJobIds[0] === j.id}
-                      onclick={() => prioritize(j.id)}
-                    >
-                      Bump to front
-                    </Button>
-                    <Button size="sm" variant="destructive" loading={cancelling.has(j.id)} onclick={() => cancel(j.id)}>Cancel</Button>
+                    {#if j.status === 'queued'}
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={prioritizing.has(j.id)}
+                        disabled={queuedJobIds[0] === j.id}
+                        onclick={() => prioritize(j.id)}
+                      >
+                        Bump to front
+                      </Button>
+                    {/if}
+                    <Button size="sm" variant="destructive" loading={cancelling.has(j.id)} onclick={() => cancel(j.id, j.status)}>Cancel</Button>
                   </div>
                 {/if}
               </td>

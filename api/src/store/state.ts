@@ -641,8 +641,10 @@ export function listAllApiKeys() {
   return state.apiKeys.map(redact);
 }
 
-export function listAllApiKeysPage(offset: number, limit: number): { keys: ReturnType<typeof redact>[]; total: number } {
-  const sorted = [...state.apiKeys].sort((a, b) => b.createdAt - a.createdAt);
+export function listAllApiKeysPage(offset: number, limit: number, search?: string): { keys: ReturnType<typeof redact>[]; total: number } {
+  const needle = search?.trim().toLowerCase();
+  const matching = needle ? state.apiKeys.filter((k) => k.name.toLowerCase().includes(needle) || k.ownerId.toLowerCase().includes(needle)) : state.apiKeys;
+  const sorted = [...matching].sort((a, b) => b.createdAt - a.createdAt);
   return { keys: sorted.slice(offset, offset + limit).map(redact), total: sorted.length };
 }
 

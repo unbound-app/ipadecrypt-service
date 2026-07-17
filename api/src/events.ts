@@ -16,3 +16,7 @@ export function emitLogAdded(entry: LogEntry): void {
 export function emitHistoryAdded(entry: JobHistoryEntry): void {
   dashboardEvents.emit('historyAdded', entry);
 }
+
+export function emitAppleAuthChanged(): void {
+  dashboardEvents.emit('appleAuthChanged');
+}

@@ -350,8 +350,8 @@ export interface InsightsSummary {
   failureBreakdown: { category: string; count: number }[];
 }
 
-export function fetchInsights(): Promise<InsightsSummary> {
-  return apiJson('/v1/dashboard/insights');
+export function fetchInsights(trendDays = 14, topApps = 5): Promise<InsightsSummary> {
+  return apiJson(`/v1/dashboard/insights?trendDays=${trendDays}&topApps=${topApps}`);
 }
 
 export function searchApps(term: string): Promise<{ results: AppStoreSearchResult[] } | { error: string }> {
@@ -422,8 +422,9 @@ export function fetchPendingKeys(): Promise<{ keys: ApiKeyRecord[] }> {
   return apiJson('/v1/dashboard/keys/pending');
 }
 
-export function fetchAllKeys(offset = 0, limit = 25): Promise<{ keys: ApiKeyRecord[]; total: number }> {
-  return apiJson(`/v1/dashboard/keys/all?offset=${offset}&limit=${limit}`);
+export function fetchAllKeys(offset = 0, limit = 25, search?: string): Promise<{ keys: ApiKeyRecord[]; total: number }> {
+  const q = search?.trim() ? `&search=${encodeURIComponent(search.trim())}` : '';
+  return apiJson(`/v1/dashboard/keys/all?offset=${offset}&limit=${limit}${q}`);
 }
 
 export function requestKey(

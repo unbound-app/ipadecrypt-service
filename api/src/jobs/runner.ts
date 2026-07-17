@@ -28,6 +28,7 @@ export async function runDecrypt(job: Job): Promise<void> {
 
   await new Promise<void>((resolve, reject) => {
     const child = spawn(config.ipadecryptBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    job.childProcess = child;
 
     const onLine = (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim();
@@ -44,8 +45,11 @@ export async function runDecrypt(job: Job): Promise<void> {
     child.on('error', (err) => reject(err));
 
     child.on('close', (code) => {
+      job.childProcess = undefined;
       if (code === 0) {
         resolve();
+      } else if (job.cancelledBy) {
+        reject(new Error(`cancelled by ${job.cancelledBy}`));
       } else {
         reject(new Error(`ipadecrypt exited with code ${code}: ${job.progress}`));
       }

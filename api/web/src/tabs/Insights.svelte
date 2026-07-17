@@ -6,16 +6,36 @@
   import { fetchInsights, type InsightsSummary } from '../lib/api';
   import Badge from '../lib/components/ui/Badge.svelte';
   import Card from '../lib/components/ui/Card.svelte';
+  import Select from '../lib/components/ui/Select.svelte';
   import { fmtBytesGB } from '../lib/format';
   import { liveState } from '../lib/live.svelte';
 
+  const TREND_DAYS_OPTIONS = [
+    { value: '7', label: 'Last 7 days' },
+    { value: '14', label: 'Last 14 days' },
+    { value: '30', label: 'Last 30 days' },
+    { value: '60', label: 'Last 60 days' },
+    { value: '90', label: 'Last 90 days' },
+  ];
+
+  const TOP_APPS_OPTIONS = [
+    { value: '5', label: 'Top 5' },
+    { value: '10', label: 'Top 10' },
+    { value: '15', label: 'Top 15' },
+    { value: '25', label: 'Top 25' },
+  ];
+
   let insights = $state<InsightsSummary | null>(null);
+  let trendDays = $state('14');
+  let topAppsLimit = $state('5');
 
   function load(): void {
-    void fetchInsights().then((r) => (insights = r));
+    void fetchInsights(Number(trendDays), Number(topAppsLimit)).then((r) => (insights = r));
   }
 
   $effect(() => {
+    void trendDays;
+    void topAppsLimit;
     load();
   });
 
@@ -69,9 +89,12 @@
     </div>
 
     <div class="border-border mb-4 border-t pt-3">
-      <div class="mb-1.5 text-xs text-muted">Decrypts · last 14 days</div>
+      <div class="mb-1.5 flex items-center justify-between gap-2">
+        <div class="text-xs text-muted">Decrypts · last {trendDays} days</div>
+        <Select items={TREND_DAYS_OPTIONS} bind:value={trendDays} class="w-36" />
+      </div>
       <div class="overflow-x-auto">
-        <Sparkline data={trend} width={560} ariaLabel="Decrypt volume over the last 14 days" />
+        <Sparkline data={trend} width={560} ariaLabel="Decrypt volume over the last {trendDays} days" />
       </div>
     </div>
 
@@ -93,7 +116,10 @@
     {/if}
 
     <div class="border-border border-t pt-3">
-      <div class="mb-2 text-xs text-muted">Busiest apps</div>
+      <div class="mb-2 flex items-center justify-between gap-2">
+        <div class="text-xs text-muted">Busiest apps</div>
+        <Select items={TOP_APPS_OPTIONS} bind:value={topAppsLimit} class="w-32" />
+      </div>
       <table class="responsive-table">
         <thead>
           <tr>

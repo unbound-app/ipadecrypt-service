@@ -4,37 +4,69 @@
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import { buttonVariants } from '../../lib/components/ui/variants';
-  import { confirmDialog, showToast } from '../../lib/ui.svelte';
+  import { fmtTime } from '../../lib/format';
+  import { confirmDialog } from '../../lib/ui.svelte';
+
+  interface BackupPreview {
+    exportedAt?: number;
+    users: number;
+    apiKeys: number;
+    jobHistory: number;
+    auditLog: number;
+  }
 
   let fileInput: HTMLInputElement | undefined = $state();
   let selectedFile: File | null = $state(null);
   let restoring = $state(false);
+  let parsedPayload: unknown = null;
+  let preview = $state<BackupPreview | null>(null);
+  let previewError = $state('');
 
-  function onFileChange(): void {
+  function summarize(payload: unknown): BackupPreview | null {
+    if (typeof payload !== 'object' || payload === null) return null;
+    const b = payload as Record<string, unknown>;
+    return {
+      exportedAt: typeof b.exportedAt === 'number' ? b.exportedAt : undefined,
+      users: Array.isArray(b.allowedUsers) ? b.allowedUsers.length : 0,
+      apiKeys: Array.isArray(b.apiKeys) ? b.apiKeys.length : 0,
+      jobHistory: Array.isArray(b.jobHistory) ? b.jobHistory.length : 0,
+      auditLog: Array.isArray(b.auditLog) ? b.auditLog.length : 0,
+    };
+  }
+
+  async function onFileChange(): Promise<void> {
     selectedFile = fileInput?.files?.[0] ?? null;
+    parsedPayload = null;
+    preview = null;
+    previewError = '';
+    if (!selectedFile) return;
+
+    const text = await selectedFile.text();
+    try {
+      parsedPayload = JSON.parse(text);
+    } catch {
+      previewError = 'That file is not valid JSON';
+      return;
+    }
+    preview = summarize(parsedPayload);
+    if (!preview) previewError = "That file doesn't look like a dkrypt backup";
   }
 
   async function restore(): Promise<void> {
-    if (!selectedFile) return;
+    if (!selectedFile || !preview) return;
     const confirmed = await confirmDialog(
-      `Restore from "${selectedFile.name}"? This replaces the allowlist, API keys, scheduler settings, job history, and audit log with what's in the file - anything added since it was exported is gone.`,
+      `Restore from "${selectedFile.name}"? This replaces ${preview.users} user(s), ${preview.apiKeys} API key(s), scheduler settings, ${preview.jobHistory} job history entries, and ${preview.auditLog} audit log entries with what's in the file - anything added since it was exported is gone.`,
       { confirmLabel: 'Restore', variant: 'destructive' },
     );
     if (!confirmed) return;
 
     restoring = true;
     try {
-      const text = await selectedFile.text();
-      let payload: unknown;
-      try {
-        payload = JSON.parse(text);
-      } catch {
-        showToast('That file is not valid JSON', 'error');
-        return;
-      }
-      const { ok } = await importBackup(payload);
+      const { ok } = await importBackup(parsedPayload);
       if (ok) {
         selectedFile = null;
+        parsedPayload = null;
+        preview = null;
         if (fileInput) fileInput.value = '';
       }
     } finally {
@@ -71,6 +103,21 @@
         <span class="text-sm text-muted">{selectedFile.name}</span>
       {/if}
     </div>
-    <Button class="mt-3" variant="destructive" disabled={!selectedFile} loading={restoring} onclick={restore}>Restore from backup</Button>
+    {#if previewError}
+      <div class="mt-3 text-sm text-err">{previewError}</div>
+    {:else if preview}
+      <div class="border-border bg-panel-muted mt-3 rounded-md border p-3 text-[13px]">
+        {#if preview.exportedAt}
+          <div class="mb-1.5 text-muted">Exported {fmtTime(preview.exportedAt)}</div>
+        {/if}
+        <div class="flex flex-wrap gap-x-4 gap-y-1">
+          <span>{preview.users} user{preview.users === 1 ? '' : 's'}</span>
+          <span>{preview.apiKeys} API key{preview.apiKeys === 1 ? '' : 's'}</span>
+          <span>{preview.jobHistory} job history entr{preview.jobHistory === 1 ? 'y' : 'ies'}</span>
+          <span>{preview.auditLog} audit log entr{preview.auditLog === 1 ? 'y' : 'ies'}</span>
+        </div>
+      </div>
+    {/if}
+    <Button class="mt-3" variant="destructive" disabled={!selectedFile || !preview} loading={restoring} onclick={restore}>Restore from backup</Button>
   </Card>
 </div>
