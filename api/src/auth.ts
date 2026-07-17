@@ -13,6 +13,7 @@ export function requireApiKey(req: Request, res: Response, next: NextFunction): 
   }
 
   res.locals.apiKeyScope = result.allowedBundleIds;
+  res.locals.apiKeyOwner = result.ownerId;
   next();
 }
 
@@ -23,6 +24,7 @@ export function requireApiKeyOrSignedToken(req: Request, res: Response, next: Ne
     const result = verifyApiKey(token);
     if (result) {
       res.locals.apiKeyScope = result.allowedBundleIds;
+      res.locals.apiKeyOwner = result.ownerId;
       next();
       return;
     }

@@ -3,6 +3,7 @@
   import { sessionState, type Permissions } from '../lib/session.svelte';
   import { setSettingsSubtab, tabState } from '../lib/ui.svelte';
   import AppleAuthSettings from './settings/AppleAuthSettings.svelte';
+  import BackupSettings from './settings/BackupSettings.svelte';
   import SchedulerSettings from './settings/SchedulerSettings.svelte';
   import UsersSettings from './settings/UsersSettings.svelte';
 
@@ -10,6 +11,7 @@
     { id: 'scheduler', label: 'Scheduler', requires: ['manageScheduler', 'triggerDispatch'] },
     { id: 'users', label: 'Users', requires: ['viewUsers', 'manageUsers'] },
     { id: 'apple', label: 'Apple Auth', requires: ['manageAppleAuth'] },
+    { id: 'backup', label: 'Backup', requires: ['manageUsers'] },
   ];
 
   function hasAccess(requires: (keyof Permissions)[]): boolean {
@@ -40,5 +42,10 @@
 {#if hasAccess(['manageAppleAuth'])}
   <div class:hidden={tabState.settingsSubtab !== 'apple'}>
     <AppleAuthSettings />
+  </div>
+{/if}
+{#if hasAccess(['manageUsers'])}
+  <div class:hidden={tabState.settingsSubtab !== 'backup'}>
+    <BackupSettings />
   </div>
 {/if}

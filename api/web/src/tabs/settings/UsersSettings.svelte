@@ -30,6 +30,7 @@
     'user.add': 'added',
     'user.update': 'updated',
     'user.remove': 'removed',
+    'state.import': 'restored backup',
   };
 
   const filteredUsers = $derived(

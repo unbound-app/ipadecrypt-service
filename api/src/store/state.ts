@@ -158,6 +158,8 @@ export interface ApiKeyRecord {
 export interface ApiKeyAuthResult {
   // undefined = unrestricted (root key, or a key created with no scope)
   allowedBundleIds?: string[];
+  // undefined for the root API_KEY, which isn't owned by any dashboard account.
+  ownerId?: string;
 }
 
 export interface SchedulerSettings {
@@ -175,6 +177,7 @@ export interface JobHistoryEntry {
   externalVersionId?: string;
   testflight?: TestFlightJobSource;
   versionLabel?: string;
+  queuedBy?: string;
   status: 'done' | 'failed';
   error?: string;
   sizeBytes?: number;
@@ -194,7 +197,7 @@ export interface UserPrefs {
   theme?: 'dark' | 'light';
 }
 
-export type AuditAction = 'user.add' | 'user.update' | 'user.remove';
+export type AuditAction = 'user.add' | 'user.update' | 'user.remove' | 'state.import';
 
 export interface AuditLogEntry {
   id: string;
@@ -642,7 +645,7 @@ export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined {
   record.lastUsedAt = Date.now();
   recordApiKeyUsage(record.id);
   dirty = true;
-  return { allowedBundleIds: record.allowedBundleIds };
+  return { allowedBundleIds: record.allowedBundleIds, ownerId: record.ownerId };
 }
 
 export function startApiKeySweeper(): void {
@@ -796,4 +799,167 @@ export function updateUserPrefs(username: string, patch: Partial<UserPrefs>): Us
   state.userPrefs[lower] = updated;
   persistNow();
   return updated;
+}
+
+const BACKUP_VERSION = 1;
+
+export interface BackupPayload {
+  backupVersion: typeof BACKUP_VERSION;
+  exportedAt: number;
+  allowedUsers: AllowedUser[];
+  apiKeys: ApiKeyRecord[];
+  settings: Partial<SchedulerSettings>;
+  jobHistory: JobHistoryEntry[];
+  appleAuthAlert: AppleAuthAlert;
+  lastSchedulerRunAt?: number;
+  userPrefs: Record<string, UserPrefs>;
+  auditLog: AuditLogEntry[];
+  schedulerRunHistory: SchedulerRunEntry[];
+  rootSessionVersion: number;
+  apiKeyUsage: Record<string, ApiKeyUsageBucket[]>;
+}
+
+// The API key `hash` is a one-way SHA-256, safe to carry in a backup (restoring it is what keeps
+// existing keys working) - only `pendingReveal`, an actual plaintext secret not yet shown to its
+// owner, gets stripped.
+export function exportBackup(): BackupPayload {
+  return {
+    backupVersion: BACKUP_VERSION,
+    exportedAt: Date.now(),
+    allowedUsers: state.allowedUsers,
+    apiKeys: state.apiKeys.map((k) => ({ ...k, pendingReveal: undefined })),
+    settings: state.settings,
+    jobHistory: state.jobHistory,
+    appleAuthAlert: state.appleAuthAlert,
+    lastSchedulerRunAt: state.lastSchedulerRunAt,
+    userPrefs: state.userPrefs,
+    auditLog: state.auditLog,
+    schedulerRunHistory: state.schedulerRunHistory,
+    rootSessionVersion: state.rootSessionVersion,
+    apiKeyUsage: state.apiKeyUsage,
+  };
+}
+
+function isPermissionsShape(value: unknown): value is Permissions {
+  if (typeof value !== 'object' || value === null) return false;
+  const p = value as Record<string, unknown>;
+  return PERMISSION_KEYS.every((k) => typeof p[k] === 'boolean');
+}
+
+function isAllowedUserShape(value: unknown): value is AllowedUser {
+  if (typeof value !== 'object' || value === null) return false;
+  const u = value as Record<string, unknown>;
+  return typeof u.username === 'string' && typeof u.addedAt === 'number' && isPermissionsShape(u.permissions);
+}
+
+function isApiKeyRecordShape(value: unknown): value is ApiKeyRecord {
+  if (typeof value !== 'object' || value === null) return false;
+  const k = value as Record<string, unknown>;
+  return (
+    typeof k.id === 'string' &&
+    typeof k.name === 'string' &&
+    typeof k.ownerId === 'string' &&
+    (k.status === 'pending' || k.status === 'approved' || k.status === 'denied') &&
+    typeof k.createdAt === 'number'
+  );
+}
+
+function isJobHistoryEntryShape(value: unknown): value is JobHistoryEntry {
+  if (typeof value !== 'object' || value === null) return false;
+  const e = value as Record<string, unknown>;
+  return (
+    typeof e.id === 'string' &&
+    typeof e.bundleId === 'string' &&
+    (e.status === 'done' || e.status === 'failed') &&
+    typeof e.finishedAt === 'number'
+  );
+}
+
+function isAuditLogEntryShape(value: unknown): value is AuditLogEntry {
+  if (typeof value !== 'object' || value === null) return false;
+  const e = value as Record<string, unknown>;
+  return (
+    typeof e.id === 'string' &&
+    typeof e.ts === 'number' &&
+    typeof e.actor === 'string' &&
+    typeof e.action === 'string' &&
+    typeof e.target === 'string'
+  );
+}
+
+function isSchedulerRunEntryShape(value: unknown): value is SchedulerRunEntry {
+  if (typeof value !== 'object' || value === null) return false;
+  const e = value as Record<string, unknown>;
+  return typeof e.ts === 'number' && typeof e.appStore === 'object' && typeof e.testflight === 'object';
+}
+
+export interface ImportBackupResult {
+  ok: boolean;
+  error?: string;
+}
+
+// All-or-nothing: a backup that's missing or has a malformed field is rejected outright rather
+// than partially applied, so a bad file can't leave the server in a half-restored state.
+export function importBackup(raw: unknown, actor: string): ImportBackupResult {
+  if (typeof raw !== 'object' || raw === null) return { ok: false, error: 'not a valid backup file' };
+  const b = raw as Record<string, unknown>;
+
+  if (b.backupVersion !== BACKUP_VERSION) {
+    return { ok: false, error: `unsupported backup version (expected ${BACKUP_VERSION})` };
+  }
+  if (!Array.isArray(b.allowedUsers) || !b.allowedUsers.every(isAllowedUserShape)) {
+    return { ok: false, error: 'allowedUsers is missing or malformed' };
+  }
+  if (!Array.isArray(b.apiKeys) || !b.apiKeys.every(isApiKeyRecordShape)) {
+    return { ok: false, error: 'apiKeys is missing or malformed' };
+  }
+  if (typeof b.settings !== 'object' || b.settings === null) {
+    return { ok: false, error: 'settings is missing or malformed' };
+  }
+  if (!Array.isArray(b.jobHistory) || !b.jobHistory.every(isJobHistoryEntryShape)) {
+    return { ok: false, error: 'jobHistory is missing or malformed' };
+  }
+  if (!Array.isArray(b.auditLog) || !b.auditLog.every(isAuditLogEntryShape)) {
+    return { ok: false, error: 'auditLog is missing or malformed' };
+  }
+  if (!Array.isArray(b.schedulerRunHistory) || !b.schedulerRunHistory.every(isSchedulerRunEntryShape)) {
+    return { ok: false, error: 'schedulerRunHistory is missing or malformed' };
+  }
+  if (typeof b.userPrefs !== 'object' || b.userPrefs === null) {
+    return { ok: false, error: 'userPrefs is missing or malformed' };
+  }
+  if (typeof b.apiKeyUsage !== 'object' || b.apiKeyUsage === null) {
+    return { ok: false, error: 'apiKeyUsage is missing or malformed' };
+  }
+  if (
+    typeof b.appleAuthAlert !== 'object' ||
+    b.appleAuthAlert === null ||
+    typeof (b.appleAuthAlert as Record<string, unknown>).suspected !== 'boolean'
+  ) {
+    return { ok: false, error: 'appleAuthAlert is missing or malformed' };
+  }
+  if (typeof b.rootSessionVersion !== 'number') {
+    return { ok: false, error: 'rootSessionVersion is missing or malformed' };
+  }
+
+  state.allowedUsers = b.allowedUsers as AllowedUser[];
+  state.apiKeys = (b.apiKeys as ApiKeyRecord[]).map((k) => ({ ...k, pendingReveal: undefined }));
+  state.settings = b.settings as Partial<SchedulerSettings>;
+  state.jobHistory = (b.jobHistory as JobHistoryEntry[]).slice(0, MAX_HISTORY);
+  state.auditLog = (b.auditLog as AuditLogEntry[]).slice(0, MAX_AUDIT_LOG);
+  state.schedulerRunHistory = (b.schedulerRunHistory as SchedulerRunEntry[]).slice(0, MAX_SCHEDULER_RUNS);
+  state.userPrefs = b.userPrefs as Record<string, UserPrefs>;
+  state.apiKeyUsage = b.apiKeyUsage as Record<string, ApiKeyUsageBucket[]>;
+  state.appleAuthAlert = b.appleAuthAlert as AppleAuthAlert;
+  state.rootSessionVersion = b.rootSessionVersion;
+  if (typeof b.lastSchedulerRunAt === 'number') state.lastSchedulerRunAt = b.lastSchedulerRunAt;
+
+  persistNow();
+  recordAudit(
+    actor,
+    'state.import',
+    'server state',
+    `restored from backup exported ${typeof b.exportedAt === 'number' ? new Date(b.exportedAt).toISOString() : 'unknown time'}`,
+  );
+  return { ok: true };
 }

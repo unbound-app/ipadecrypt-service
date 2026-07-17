@@ -16,6 +16,7 @@ export interface Job {
   testflight?: TestFlightJobSource;
   versionLabel?: string;
   source: JobSource;
+  queuedBy?: string;
   status: JobStatus;
   progress: string;
   error?: string;

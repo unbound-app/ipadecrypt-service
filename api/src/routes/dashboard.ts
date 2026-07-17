@@ -10,7 +10,7 @@ import {
 } from '../appleAuthRunner.js';
 import { dashboardEvents } from '../events.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
-import { enqueueDecryptJob, getActiveJobs, getJob } from '../jobs/store.js';
+import { cancelQueuedJob, enqueueDecryptJob, getActiveJobs, getJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
 import { notify, sendTestNotification } from '../notify.js';
@@ -29,6 +29,7 @@ import {
   clearAppleAuthAlert,
   createApiKey,
   denyApiKey,
+  exportBackup,
   getAllJobHistory,
   getApiKeyById,
   getApiKeyUsage,
@@ -42,6 +43,7 @@ import {
   getLastSchedulerRunAt,
   getSchedulerRunHistory,
   getUserPrefs,
+  importBackup,
   isSchedulerEnabled,
   type JobHistoryEntry,
   listAllApiKeysPage,
@@ -101,6 +103,7 @@ function buildOverview() {
       testflight: j.testflight
         ? { appId: j.testflight.appId, buildId: j.testflight.build.id, version: j.testflight.build.cfBundleShortVersion, buildNumber: j.testflight.build.cfBundleVersion }
         : undefined,
+      queuedBy: j.queuedBy,
       createdAt: j.createdAt,
     })),
   };
@@ -159,6 +162,7 @@ const HISTORY_CSV_COLUMNS = [
   'bundleId',
   'externalVersionId',
   'versionLabel',
+  'queuedBy',
   'status',
   'error',
   'sizeBytes',
@@ -238,7 +242,7 @@ dashboardRouter.post('/v1/dashboard/decrypt', canDecrypt, (req, res) => {
 
   const versionLabel = typeof req.body?.versionLabel === 'string' ? req.body.versionLabel.trim().slice(0, 64) || undefined : undefined;
 
-  const job = enqueueDecryptJob(bundleId, 'manual', externalVersionId, undefined, versionLabel);
+  const job = enqueueDecryptJob(bundleId, 'manual', externalVersionId, undefined, versionLabel, res.locals.session.sub);
   res.status(202).json(jobSummary(job));
 });
 
@@ -306,7 +310,7 @@ dashboardRouter.post('/v1/dashboard/testflight/decrypt', canDecrypt, (req, res) 
     return;
   }
 
-  const job = enqueueDecryptJob(bundleId, 'manual', undefined, { appId, build });
+  const job = enqueueDecryptJob(bundleId, 'manual', undefined, { appId, build }, undefined, res.locals.session.sub);
   res.status(202).json(jobSummary(job));
 });
 
@@ -317,6 +321,15 @@ dashboardRouter.get('/v1/dashboard/jobs/:id/status', (req, res) => {
     return;
   }
   res.json(jobSummary(job));
+});
+
+dashboardRouter.post('/v1/dashboard/jobs/:id/cancel', canDecrypt, (req, res) => {
+  const ok = cancelQueuedJob(req.params.id, res.locals.session.sub);
+  if (!ok) {
+    res.status(409).json({ error: 'job is not queued (already running, finished, or not found)' });
+    return;
+  }
+  res.json({ ok: true });
 });
 
 dashboardRouter.get('/v1/dashboard/jobs/:id/file', async (req, res) => {
@@ -585,6 +598,21 @@ dashboardRouter.delete('/v1/dashboard/users/:username', canManageUsers, (req, re
     res.status(404).json({ error: 'not on the allowlist' });
     return;
   }
+  res.json({ ok: true });
+});
+
+dashboardRouter.get('/v1/dashboard/backup/export', canManageUsers, (_req, res) => {
+  res.setHeader('Content-Disposition', 'attachment; filename="dkrypt-backup.json"');
+  res.json(exportBackup());
+});
+
+dashboardRouter.post('/v1/dashboard/backup/import', canManageUsers, (req, res) => {
+  const result = importBackup(req.body, res.locals.session.sub);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  applySchedule();
   res.json({ ok: true });
 });
 

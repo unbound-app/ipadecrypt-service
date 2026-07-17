@@ -284,7 +284,7 @@
 
   <Card title="My keys">
     <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
-      <table class="min-w-[480px]">
+      <table class="responsive-table sm:min-w-[480px]">
         <thead>
           <tr>
             <th>Name</th>
@@ -301,9 +301,9 @@
           {:else}
             {#each mine as k (k.id)}
               <tr>
-                <td>{k.name}</td>
-                <td>
-                  <div class="flex flex-wrap items-center gap-1.5">
+                <td data-label="Name">{k.name}</td>
+                <td data-label="Status">
+                  <div class="flex flex-wrap items-center justify-end gap-1.5">
                     <Badge variant={statusToBadgeVariant(k.status)}>{k.status}</Badge>
                     {#if k.expiresAt}
                       <Badge variant="secondary">expires {fmtUntil(k.expiresAt)}</Badge>
@@ -313,17 +313,17 @@
                     {/if}
                   </div>
                 </td>
-                <td class="max-w-40 truncate text-muted" title={k.allowedBundleIds?.join(', ') ?? ''}>
+                <td data-label="Scope" class="max-w-40 truncate text-muted" title={k.allowedBundleIds?.join(', ') ?? ''}>
                   {#if k.allowedBundleIds?.length}
                     {k.allowedBundleIds.length} bundle{k.allowedBundleIds.length === 1 ? '' : 's'}
                   {:else}
                     <span class="text-muted">unrestricted</span>
                   {/if}
                 </td>
-                <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
-                <td class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
+                <td data-label="Created" class="text-muted"><RelativeTime ms={k.createdAt} /></td>
+                <td data-label="Last used" class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
                 <td>
-                  <div class="flex flex-wrap gap-1.5">
+                  <div class="flex flex-wrap justify-end gap-1.5">
                     {#if k.hasUnrevealedSecret}
                       <Button size="sm" loading={isBusy('reveal', k.id)} onclick={() => doReveal(k.id)}>Reveal</Button>
                     {/if}
@@ -353,7 +353,7 @@
         {/if}
       {/snippet}
       <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
-        <table class="min-w-[480px]">
+        <table class="responsive-table sm:min-w-[480px]">
           <thead>
             <tr>
               <th></th>
@@ -369,17 +369,17 @@
             {:else}
               {#each pending as k (k.id)}
                 <tr>
-                  <td><input type="checkbox" checked={selectedPending.has(k.id)} onchange={() => toggleSelectPending(k.id)} /></td>
-                  <td>
+                  <td data-label="Select"><input type="checkbox" checked={selectedPending.has(k.id)} onchange={() => toggleSelectPending(k.id)} /></td>
+                  <td data-label="Name">
                     {k.name}
                     {#if k.expiresAt}
                       <Badge variant="secondary" class="ml-1.5">expires {fmtUntil(k.expiresAt)}</Badge>
                     {/if}
                   </td>
-                  <td>{k.ownerId}</td>
-                  <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
+                  <td data-label="Requested by">{k.ownerId}</td>
+                  <td data-label="Requested" class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                   <td>
-                    <div class="flex gap-1.5">
+                    <div class="flex justify-end gap-1.5">
                       <Button size="sm" loading={isBusy('approve', k.id)} onclick={() => doApprove(k.id)}>Approve</Button>
                       <Button size="sm" variant="destructive" loading={isBusy('deny', k.id)} onclick={() => doDeny(k.id)}>Deny</Button>
                     </div>
@@ -405,7 +405,7 @@
       {/snippet}
       <Select items={STATUS_OPTIONS} bind:value={statusFilter} class="mb-3 w-44" />
       <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
-        <table class="min-w-[700px]">
+        <table class="responsive-table sm:min-w-[700px]">
           <thead>
             <tr>
               {#if canRevokeAny}<th></th>{/if}
@@ -427,18 +427,18 @@
               {#each filteredAll as k (k.id)}
                 <tr>
                   {#if canRevokeAny}
-                    <td><input type="checkbox" checked={selected.has(k.id)} onchange={() => toggleSelect(k.id)} /></td>
+                    <td data-label="Select"><input type="checkbox" checked={selected.has(k.id)} onchange={() => toggleSelect(k.id)} /></td>
                   {/if}
-                  <td>
+                  <td data-label="ID">
                     <div class="flex items-center gap-1.5">
                       <code title={k.id}>{k.id.slice(0, 8)}</code>
                       <CopyButton text={k.id} />
                     </div>
                   </td>
-                  <td>{k.name}</td>
-                  <td>{k.ownerId}</td>
-                  <td>
-                    <div class="flex flex-wrap items-center gap-1.5">
+                  <td data-label="Name">{k.name}</td>
+                  <td data-label="Owner">{k.ownerId}</td>
+                  <td data-label="Status">
+                    <div class="flex flex-wrap items-center justify-end gap-1.5">
                       <Badge variant={statusToBadgeVariant(k.status)}>{k.status}</Badge>
                       {#if k.expiresAt}
                         <Badge variant="secondary">{fmtUntil(k.expiresAt)}</Badge>
@@ -448,15 +448,15 @@
                       {/if}
                     </div>
                   </td>
-                  <td class="max-w-32 truncate text-muted" title={k.allowedBundleIds?.join(', ') ?? ''}>
+                  <td data-label="Scope" class="max-w-32 truncate text-muted" title={k.allowedBundleIds?.join(', ') ?? ''}>
                     {#if k.allowedBundleIds?.length}
                       {k.allowedBundleIds.length} bundle{k.allowedBundleIds.length === 1 ? '' : 's'}
                     {:else}
                       <span class="text-muted">unrestricted</span>
                     {/if}
                   </td>
-                  <td class="text-muted"><RelativeTime ms={k.createdAt} /></td>
-                  <td class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
+                  <td data-label="Created" class="text-muted"><RelativeTime ms={k.createdAt} /></td>
+                  <td data-label="Last used" class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
                   <td>
                     {#if k.status === 'approved'}
                       <Button size="sm" variant="secondary" onclick={() => openUsage(k)}>Usage</Button>

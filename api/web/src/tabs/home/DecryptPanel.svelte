@@ -1,5 +1,6 @@
 <script lang="ts">
   import { FlaskConical, History, Star, X } from 'lucide-svelte';
+  import BatchDecryptDialog from '../../components/BatchDecryptDialog.svelte';
   import { queueDecrypt, queueTestFlightDecrypt, searchApps, type AppStoreSearchResult, type TFBuild } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
@@ -182,9 +183,16 @@
   export function focusSearch(): void {
     inputEl?.focus();
   }
+
+  let batchOpen = $state(false);
 </script>
 
 <Card title="Decrypt an app">
+  {#snippet headerExtra()}
+    {#if canDecrypt}
+      <Button size="sm" variant="secondary" onclick={() => (batchOpen = true)}>Batch decrypt</Button>
+    {/if}
+  {/snippet}
   <div class="relative">
     <Input
       bind:ref={inputEl}
@@ -321,3 +329,5 @@
   onOpenChange={(v) => (testflightOpen = v)}
   onDecrypt={decryptTestFlightBuild}
 />
+
+<BatchDecryptDialog open={batchOpen} onOpenChange={(v) => (batchOpen = v)} />

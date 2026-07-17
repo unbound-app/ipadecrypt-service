@@ -154,3 +154,54 @@
   right: 0;
   background: linear-gradient(to left, var(--scroll-fade-bg, var(--color-panel)), transparent);
 }
+
+/* Below `sm`, reflow a data table into a stack of labeled-field cards instead of forcing a
+   horizontal-scroll table - each <td> needs a data-label attribute matching its column header,
+   and group/section header rows should get the .table-row-header escape hatch below. */
+@media (max-width: 639px) {
+  .responsive-table thead {
+    @apply hidden;
+  }
+
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    @apply block w-full;
+  }
+
+  .responsive-table tbody tr {
+    @apply border-border bg-panel-muted/40 mb-2 rounded-lg border px-3 py-1;
+  }
+
+  .responsive-table td {
+    @apply items-center justify-between gap-3 border-b-0! py-1.5 text-right;
+    display: flex;
+    max-width: none !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+  }
+
+  .responsive-table td:not([data-label])::before,
+  .responsive-table td[data-label='']::before {
+    content: none;
+  }
+
+  .responsive-table td[data-label]::before {
+    content: attr(data-label);
+    @apply text-muted shrink-0 text-left text-[11px] font-semibold tracking-wide uppercase;
+  }
+
+  .responsive-table tr.table-row-header {
+    @apply border-none bg-transparent px-0;
+  }
+
+  .responsive-table tr.table-row-header td {
+    @apply block text-left;
+  }
+
+  .responsive-table tr.table-row-header td::before {
+    content: none;
+  }
+}

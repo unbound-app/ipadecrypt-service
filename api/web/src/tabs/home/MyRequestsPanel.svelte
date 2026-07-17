@@ -1,6 +1,6 @@
 <script lang="ts">
   import { PackageSearch } from 'lucide-svelte';
-  import { fetchJobStatus, queueDecrypt, queueTestFlightDecrypt } from '../../lib/api';
+  import { cancelJob, fetchJobStatus, queueDecrypt, queueTestFlightDecrypt } from '../../lib/api';
   import CopyButton from '../../components/CopyButton.svelte';
   import EmptyState from '../../components/EmptyState.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
@@ -88,6 +88,20 @@
     shareOpen = true;
   }
 
+  let cancelling = $state<Set<string>>(new Set());
+
+  async function cancel(d: TrackedDecrypt): Promise<void> {
+    cancelling = new Set(cancelling).add(d.id);
+    try {
+      const { ok } = await cancelJob(d.id);
+      if (ok) dismissDecrypt(d.id);
+    } finally {
+      const next = new Set(cancelling);
+      next.delete(d.id);
+      cancelling = next;
+    }
+  }
+
   async function dismiss(d: TrackedDecrypt): Promise<void> {
     if (d.status === 'done' || d.status === 'failed') {
       dismissDecrypt(d.id);
@@ -154,6 +168,9 @@
                   <Button size="sm" variant="secondary" onclick={() => dismiss(d)}>Dismiss</Button>
                 {:else if d.status === 'failed'}
                   <Button size="sm" loading={retrying.has(d.id)} onclick={() => retry(d)}>Retry</Button>
+                  <Button size="sm" variant="secondary" onclick={() => dismiss(d)}>Dismiss</Button>
+                {:else if d.status === 'queued'}
+                  <Button size="sm" variant="destructive" loading={cancelling.has(d.id)} onclick={() => cancel(d)}>Cancel</Button>
                   <Button size="sm" variant="secondary" onclick={() => dismiss(d)}>Dismiss</Button>
                 {:else}
                   <Button size="sm" variant="secondary" onclick={() => dismiss(d)}>Dismiss</Button>

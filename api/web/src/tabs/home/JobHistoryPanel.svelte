@@ -211,12 +211,13 @@
     />
   {:else}
     <div class="scroll-fade-x max-h-[600px] overflow-auto" use:scrollFade>
-      <table class="min-w-[640px]">
+      <table class="responsive-table sm:min-w-[720px]">
         <thead>
           <tr>
             <th>Bundle ID</th>
             <th>Version</th>
             <th>Source</th>
+            <th>Queued by</th>
             <th>Status</th>
             <th>Size</th>
             <th>Finished</th>
@@ -226,20 +227,20 @@
         </thead>
         <tbody>
           {#if !loaded}
-            <SkeletonRows rows={4} colspan={8} />
+            <SkeletonRows rows={4} colspan={9} />
           {:else}
             {#each grouped as g (g.label)}
-              <tr class="bg-panel sticky top-0 z-10">
-                <td colspan="8" class="border-b-0! py-1.5 text-xs font-semibold text-muted">{g.label}</td>
+              <tr class="table-row-header bg-panel sticky top-0 z-10">
+                <td colspan="9" class="border-b-0! py-1.5 text-xs font-semibold text-muted">{g.label}</td>
               </tr>
               {#each g.items as j (j.id)}
                 <tr>
-                  <td class="max-w-40 truncate">
+                  <td data-label="Bundle ID" class="max-w-40 truncate">
                     <button class="cursor-pointer hover:text-accent hover:underline" title="View stats for {j.bundleId}" onclick={() => openStats(j.bundleId)}>
                       {j.bundleId}
                     </button>
                   </td>
-                  <td class="max-w-36 truncate" title={j.versionLabel ?? ''}>
+                  <td data-label="Version" class="max-w-36 truncate" title={j.versionLabel ?? ''}>
                     {#if j.versionLabel}
                       {j.versionLabel}
                     {:else}
@@ -251,13 +252,14 @@
                       <Badge variant="secondary" class="ml-1" title="pinned to external version id {j.externalVersionId}">pinned</Badge>
                     {/if}
                   </td>
-                  <td>{j.source}</td>
-                  <td><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
-                  <td>{fmtSize(j.sizeBytes)}</td>
-                  <td class="text-muted"><RelativeTime ms={j.finishedAt} /></td>
-                  <td class="max-w-52 truncate text-muted" title={j.error ?? ''}>{j.error ?? ''}</td>
+                  <td data-label="Source">{j.source}</td>
+                  <td data-label="Queued by" class="text-muted">{j.queuedBy ?? '-'}</td>
+                  <td data-label="Status"><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
+                  <td data-label="Size">{fmtSize(j.sizeBytes)}</td>
+                  <td data-label="Finished" class="text-muted"><RelativeTime ms={j.finishedAt} /></td>
+                  <td data-label="Error" class="max-w-52 truncate text-muted" title={j.error ?? ''}>{j.error ?? ''}</td>
                   <td>
-                    <div class="flex flex-wrap gap-1.5">
+                    <div class="flex flex-wrap justify-end gap-1.5">
                       <Button size="sm" variant="secondary" loading={requeueing.has(j.id)} onclick={() => decryptAgain(j)}>
                         Decrypt again
                       </Button>

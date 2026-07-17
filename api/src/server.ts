@@ -17,7 +17,8 @@ const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 
 
 const app = express();
 app.set('trust proxy', 'loopback');
-app.use(express.json());
+// Default 100kb is too tight for a full-state backup restore once job history/audit log grow.
+app.use(express.json({ limit: '5mb' }));
 
 app.use('/assets', express.static(path.join(publicDir, 'assets'), { maxAge: '1y', immutable: true }));
 

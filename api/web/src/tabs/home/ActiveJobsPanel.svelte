@@ -3,16 +3,32 @@
   import CopyButton from '../../components/CopyButton.svelte';
   import EmptyState from '../../components/EmptyState.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
-  import { fetchJobEta } from '../../lib/api';
+  import { cancelJob, fetchJobEta } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
+  import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import { statusToBadgeVariant } from '../../lib/components/ui/variants';
   import { fmtDurationApprox } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
   import { scrollFade } from '../../lib/scrollFade';
+  import { sessionState } from '../../lib/session.svelte';
 
   const jobs = $derived(liveState.overview?.activeJobs ?? []);
   const loaded = $derived(liveState.overview !== null);
+  const canCancel = $derived(!!sessionState.permissions?.decrypt);
+
+  let cancelling = $state<Set<string>>(new Set());
+
+  async function cancel(id: string): Promise<void> {
+    cancelling = new Set(cancelling).add(id);
+    try {
+      await cancelJob(id);
+    } finally {
+      const next = new Set(cancelling);
+      next.delete(id);
+      cancelling = next;
+    }
+  }
 
   let etaByBundle = $state<Record<string, number | null>>({});
   const fetchedBundles = new Set<string>();
@@ -36,25 +52,27 @@
 
 <Card title="Active jobs">
   <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
-    <table class="min-w-[560px]">
+    <table class="responsive-table sm:min-w-[640px]">
       <thead>
         <tr>
           <th>Bundle ID</th>
           <th>Version</th>
           <th>Source</th>
+          <th>Queued by</th>
           <th>Status</th>
           <th>Progress</th>
           <th>Job ID</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {#if !loaded}
-          <SkeletonRows rows={2} colspan={6} />
+          <SkeletonRows rows={2} colspan={8} />
         {:else}
           {#each jobs as j (j.id)}
             <tr>
-              <td class="max-w-40 truncate" title={j.bundleId}>{j.bundleId}</td>
-              <td class="max-w-32 truncate" title={j.versionLabel}>
+              <td data-label="Bundle ID" class="max-w-40 truncate" title={j.bundleId}>{j.bundleId}</td>
+              <td data-label="Version" class="max-w-32 truncate" title={j.versionLabel}>
                 {#if j.versionLabel}
                   {j.versionLabel}
                 {:else}
@@ -64,9 +82,10 @@
                   <Badge variant="secondary">TF</Badge>
                 {/if}
               </td>
-              <td>{j.source}</td>
-              <td><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
-              <td class="max-w-52 text-muted">
+              <td data-label="Source">{j.source}</td>
+              <td data-label="Queued by" class="text-muted">{j.queuedBy ?? '-'}</td>
+              <td data-label="Status"><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
+              <td data-label="Progress" class="max-w-52 text-muted">
                 {#if j.status === 'running'}
                   <div class="flex items-center gap-2">
                     <div class="progress-indeterminate bg-border relative h-1 w-10 shrink-0 overflow-hidden rounded-full after:bg-accent"></div>
@@ -79,11 +98,16 @@
                   <span class="block truncate" title={j.progress}>{j.progress}</span>
                 {/if}
               </td>
-              <td>
+              <td data-label="Job ID">
                 <div class="flex items-center gap-1.5">
                   <code title={j.id}>{j.id.slice(0, 8)}</code>
                   <CopyButton text={j.id} />
                 </div>
+              </td>
+              <td>
+                {#if j.status === 'queued' && canCancel}
+                  <Button size="sm" variant="destructive" loading={cancelling.has(j.id)} onclick={() => cancel(j.id)}>Cancel</Button>
+                {/if}
               </td>
             </tr>
           {/each}

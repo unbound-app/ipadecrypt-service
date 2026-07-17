@@ -40,6 +40,7 @@ export function enqueueDecryptJob(
   externalVersionId?: string,
   testflight?: TestFlightJobSource,
   versionLabel?: string,
+  queuedBy?: string,
 ): Job {
   const existing = findActiveJobForBundle(bundleId, externalVersionId, testflight?.build.id);
   if (existing) return existing;
@@ -53,6 +54,7 @@ export function enqueueDecryptJob(
     testflight,
     versionLabel: resolvedLabel,
     source,
+    queuedBy,
     status: 'queued',
     progress: 'queued',
     createdAt: Date.now(),
@@ -108,6 +110,47 @@ function settle(job: Job): void {
   for (const w of waiters) w(job);
 }
 
+function toHistoryEntry(job: Job) {
+  return {
+    id: job.id,
+    bundleId: job.bundleId,
+    externalVersionId: job.externalVersionId,
+    testflight: job.testflight,
+    versionLabel: job.versionLabel,
+    queuedBy: job.queuedBy,
+    status: job.status as 'done' | 'failed',
+    error: job.error,
+    sizeBytes: job.fileSizeBytes,
+    source: job.source,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt ?? Date.now(),
+  };
+}
+
+// Only a still-queued job can be cancelled - once it's running, the physical device is already
+// mid-decrypt and there's no way to interrupt it short of killing the ipadecrypt process.
+export function cancelQueuedJob(id: string, cancelledBy: string): boolean {
+  const job = jobs.get(id);
+  if (!job || job.status !== 'queued') return false;
+
+  const idx = queue.indexOf(id);
+  if (idx !== -1) queue.splice(idx, 1);
+
+  job.status = 'failed';
+  job.error = `cancelled by ${cancelledBy}`;
+  job.finishedAt = Date.now();
+  log.info('job cancelled', { jobId: id, bundleId: job.bundleId, cancelledBy });
+
+  recordJobHistory(toHistoryEntry(job));
+  settle(job);
+  // Leave it in `jobs` as a normal failed entry (same as a real failure) rather than deleting it
+  // outright - a still-in-flight status poll for this id should see 'failed', not a bare 404, and
+  // the sweeper already reclaims failed jobs after the usual retention window.
+  emitJobsChanged();
+  return true;
+}
+
 async function runWorker(): Promise<void> {
   if (workerRunning) return;
   workerRunning = true;
@@ -143,20 +186,7 @@ async function runWorker(): Promise<void> {
         }
       }
 
-      recordJobHistory({
-        id: job.id,
-        bundleId: job.bundleId,
-        externalVersionId: job.externalVersionId,
-        testflight: job.testflight,
-        versionLabel: job.versionLabel,
-        status: job.status as 'done' | 'failed',
-        error: job.error,
-        sizeBytes: job.fileSizeBytes,
-        source: job.source,
-        createdAt: job.createdAt,
-        startedAt: job.startedAt,
-        finishedAt: job.finishedAt ?? Date.now(),
-      });
+      recordJobHistory(toHistoryEntry(job));
       emitJobsChanged();
 
       settle(job);

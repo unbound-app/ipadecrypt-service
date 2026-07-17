@@ -62,6 +62,7 @@ export interface JobSummary {
   testflight?: JobTestFlightSummary;
   versionLabel?: string;
   source: 'manual' | 'scheduler';
+  queuedBy?: string;
   status: 'queued' | 'running' | 'done' | 'failed';
   progress: string;
   error?: string;
@@ -82,6 +83,7 @@ export interface ActiveJob {
   progress: string;
   versionLabel?: string;
   testflight?: JobTestFlightSummary;
+  queuedBy?: string;
   createdAt: number;
 }
 
@@ -135,6 +137,7 @@ export interface JobHistoryEntry {
   externalVersionId?: string;
   testflight?: { appId: number; build: TFBuild };
   versionLabel?: string;
+  queuedBy?: string;
   status: 'done' | 'failed';
   error?: string;
   sizeBytes?: number;
@@ -168,7 +171,7 @@ export interface AuditLogEntry {
   id: string;
   ts: number;
   actor: string;
-  action: 'user.add' | 'user.update' | 'user.remove';
+  action: 'user.add' | 'user.update' | 'user.remove' | 'state.import';
   target: string;
   detail?: string;
 }
@@ -238,6 +241,10 @@ export function fetchBundleStats(bundleId: string): Promise<BundleStats> {
 
 export function shareJobFile(id: string, ttlMinutes?: number): Promise<{ ok: boolean; data: { url: string; expiresAt: number } }> {
   return apiAction(`/v1/dashboard/jobs/${id}/share`, { method: 'POST', body: JSON.stringify({ ttlMinutes }) });
+}
+
+export function cancelJob(id: string): Promise<{ ok: boolean }> {
+  return apiAction(`/v1/dashboard/jobs/${id}/cancel`, { method: 'POST' }, 'Cancelled').then((r) => ({ ok: r.ok }));
 }
 
 export interface ApiKeyUsageBucket {
@@ -436,6 +443,14 @@ export function updateUserPermissions(username: string, permissions: Permissions
     { method: 'PATCH', body: JSON.stringify({ permissions }) },
     `${username}'s permissions updated`,
   );
+}
+
+export function backupExportUrl(): string {
+  return '/v1/dashboard/backup/export';
+}
+
+export function importBackup(payload: unknown): Promise<{ ok: boolean; data: { error?: string } }> {
+  return apiAction('/v1/dashboard/backup/import', { method: 'POST', body: JSON.stringify(payload) }, 'Backup restored');
 }
 
 export interface AppleAuthStatus {
