@@ -21,7 +21,7 @@ import { requirePermission, requireSession } from '../session.js';
 import { getDeviceHealth, listBuilds, listTrains } from '../testflight.js';
 import { nextCronRunAt } from '../util/cron.js';
 import { getDiskUsage } from '../util/diskUsage.js';
-import { buildSignedFileUrl } from '../util/signedUrl.js';
+import { buildSignedFileUrlWithToken } from '../util/signedUrl.js';
 import { listAppVersions } from '../versions.js';
 import {
   addAllowedUser,
@@ -34,6 +34,7 @@ import {
   exportBackup,
   getAllJobHistory,
   getApiKeyById,
+  getApiKeyBundleUsage,
   getApiKeyUsage,
   getAppleAuthAlert,
   getAuditLog,
@@ -59,8 +60,10 @@ import {
   listAllowedUsers,
   listApiKeysForOwner,
   listPendingApiKeys,
+  listShareLinksForJob,
   PERMISSION_KEYS,
   type Permissions,
+  recordShareLink,
   recordUserActivity,
   regenerateApiKey,
   removeAllowedUser,
@@ -68,6 +71,7 @@ import {
   requestApiKey,
   revealApiKeySecret,
   revokeApiKey,
+  revokeShareLink,
   type SchedulerSettings,
   setApiKeyPriority,
   setUserPriority,
@@ -425,7 +429,22 @@ dashboardRouter.post('/v1/dashboard/jobs/:id/share', (req, res) => {
   const requested = Number.parseInt(String(req.body?.ttlMinutes ?? config.fileTtlMinutes), 10);
   const ttlMinutes = Number.isFinite(requested) ? Math.min(Math.max(requested, SHARE_TTL_MIN), SHARE_TTL_MAX) : config.fileTtlMinutes;
 
-  res.json({ url: buildSignedFileUrl(job.id, ttlMinutes), expiresAt: Date.now() + ttlMinutes * 60_000 });
+  const { url, token, expiresAtMs } = buildSignedFileUrlWithToken(job.id, ttlMinutes);
+  recordShareLink(job.id, job.bundleId, token, res.locals.session.sub, expiresAtMs);
+  res.json({ url, expiresAt: expiresAtMs });
+});
+
+dashboardRouter.get('/v1/dashboard/jobs/:id/share', (req, res) => {
+  res.json({ links: listShareLinksForJob(req.params.id) });
+});
+
+dashboardRouter.post('/v1/dashboard/jobs/share/:linkId/revoke', (req, res) => {
+  const ok = revokeShareLink(req.params.linkId);
+  if (!ok) {
+    res.status(404).json({ error: 'share link not found' });
+    return;
+  }
+  res.json({ ok: true });
 });
 
 dashboardRouter.get('/v1/dashboard/keys/mine', (_req, res) => {
@@ -531,6 +550,21 @@ dashboardRouter.get('/v1/dashboard/keys/:id/usage', (req, res) => {
   }
   const days = Math.min(Math.max(Number.parseInt(String(req.query.days ?? '14'), 10) || 14, 1), 90);
   res.json({ usage: getApiKeyUsage(req.params.id, days) });
+});
+
+dashboardRouter.get('/v1/dashboard/keys/:id/bundle-usage', (req, res) => {
+  const key = getApiKeyById(req.params.id);
+  if (!key) {
+    res.status(404).json({ error: 'key not found' });
+    return;
+  }
+  const { sub, permissions } = res.locals.session;
+  if (key.ownerId !== sub && !permissions.viewApiKeys) {
+    res.status(403).json({ error: "not your key" });
+    return;
+  }
+  const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '10'), 10) || 10, 1), 50);
+  res.json({ bundles: getApiKeyBundleUsage(req.params.id, limit) });
 });
 
 dashboardRouter.get('/v1/dashboard/keys/pending', canApproveApiKeys, (_req, res) => {

@@ -3,6 +3,7 @@
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Dialog from '../../lib/components/ui/Dialog.svelte';
+  import Input from '../../lib/components/ui/Input.svelte';
   import { fmtTime } from '../../lib/format';
 
   interface Props {
@@ -50,6 +51,14 @@
   function label(v: AppVersionEntry): string {
     return v.displayVersion ? `v${v.displayVersion}` : `id ${v.externalVersionId}`;
   }
+
+  let search = $state('');
+
+  const filteredVersions = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    if (!q || !versions) return versions ?? [];
+    return versions.filter((v) => label(v).toLowerCase().includes(q) || v.externalVersionId.toLowerCase().includes(q));
+  });
 </script>
 
 <Dialog {open} {onOpenChange} class="max-w-lg">
@@ -66,8 +75,14 @@
     {#if versions.some((v) => !v.displayVersion)}
       <div class="text-muted mb-3 text-xs">Unlabeled versions are listed by App Store ID.</div>
     {/if}
+    {#if versions.length > 8}
+      <Input placeholder="Search versions…" bind:value={search} class="mb-3" />
+    {/if}
+    {#if filteredVersions.length === 0}
+      <div class="text-sm text-muted">No versions match "{search}".</div>
+    {/if}
     <div class="max-h-[50vh] overflow-y-auto">
-      {#each versions as v (v.externalVersionId)}
+      {#each filteredVersions as v (v.externalVersionId)}
         <div class="border-border flex items-center justify-between gap-3 border-t py-2 first:border-t-0">
           <div class="min-w-0">
             <div class="flex items-center gap-1.5 text-[13px]">

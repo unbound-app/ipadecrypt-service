@@ -6,14 +6,19 @@
   import { cn } from '../lib/utils';
   import RelativeTime from './RelativeTime.svelte';
 
+  const LAST_VIEWED_KEY = 'notificationsLastViewedAt';
+
   let open = $state(false);
-  let lastViewedAt = $state(0);
+  let lastViewedAt = $state(Number(localStorage.getItem(LAST_VIEWED_KEY) ?? 0));
 
   const unseenCount = $derived(toastHistoryState.items.filter((t) => t.ts > lastViewedAt).length);
 
   function onOpenChange(v: boolean): void {
     open = v;
-    if (v) lastViewedAt = Date.now();
+    if (v) {
+      lastViewedAt = Date.now();
+      localStorage.setItem(LAST_VIEWED_KEY, String(lastViewedAt));
+    }
   }
 </script>
 

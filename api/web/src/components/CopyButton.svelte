@@ -14,7 +14,7 @@
         copied = false;
       }, 1200);
     } catch {
-      showToast("Couldn't copy - your browser blocked clipboard access", 'error');
+      showToast("Couldn't copy - your browser blocked clipboard access", 'error', { track: false });
     }
   }
 </script>

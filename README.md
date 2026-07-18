@@ -10,7 +10,14 @@ over SSH from the host. Two jobs:
    currently-live App Store version of `WATCH_BUNDLE_ID` already has a
    matching release in `WATCH_APP_REPO`; if not, decrypts it, temporarily
    hosts the IPA, and fires a `repository_dispatch` (`ipa-update`) at your
-   build workflow with a signed, short-lived download URL.
+   build workflow with a signed, short-lived download URL. The scheduler
+   records that outcome the moment the dispatch call itself succeeds - it
+   doesn't block the next scheduled check on waiting for your build
+   workflow to actually finish (which can take a while). It then tracks
+   that workflow run in the background and patches the same history entry
+   with the final status once it completes, so the Status card's recent
+   checks go `dispatched → succeeded/failed` live instead of just sitting
+   on "dispatched" until everything's done.
 
 Both paths share one job queue, because the physical jailbroken device can
 only run one `ipadecrypt decrypt` at a time. Queuing is FIFO by default, but
@@ -185,7 +192,11 @@ Tabs:
   Each free result has a clock-icon button that opens its App Store
   version history and lets you decrypt an older release instead of the
   current one (`ipadecrypt decrypt --external-version-id`) - see
-  **Decrypting a specific version** below.
+  **Decrypting a specific version** below. A finished job's **Share**
+  button issues a one-time signed download link and also lists every link
+  issued for that job so far (who issued it, when it expires) with a
+  **Revoke** action to kill an active one early - revoking only affects
+  that specific link, not the job itself.
 - **API Keys** (needs `decrypt`, `viewApiKeys`, `approveApiKeys`, or
   `revokeApiKeys`) - request/reveal/regenerate/revoke your own keys, and
   optionally restrict a key to a comma-separated list of bundle IDs at
@@ -201,7 +212,10 @@ Tabs:
   so an approver doesn't have to keep checking the tab. Keys are stored
   hashed - the plaintext is only ever shown once, right after
   approval/regeneration. The root `API_KEY` from `.env` always works too,
-  is unrestricted, isn't priority-weighted, and isn't managed here.
+  is unrestricted, isn't priority-weighted, and isn't managed here. Each
+  key's Usage dialog breaks down which bundle IDs it's actually been used
+  to decrypt, not just a daily request-count total - handy for auditing
+  what an unrestricted key is really being used for.
 - **Logs** (needs `viewLogs`) - a live feed of scheduler/job log lines,
   filterable by scope (all/scheduler/jobs), level (info/warning/error),
   and free-text search, with CSV/JSON export of whatever's currently

@@ -117,14 +117,18 @@ export interface AppleAuthAlert {
   lastErrorAt?: number;
 }
 
+export type SchedulerRunStatus = 'dispatched' | 'succeeded' | 'failed' | 'timed_out';
+
 export interface SchedulerRunOutcome {
   ok: boolean;
   triggered: boolean;
   reason: string;
   runUrl?: string;
+  runStatus?: SchedulerRunStatus;
 }
 
 export interface SchedulerRunEntry {
+  id: string;
   ts: number;
   appStore: SchedulerRunOutcome;
   testflight: SchedulerRunOutcome;
@@ -299,6 +303,24 @@ export function shareJobFile(id: string, ttlMinutes?: number): Promise<{ ok: boo
   return apiAction(`/v1/dashboard/jobs/${id}/share`, { method: 'POST', body: JSON.stringify({ ttlMinutes }) });
 }
 
+export interface ShareLinkRecord {
+  id: string;
+  jobId: string;
+  bundleId: string;
+  issuedBy: string;
+  issuedAt: number;
+  expiresAt: number;
+  revoked: boolean;
+}
+
+export function fetchShareLinks(jobId: string): Promise<{ links: ShareLinkRecord[] }> {
+  return apiJson(`/v1/dashboard/jobs/${jobId}/share`);
+}
+
+export function revokeShareLink(linkId: string): Promise<{ ok: boolean }> {
+  return apiAction(`/v1/dashboard/jobs/share/${linkId}/revoke`, { method: 'POST' }, 'Link revoked').then((r) => ({ ok: r.ok }));
+}
+
 export function cancelJob(id: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/jobs/${id}/cancel`, { method: 'POST' }, 'Cancelled').then((r) => ({ ok: r.ok }));
 }
@@ -314,6 +336,15 @@ export interface ApiKeyUsageBucket {
 
 export function fetchKeyUsage(id: string, days = 14): Promise<{ usage: ApiKeyUsageBucket[] }> {
   return apiJson(`/v1/dashboard/keys/${id}/usage?days=${days}`);
+}
+
+export interface ApiKeyBundleUsage {
+  bundleId: string;
+  count: number;
+}
+
+export function fetchKeyBundleUsage(id: string, limit = 10): Promise<{ bundles: ApiKeyBundleUsage[] }> {
+  return apiJson(`/v1/dashboard/keys/${id}/bundle-usage?limit=${limit}`);
 }
 
 export function fetchLogs(): Promise<{ logs: LogEntry[] }> {

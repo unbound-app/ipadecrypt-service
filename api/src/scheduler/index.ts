@@ -14,6 +14,7 @@ import {
   recordSchedulerRunOutcome,
   type SchedulerRunOutcome,
   type SchedulerSettings,
+  updateSchedulerRunOutcome,
 } from '../store/state.js';
 import type { TFBuild } from '../testflight.js';
 import { listBuilds, listTrains } from '../testflight.js';
@@ -184,12 +185,59 @@ async function pollRunToCompletion(dispatchRepo: string, workflowFile: string, d
   return run;
 }
 
+// What decryptAndDispatch hands back once it knows whether the dispatch itself succeeded -
+// separate from trackCompletion, the optional background continuation that watches the
+// dispatched workflow run through to completion (which can take many minutes) without the
+// scheduler tick blocking on it.
+interface DispatchResult {
+  outcome: SchedulerRunOutcome;
+  trackCompletion?: () => Promise<Partial<SchedulerRunOutcome>>;
+}
+
+function trackRunCompletion(
+  finished: Job,
+  settings: SchedulerSettings,
+  versionLabel: string,
+  source: 'App Store' | 'TestFlight',
+  dispatchedAt: Date,
+): () => Promise<Partial<SchedulerRunOutcome>> {
+  return async () => {
+    try {
+      const run = await pollRunToCompletion(settings.ghDispatchRepo, settings.ghWorkflowFile, dispatchedAt);
+      if (!run) {
+        return { runStatus: 'timed_out', reason: `Dispatched ${versionLabel} - gave up waiting for the workflow run to appear/complete` };
+      }
+
+      const succeeded = run.conclusion === 'success';
+      await notify(succeeded ? 'dispatchSuccess' : 'dispatchFailure', {
+        title: succeeded ? 'Workflow run succeeded' : 'Workflow run failed',
+        color: succeeded ? EMBED_COLOR.ok : EMBED_COLOR.err,
+        fields: [
+          { name: 'App', value: settings.watchBundleId, inline: true },
+          { name: 'Version', value: versionLabel, inline: true },
+          { name: 'Source', value: source, inline: true },
+          { name: 'Run', value: run.html_url },
+        ],
+      });
+      return {
+        runStatus: succeeded ? 'succeeded' : 'failed',
+        runUrl: run.html_url,
+        reason: `Dispatched ${versionLabel} - workflow ${succeeded ? 'succeeded' : `failed (${run.conclusion})`}`,
+      };
+    } finally {
+      // Only safe to reclaim now - the file has to stay on disk until the dispatched workflow has
+      // had its chance to actually download it via the signed URL.
+      await reclaimJobFile(finished);
+    }
+  };
+}
+
 async function decryptAndDispatch(
   job: Job,
   settings: SchedulerSettings,
   isTestflight: boolean,
   versionLabel: string,
-): Promise<{ ok: boolean; runUrl?: string }> {
+): Promise<DispatchResult> {
   const finished = await waitForJob(job, SCHEDULER_JOB_TIMEOUT_MS);
 
   if (finished.status !== 'done') {
@@ -199,30 +247,16 @@ async function decryptAndDispatch(
       status: finished.status,
       error: finished.error,
     });
-    return { ok: false };
+    return { outcome: { ok: false, triggered: true, reason: `Decrypt failed: ${finished.error ?? 'unknown error'}` } };
   }
 
+  const dispatchedAt = new Date();
   try {
     const ipaUrl = buildSignedFileUrl(finished.id, config.fileTtlMinutes);
-    const dispatchedAt = new Date();
     await dispatchIpaUpdate(settings.ghDispatchRepo, ipaUrl, isTestflight);
     log.info('dispatched ipa-update', { dispatchRepo: settings.ghDispatchRepo, bundleId: settings.watchBundleId, isTestflight });
-
-    const run = await pollRunToCompletion(settings.ghDispatchRepo, settings.ghWorkflowFile, dispatchedAt);
-    const source = isTestflight ? 'TestFlight' : 'App Store';
-    await notify('dispatchSuccess', {
-      title: 'Decrypted & dispatched',
-      color: EMBED_COLOR.ok,
-      fields: [
-        { name: 'App', value: settings.watchBundleId, inline: true },
-        { name: 'Version', value: versionLabel, inline: true },
-        { name: 'Source', value: source, inline: true },
-        { name: 'Repo', value: settings.ghDispatchRepo, inline: true },
-      ],
-    });
-    return { ok: true, runUrl: run?.html_url };
   } catch (err) {
-    log.error('dispatch/poll failed', { error: String(err), isTestflight });
+    log.error('dispatch failed', { error: String(err), isTestflight });
     await notify('dispatchFailure', {
       title: 'Dispatch failed',
       color: EMBED_COLOR.err,
@@ -232,13 +266,17 @@ async function decryptAndDispatch(
         { name: 'Error', value: `\`\`\`${String(err)}\`\`\`` },
       ],
     });
-    return { ok: false };
-  } finally {
     await reclaimJobFile(finished);
+    return { outcome: { ok: false, triggered: true, reason: `Failed to dispatch ${versionLabel}: ${String(err)}` } };
   }
+
+  return {
+    outcome: { ok: true, triggered: true, reason: `Dispatched ${versionLabel} - waiting on workflow run`, runStatus: 'dispatched' },
+    trackCompletion: trackRunCompletion(finished, settings, versionLabel, isTestflight ? 'TestFlight' : 'App Store', dispatchedAt),
+  };
 }
 
-async function tickAppStore(settings: SchedulerSettings): Promise<SchedulerRunOutcome> {
+async function tickAppStore(settings: SchedulerSettings): Promise<DispatchResult> {
   const check = await checkForUpdate(settings);
   if (!check.wouldDispatch) {
     if (check.alreadyReleased) {
@@ -249,18 +287,17 @@ async function tickAppStore(settings: SchedulerSettings): Promise<SchedulerRunOu
     } else {
       log.error(check.reason, { bundleId: settings.watchBundleId });
     }
-    return { ok: check.ok, triggered: false, reason: check.reason };
+    return { outcome: { ok: check.ok, triggered: false, reason: check.reason } };
   }
 
   const normalized = check.normalizedVersion as string;
   log.info('no matching release found, decrypting', { bundleId: settings.watchBundleId, version: normalized });
 
   const job = enqueueDecryptJob(settings.watchBundleId, 'scheduler', undefined, undefined, normalized);
-  const { ok, runUrl } = await decryptAndDispatch(job, settings, false, `v${normalized}`);
-  return { ok, triggered: true, reason: ok ? `Dispatched ${normalized}` : `Failed to decrypt/dispatch ${normalized}`, runUrl };
+  return decryptAndDispatch(job, settings, false, `v${normalized}`);
 }
 
-async function tickTestFlight(settings: SchedulerSettings): Promise<SchedulerRunOutcome> {
+async function tickTestFlight(settings: SchedulerSettings): Promise<DispatchResult> {
   const check = await checkForTestFlightUpdate(settings);
   if (!check.wouldDispatch || !check.build) {
     if (check.alreadyReleased) {
@@ -271,7 +308,7 @@ async function tickTestFlight(settings: SchedulerSettings): Promise<SchedulerRun
     } else {
       log.error(check.reason, { bundleId: settings.watchBundleId });
     }
-    return { ok: check.ok, triggered: false, reason: check.reason };
+    return { outcome: { ok: check.ok, triggered: false, reason: check.reason } };
   }
 
   log.info('no matching release found for latest TestFlight build, installing and decrypting', {
@@ -280,26 +317,42 @@ async function tickTestFlight(settings: SchedulerSettings): Promise<SchedulerRun
   });
 
   const job = enqueueDecryptJob(settings.watchBundleId, 'scheduler', undefined, { appId: check.appId as number, build: check.build });
-  const { ok, runUrl } = await decryptAndDispatch(job, settings, true, check.latestTag as string);
-  const tag = check.latestTag as string;
-  return { ok, triggered: true, reason: ok ? `Dispatched ${tag}` : `Failed to decrypt/dispatch ${tag}`, runUrl };
+  return decryptAndDispatch(job, settings, true, check.latestTag as string);
 }
 
 const RETRY_BASE_DELAY_MS = 30_000;
 
 async function tickWithRetry(
-  fn: (settings: SchedulerSettings) => Promise<SchedulerRunOutcome>,
+  fn: (settings: SchedulerSettings) => Promise<DispatchResult>,
   settings: SchedulerSettings,
   label: string,
-): Promise<SchedulerRunOutcome> {
-  let outcome = await fn(settings);
-  for (let attempt = 1; attempt <= settings.schedulerRetryCount && !outcome.ok; attempt++) {
+): Promise<DispatchResult> {
+  let result = await fn(settings);
+  for (let attempt = 1; attempt <= settings.schedulerRetryCount && !result.outcome.ok; attempt++) {
     const delayMs = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
-    log.warn('scheduler check failed, retrying', { source: label, attempt, maxRetries: settings.schedulerRetryCount, delayMs, reason: outcome.reason });
+    log.warn('scheduler check failed, retrying', { source: label, attempt, maxRetries: settings.schedulerRetryCount, delayMs, reason: result.outcome.reason });
     await sleep(delayMs);
-    outcome = await fn(settings);
+    result = await fn(settings);
   }
-  return outcome;
+  return result;
+}
+
+// Awaits a dispatched run's completion in the background (this can take many minutes) and patches
+// the already-recorded history entry with the final status instead of leaving it stuck on
+// "dispatched" - then pushes a fresh overview so any connected dashboard picks it up live.
+async function trackAndUpdate(
+  entryId: string,
+  source: 'appStore' | 'testflight',
+  trackCompletion: () => Promise<Partial<SchedulerRunOutcome>>,
+): Promise<void> {
+  try {
+    const patch = await trackCompletion();
+    updateSchedulerRunOutcome(entryId, source, patch);
+  } catch (err) {
+    log.error('failed to track dispatched run to completion', { source, error: String(err) });
+  } finally {
+    emitJobsChanged();
+  }
 }
 
 let tickInProgress = false;
@@ -317,7 +370,10 @@ async function tick(): Promise<void> {
 
     const appStore = await tickWithRetry(tickAppStore, settings, 'App Store');
     const testflight = await tickWithRetry(tickTestFlight, settings, 'TestFlight');
-    recordSchedulerRunOutcome({ appStore, testflight });
+    const entryId = recordSchedulerRunOutcome({ appStore: appStore.outcome, testflight: testflight.outcome });
+
+    if (appStore.trackCompletion) void trackAndUpdate(entryId, 'appStore', appStore.trackCompletion);
+    if (testflight.trackCompletion) void trackAndUpdate(entryId, 'testflight', testflight.trackCompletion);
   } finally {
     tickInProgress = false;
     // Push a fresh overview to every connected dashboard even when nothing got dispatched -

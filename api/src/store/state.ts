@@ -167,6 +167,8 @@ export interface ApiKeyAuthResult {
   // undefined for the root API_KEY, which isn't owned by any dashboard account.
   ownerId?: string;
   priority?: number;
+  // undefined for the root API_KEY, which has no stored record to attribute bundle usage to.
+  keyId?: string;
 }
 
 export interface SchedulerSettings {
@@ -229,14 +231,21 @@ export interface AuditLogEntry {
   detail?: string;
 }
 
+// runStatus is only meaningful once a dispatch actually went out (ok && triggered) - it starts at
+// 'dispatched' the moment the repository_dispatch call succeeds and is patched in place once the
+// GitHub Actions run it kicked off actually finishes, instead of the caller blocking on that wait.
+export type SchedulerRunStatus = 'dispatched' | 'succeeded' | 'failed' | 'timed_out';
+
 export interface SchedulerRunOutcome {
   ok: boolean;
   triggered: boolean;
   reason: string;
   runUrl?: string;
+  runStatus?: SchedulerRunStatus;
 }
 
 export interface SchedulerRunEntry {
+  id: string;
   ts: number;
   appStore: SchedulerRunOutcome;
   testflight: SchedulerRunOutcome;
@@ -259,6 +268,17 @@ export interface PushSubscriptionRecord {
   keys: { p256dh: string; auth: string };
 }
 
+export interface ShareLinkRecord {
+  id: string;
+  jobId: string;
+  bundleId: string;
+  token: string;
+  issuedBy: string;
+  issuedAt: number;
+  expiresAt: number;
+  revoked: boolean;
+}
+
 interface PersistedState {
   version: 5;
   apiKeys: ApiKeyRecord[];
@@ -275,11 +295,14 @@ interface PersistedState {
   deviceHealthHistory: DeviceHealthCheck[];
   pushSubscriptions: Record<string, PushSubscriptionRecord[]>;
   vapidKeys?: VapidKeys;
+  apiKeyBundleUsage: Record<string, Record<string, number>>;
+  shareLinks: ShareLinkRecord[];
 }
 
 const MAX_HISTORY = 100;
 const MAX_AUDIT_LOG = 200;
 const MAX_SCHEDULER_RUNS = 20;
+const MAX_SHARE_LINKS = 200;
 const MAX_USAGE_DAYS = 30;
 const MAX_DEVICE_HEALTH_CHECKS = 288; // 24h at a 5-minute poll interval
 const statePath = path.join(config.stateDir, 'state.json');
@@ -299,6 +322,8 @@ function defaultState(): PersistedState {
     apiKeyUsage: {},
     deviceHealthHistory: [],
     pushSubscriptions: {},
+    apiKeyBundleUsage: {},
+    shareLinks: [],
   };
 }
 
@@ -373,12 +398,14 @@ function normalizeLegacySchedulerRunOutcome(raw: unknown): SchedulerRunOutcome {
     triggered: Boolean(o.triggered),
     reason: o.reason ?? '',
     runUrl: o.runUrl,
+    runStatus: o.runStatus,
   };
 }
 
 function normalizeLegacySchedulerRunHistory(entries: unknown): SchedulerRunEntry[] {
   if (!Array.isArray(entries)) return [];
   return (entries as Record<string, unknown>[]).map((e) => ({
+    id: typeof e.id === 'string' ? e.id : randomUUID(),
     ts: e.ts as number,
     appStore: normalizeLegacySchedulerRunOutcome(e.appStore),
     testflight: normalizeLegacySchedulerRunOutcome(e.testflight),
@@ -672,6 +699,7 @@ export function revokeApiKey(id: string, requesterId: string, requesterIsAdmin: 
 
   state.apiKeys = state.apiKeys.filter((k) => k.id !== id);
   delete state.apiKeyUsage[id];
+  delete state.apiKeyBundleUsage[id];
   persistNow();
   return true;
 }
@@ -721,7 +749,32 @@ export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined | 
   record.lastUsedAt = Date.now();
   recordApiKeyUsage(record.id);
   dirty = true;
-  return { allowedBundleIds: record.allowedBundleIds, ownerId: record.ownerId, priority: record.priority ?? 0 };
+  return { allowedBundleIds: record.allowedBundleIds, ownerId: record.ownerId, priority: record.priority ?? 0, keyId: record.id };
+}
+
+const MAX_TRACKED_BUNDLES_PER_KEY = 100;
+
+// Which bundle IDs a key was actually used to decrypt, not just a per-day request count - lets an
+// admin see what a key is for at a glance instead of just how often it's called. Only called from
+// the /v1/decrypt handler (the one endpoint where a bundleId is actually being requested), not
+// from every status/file poll that also counts against the daily rate limit above.
+export function recordApiKeyBundleUsage(id: string, bundleId: string): void {
+  const perKey = state.apiKeyBundleUsage[id] ?? {};
+  perKey[bundleId] = (perKey[bundleId] ?? 0) + 1;
+  if (Object.keys(perKey).length > MAX_TRACKED_BUNDLES_PER_KEY) {
+    const leastUsed = Object.entries(perKey).sort((a, b) => a[1] - b[1])[0]?.[0];
+    if (leastUsed) delete perKey[leastUsed];
+  }
+  state.apiKeyBundleUsage[id] = perKey;
+  dirty = true;
+}
+
+export function getApiKeyBundleUsage(id: string, limit = 10): { bundleId: string; count: number }[] {
+  const perKey = state.apiKeyBundleUsage[id] ?? {};
+  return Object.entries(perKey)
+    .map(([bundleId, count]) => ({ bundleId, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
 }
 
 // Priority for jobs queued from the dashboard itself (session-authenticated, not via an API key) -
@@ -1009,9 +1062,21 @@ export function getLastSchedulerRunAt(): number | undefined {
   return state.lastSchedulerRunAt;
 }
 
-export function recordSchedulerRunOutcome(outcome: Omit<SchedulerRunEntry, 'ts'>): void {
-  state.schedulerRunHistory.unshift({ ts: Date.now(), ...outcome });
+export function recordSchedulerRunOutcome(outcome: Omit<SchedulerRunEntry, 'ts' | 'id'>): string {
+  const id = randomUUID();
+  state.schedulerRunHistory.unshift({ id, ts: Date.now(), ...outcome });
   if (state.schedulerRunHistory.length > MAX_SCHEDULER_RUNS) state.schedulerRunHistory.length = MAX_SCHEDULER_RUNS;
+  persistNow();
+  return id;
+}
+
+// Patches an already-recorded entry once its dispatched GitHub Actions run actually finishes -
+// the entry is created (with runStatus 'dispatched') as soon as the dispatch call itself
+// succeeds, so the caller isn't stuck waiting on a run that can take many minutes to complete.
+export function updateSchedulerRunOutcome(entryId: string, source: 'appStore' | 'testflight', patch: Partial<SchedulerRunOutcome>): void {
+  const entry = state.schedulerRunHistory.find((e) => e.id === entryId);
+  if (!entry) return;
+  entry[source] = { ...entry[source], ...patch };
   persistNow();
 }
 
@@ -1135,6 +1200,42 @@ export function getPushSubscriptions(username: string): PushSubscriptionRecord[]
   return state.pushSubscriptions[username.toLowerCase()] ?? [];
 }
 
+// Tracks share links issued through the dashboard's own "Share" flow only - not the signed URLs
+// the scheduler builds internally to hand a decrypted IPA to its own GitHub Actions workflow,
+// which aren't user-facing and shouldn't show up as something to review/revoke here.
+export function recordShareLink(jobId: string, bundleId: string, token: string, issuedBy: string, expiresAt: number): ShareLinkRecord {
+  const record: ShareLinkRecord = { id: randomUUID(), jobId, bundleId, token, issuedBy, issuedAt: Date.now(), expiresAt, revoked: false };
+  state.shareLinks.push(record);
+  if (state.shareLinks.length > MAX_SHARE_LINKS) state.shareLinks.shift();
+  persistNow();
+  return record;
+}
+
+// Never includes the raw token - it's a live bearer credential for the file download, not
+// something to hand back out over an endpoint that's just meant to list/audit issued links.
+function redactShareLink(l: ShareLinkRecord) {
+  return { id: l.id, jobId: l.jobId, bundleId: l.bundleId, issuedBy: l.issuedBy, issuedAt: l.issuedAt, expiresAt: l.expiresAt, revoked: l.revoked };
+}
+
+export function listShareLinksForJob(jobId: string): ReturnType<typeof redactShareLink>[] {
+  return state.shareLinks
+    .filter((l) => l.jobId === jobId)
+    .sort((a, b) => b.issuedAt - a.issuedAt)
+    .map(redactShareLink);
+}
+
+export function revokeShareLink(id: string): boolean {
+  const record = state.shareLinks.find((l) => l.id === id);
+  if (!record) return false;
+  record.revoked = true;
+  persistNow();
+  return true;
+}
+
+export function isShareLinkRevoked(jobId: string, token: string): boolean {
+  return state.shareLinks.some((l) => l.jobId === jobId && l.token === token && l.revoked);
+}
+
 export function getUserPrefs(username: string): UserPrefs {
   return state.userPrefs[username.toLowerCase()] ?? {};
 }
@@ -1163,6 +1264,7 @@ export interface BackupPayload {
   schedulerRunHistory: SchedulerRunEntry[];
   rootSessionVersion: number;
   apiKeyUsage: Record<string, ApiKeyUsageBucket[]>;
+  apiKeyBundleUsage: Record<string, Record<string, number>>;
 }
 
 // The API key `hash` is a one-way SHA-256, safe to carry in a backup (restoring it is what keeps
@@ -1183,6 +1285,7 @@ export function exportBackup(): BackupPayload {
     schedulerRunHistory: state.schedulerRunHistory,
     rootSessionVersion: state.rootSessionVersion,
     apiKeyUsage: state.apiKeyUsage,
+    apiKeyBundleUsage: state.apiKeyBundleUsage,
   };
 }
 
@@ -1293,12 +1396,20 @@ export function importBackup(raw: unknown, actor: string): ImportBackupResult {
   state.settings = b.settings as Partial<SchedulerSettings>;
   state.jobHistory = (b.jobHistory as JobHistoryEntry[]).slice(0, MAX_HISTORY);
   state.auditLog = (b.auditLog as AuditLogEntry[]).slice(0, MAX_AUDIT_LOG);
-  state.schedulerRunHistory = (b.schedulerRunHistory as SchedulerRunEntry[]).slice(0, MAX_SCHEDULER_RUNS);
+  // Backfill ids for entries from a backup exported before SchedulerRunEntry had one.
+  state.schedulerRunHistory = (b.schedulerRunHistory as SchedulerRunEntry[])
+    .slice(0, MAX_SCHEDULER_RUNS)
+    .map((e) => ({ ...e, id: e.id ?? randomUUID() }));
   state.userPrefs = b.userPrefs as Record<string, UserPrefs>;
   state.apiKeyUsage = b.apiKeyUsage as Record<string, ApiKeyUsageBucket[]>;
   state.appleAuthAlert = b.appleAuthAlert as AppleAuthAlert;
   state.rootSessionVersion = b.rootSessionVersion;
   if (typeof b.lastSchedulerRunAt === 'number') state.lastSchedulerRunAt = b.lastSchedulerRunAt;
+  // Optional (not strictly validated) so a backup exported before this field existed still
+  // imports cleanly instead of being rejected outright.
+  state.apiKeyBundleUsage = typeof b.apiKeyBundleUsage === 'object' && b.apiKeyBundleUsage !== null
+    ? (b.apiKeyBundleUsage as Record<string, Record<string, number>>)
+    : {};
 
   persistNow();
   recordAudit(

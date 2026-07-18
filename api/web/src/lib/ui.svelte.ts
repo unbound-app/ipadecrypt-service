@@ -67,17 +67,45 @@ export interface ToastHistoryEntry {
 }
 
 const MAX_TOAST_HISTORY = 20;
+const TOAST_HISTORY_KEY = 'toastHistory';
 
-export const toastHistoryState = $state<{ items: ToastHistoryEntry[] }>({ items: [] });
+function loadToastHistory(): ToastHistoryEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(TOAST_HISTORY_KEY) ?? '[]') as ToastHistoryEntry[];
+  } catch {
+    return [];
+  }
+}
+
+export const toastHistoryState = $state<{ items: ToastHistoryEntry[] }>({ items: loadToastHistory() });
+
+function persistToastHistory(): void {
+  try {
+    localStorage.setItem(TOAST_HISTORY_KEY, JSON.stringify(toastHistoryState.items));
+  } catch {
+    // localStorage can throw (quota exceeded, private browsing) - state stays correct in-memory either way.
+  }
+}
 
 export function clearToastHistory(): void {
   toastHistoryState.items = [];
+  persistToastHistory();
 }
 
-export function showToast(message: string, type: 'success' | 'error' = 'success'): void {
+// `track` decides whether this toast also lands in the bell's persistent history (and can bump
+// its unread count) - it defaults to errors only. A success toast is almost always the direct,
+// immediate result of something the user just clicked (Queued X, Settings saved, Key created) -
+// they're already looking right at it, so re-surfacing it as an "unread notification" later is
+// just noise. Errors default to tracked since they're worth being able to review after the fact.
+export function showToast(message: string, type: 'success' | 'error' = 'success', options?: { track?: boolean }): void {
   if (type === 'error') toast.error(message);
   else toast.success(message);
+
+  const track = options?.track ?? type === 'error';
+  if (!track) return;
+
   toastHistoryState.items = [{ id: crypto.randomUUID(), message, type, ts: Date.now() }, ...toastHistoryState.items].slice(0, MAX_TOAST_HISTORY);
+  persistToastHistory();
 }
 
 interface ConfirmState {

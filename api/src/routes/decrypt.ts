@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { requireApiKey, requireApiKeyOrSignedToken } from '../auth.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
 import { enqueueDecryptJob, getJob, waitForJob } from '../jobs/store.js';
+import { recordApiKeyBundleUsage } from '../store/state.js';
 
 export const decryptRouter = Router();
 
@@ -30,6 +31,9 @@ decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
   const externalVersionId = req.query.externalVersionId;
   const versionId =
     typeof externalVersionId === 'string' && EXTERNAL_VERSION_ID_RE.test(externalVersionId) ? externalVersionId : undefined;
+
+  const apiKeyId = res.locals.apiKeyId as string | undefined;
+  if (apiKeyId) recordApiKeyBundleUsage(apiKeyId, bundleId);
 
   const job = enqueueDecryptJob(
     bundleId,

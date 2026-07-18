@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { verifyApiKey } from './store/state.js';
+import { isShareLinkRevoked, verifyApiKey } from './store/state.js';
 import { verifyDownloadToken } from './util/signedUrl.js';
 
 export function requireApiKey(req: Request, res: Response, next: NextFunction): void {
@@ -19,6 +19,7 @@ export function requireApiKey(req: Request, res: Response, next: NextFunction): 
   res.locals.apiKeyScope = result.allowedBundleIds;
   res.locals.apiKeyOwner = result.ownerId;
   res.locals.apiKeyPriority = result.priority ?? 0;
+  res.locals.apiKeyId = result.keyId;
   next();
 }
 
@@ -35,6 +36,7 @@ export function requireApiKeyOrSignedToken(req: Request, res: Response, next: Ne
       res.locals.apiKeyScope = result.allowedBundleIds;
       res.locals.apiKeyOwner = result.ownerId;
       res.locals.apiKeyPriority = result.priority ?? 0;
+      res.locals.apiKeyId = result.keyId;
       next();
       return;
     }
@@ -43,6 +45,10 @@ export function requireApiKeyOrSignedToken(req: Request, res: Response, next: Ne
   const queryToken = req.query.token;
   const jobId = req.params.id;
   if (typeof queryToken === 'string' && jobId && verifyDownloadToken(jobId, queryToken)) {
+    if (isShareLinkRevoked(jobId, queryToken)) {
+      res.status(401).json({ error: 'this share link has been revoked' });
+      return;
+    }
     next();
     return;
   }

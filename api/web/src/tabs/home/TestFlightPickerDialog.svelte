@@ -4,6 +4,7 @@
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Dialog from '../../lib/components/ui/Dialog.svelte';
+  import Input from '../../lib/components/ui/Input.svelte';
   import { fmtTime } from '../../lib/format';
 
   interface Props {
@@ -22,7 +23,10 @@
   let loadedFor = $state(0);
 
   let expandedTrain = $state('');
-  let builds = $state<TFBuild[] | null>(null);
+  // Keyed by train version - re-expanding a train you've already opened shows the cached list
+  // instead of re-hitting the device's slow SSH-driven TestFlight bridge for the same data.
+  let buildsCache = $state<Record<string, TFBuild[]>>({});
+  let loadingTrain = $state('');
   let buildsError = $state('');
 
   function load(id: number): void {
@@ -30,7 +34,9 @@
     trains = null;
     error = '';
     expandedTrain = '';
-    builds = null;
+    buildsCache = {};
+    loadingTrain = '';
+    buildsError = '';
     fetchTestFlightTrains(id)
       .then((data) => {
         if ('error' in data) {
@@ -55,31 +61,44 @@
     load(appId);
   }
 
-  async function toggleTrain(trainVersion: string): Promise<void> {
+  async function loadBuilds(trainVersion: string): Promise<void> {
+    buildsError = '';
+    loadingTrain = trainVersion;
+    try {
+      const data = await fetchTestFlightBuilds(appId, trainVersion);
+      if ('error' in data) {
+        buildsError = data.error;
+      } else {
+        buildsCache = { ...buildsCache, [trainVersion]: data.builds };
+      }
+    } catch {
+      buildsError = 'Failed to load builds - try again.';
+    } finally {
+      if (loadingTrain === trainVersion) loadingTrain = '';
+    }
+  }
+
+  function toggleTrain(trainVersion: string): void {
     if (expandedTrain === trainVersion) {
       expandedTrain = '';
       return;
     }
     expandedTrain = trainVersion;
-    builds = null;
     buildsError = '';
-    try {
-      const data = await fetchTestFlightBuilds(appId, trainVersion);
-      if ('error' in data) {
-        buildsError = data.error;
-        builds = [];
-      } else {
-        builds = data.builds;
-      }
-    } catch {
-      buildsError = 'Failed to load builds - try again.';
-      builds = [];
-    }
+    if (!buildsCache[trainVersion]) void loadBuilds(trainVersion);
   }
 
   function label(b: TFBuild): string {
     return `v${b.cfBundleShortVersion} (${b.cfBundleVersion})`;
   }
+
+  let search = $state('');
+
+  const filteredTrains = $derived.by(() => {
+    const q = search.trim().toLowerCase();
+    if (!q || !trains) return trains ?? [];
+    return trains.filter((t) => t.trainVersion.toLowerCase().includes(q));
+  });
 </script>
 
 <Dialog {open} {onOpenChange} class="max-w-lg">
@@ -93,8 +112,14 @@
   {:else if trains.length === 0}
     <div class="text-sm text-muted">No beta trains found - is this app in your TestFlight?</div>
   {:else}
+    {#if trains.length > 8}
+      <Input placeholder="Search trains…" bind:value={search} class="mb-3" />
+    {/if}
+    {#if filteredTrains.length === 0}
+      <div class="text-sm text-muted">No trains match "{search}".</div>
+    {/if}
     <div class="max-h-[55vh] overflow-y-auto">
-      {#each trains as t (t.trainVersion)}
+      {#each filteredTrains as t (t.trainVersion)}
         <div class="border-border border-t py-2 first:border-t-0">
           <button
             class="flex w-full cursor-pointer items-center justify-between gap-3 text-left text-[13px]"
@@ -109,12 +134,13 @@
 
           {#if expandedTrain === t.trainVersion}
             <div class="mt-2 pl-3">
-              {#if builds === null}
+              {#if loadingTrain === t.trainVersion}
                 <div class="text-muted text-xs">Loading builds…</div>
               {:else if buildsError}
-                <div class="text-err text-xs">{buildsError}</div>
+                <div class="text-err mb-1.5 text-xs">{buildsError}</div>
+                <Button size="sm" variant="secondary" onclick={() => loadBuilds(t.trainVersion)}>Try again</Button>
               {:else}
-                {#each builds as b (b.id)}
+                {#each buildsCache[t.trainVersion] ?? [] as b (b.id)}
                   <div class="flex items-center justify-between gap-3 py-1.5">
                     <div class="min-w-0">
                       <div class="text-[13px]">{label(b)}</div>

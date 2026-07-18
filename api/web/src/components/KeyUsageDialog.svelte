@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fetchKeyUsage, type ApiKeyUsageBucket } from '../lib/api';
+  import { fetchKeyBundleUsage, fetchKeyUsage, type ApiKeyBundleUsage, type ApiKeyUsageBucket } from '../lib/api';
   import Dialog from '../lib/components/ui/Dialog.svelte';
   import Sparkline from './Sparkline.svelte';
 
@@ -12,13 +12,18 @@
   }: { open: boolean; keyId: string; keyName: string; dailyLimit?: number; onOpenChange: (open: boolean) => void } = $props();
 
   let usage = $state<ApiKeyUsageBucket[] | null>(null);
+  let bundleUsage = $state<ApiKeyBundleUsage[] | null>(null);
 
   $effect(() => {
     if (open && keyId) {
       usage = null;
+      bundleUsage = null;
       void fetchKeyUsage(keyId, 14).then((r) => (usage = r.usage));
+      void fetchKeyBundleUsage(keyId).then((r) => (bundleUsage = r.bundles));
     }
   });
+
+  const maxBundleCount = $derived(Math.max(1, ...(bundleUsage?.map((b) => b.count) ?? [1])));
 
   function fmtDayLabel(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -54,6 +59,25 @@
         width={300}
         ariaLabel="{total} requests over the last 14 days"
       />
+    {/if}
+
+    {#if bundleUsage === null}
+      <div class="border-border mt-3 border-t pt-3 text-xs text-muted">Loading used-for breakdown…</div>
+    {:else if bundleUsage.length > 0}
+      <div class="border-border mt-3 border-t pt-3">
+        <div class="mb-2 text-xs text-muted">Used to decrypt</div>
+        <div class="flex flex-col gap-1.5">
+          {#each bundleUsage as b (b.bundleId)}
+            <div class="flex items-center gap-2.5">
+              <span class="w-32 shrink-0 truncate font-mono text-[11px]" title={b.bundleId}>{b.bundleId}</span>
+              <div class="bg-panel-muted h-2 flex-1 overflow-hidden rounded-full">
+                <div class="bg-accent h-full rounded-full" style="width: {(b.count / maxBundleCount) * 100}%"></div>
+              </div>
+              <span class="w-6 shrink-0 text-right text-xs text-muted">{b.count}</span>
+            </div>
+          {/each}
+        </div>
+      </div>
     {/if}
   {/if}
 </Dialog>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BatteryCharging, BatteryMedium, Circle, CircleCheck, RefreshCw, Thermometer, TriangleAlert, Zap } from 'lucide-svelte';
+  import { BatteryCharging, BatteryMedium, Circle, CircleCheck, LoaderCircle, RefreshCw, Thermometer, TriangleAlert, Zap } from 'lucide-svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import Sparkline from '../../components/Sparkline.svelte';
   import {
@@ -22,17 +22,33 @@
 
   const overview = $derived(liveState.overview);
 
-  type RunState = 'dispatched' | 'upToDate' | 'failed';
+  type RunState = 'inProgress' | 'succeeded' | 'failed' | 'timedOut' | 'upToDate' | 'checkFailed';
 
   function runState(outcome: SchedulerRunOutcome): RunState {
+    if (!outcome.triggered) return outcome.ok ? 'upToDate' : 'checkFailed';
     if (!outcome.ok) return 'failed';
-    return outcome.triggered ? 'dispatched' : 'upToDate';
+    switch (outcome.runStatus) {
+      case 'dispatched':
+        return 'inProgress';
+      case 'succeeded':
+        return 'succeeded';
+      case 'failed':
+        return 'failed';
+      case 'timed_out':
+        return 'timedOut';
+      default:
+        // Recorded before runStatus existed - dispatch confirmed, no further detail available.
+        return 'succeeded';
+    }
   }
 
   const RUN_STATE_LABEL: Record<RunState, string> = {
-    dispatched: 'Dispatched',
+    inProgress: 'Run in progress…',
+    succeeded: 'Run succeeded',
+    failed: 'Run failed',
+    timedOut: 'Timed out waiting for run',
     upToDate: 'Up to date',
-    failed: 'Check failed',
+    checkFailed: 'Check failed',
   };
 
   // Neither the disk gauge nor the "next run in" label update on their own between overview
@@ -403,17 +419,28 @@
 {#snippet sourceRow(label: string, outcome: SchedulerRunOutcome)}
   {@const state = runState(outcome)}
   <div class="flex items-center gap-1.5">
-    {#if state === 'dispatched'}
+    {#if state === 'inProgress'}
+      <LoaderCircle class="text-accent h-3.5 w-3.5 shrink-0 animate-spin" />
+    {:else if state === 'succeeded'}
       <CircleCheck class="text-ok h-3.5 w-3.5 shrink-0" />
-    {:else if state === 'failed'}
+    {:else if state === 'failed' || state === 'checkFailed'}
       <TriangleAlert class="text-err h-3.5 w-3.5 shrink-0" />
+    {:else if state === 'timedOut'}
+      <TriangleAlert class="text-warn h-3.5 w-3.5 shrink-0" />
     {:else}
       <Circle class="text-muted h-3.5 w-3.5 shrink-0" />
     {/if}
     <span class="text-muted w-16 shrink-0">{label}</span>
     {#if outcome.runUrl}
-      <a href={outcome.runUrl} target="_blank" rel="noopener noreferrer" class="hover:underline" title={outcome.reason} aria-label="{outcome.reason} - view run on GitHub">
-        Dispatched ↗
+      <a
+        href={outcome.runUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hover:underline"
+        title={outcome.reason}
+        aria-label="{outcome.reason} - view run on GitHub"
+      >
+        {RUN_STATE_LABEL[state]} ↗
       </a>
     {:else}
       <span class="truncate" title={outcome.reason}>{RUN_STATE_LABEL[state]}</span>

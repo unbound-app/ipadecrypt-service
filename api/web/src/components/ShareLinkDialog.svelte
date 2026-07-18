@@ -1,6 +1,8 @@
 <script lang="ts">
   import CopyButton from './CopyButton.svelte';
-  import { shareJobFile } from '../lib/api';
+  import RelativeTime from './RelativeTime.svelte';
+  import { fetchShareLinks, revokeShareLink, shareJobFile, type ShareLinkRecord } from '../lib/api';
+  import Badge from '../lib/components/ui/Badge.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Dialog from '../lib/components/ui/Dialog.svelte';
   import Select from '../lib/components/ui/Select.svelte';
@@ -20,6 +22,12 @@
   let url = $state('');
   let expiresAt = $state(0);
   let loading = $state(false);
+  let links = $state<ShareLinkRecord[] | null>(null);
+  let revoking = $state<Set<string>>(new Set());
+
+  async function loadLinks(): Promise<void> {
+    links = (await fetchShareLinks(jobId)).links;
+  }
 
   async function generate(): Promise<void> {
     loading = true;
@@ -28,17 +36,38 @@
       if (!ok) return;
       url = data.url;
       expiresAt = data.expiresAt;
+      void loadLinks();
     } finally {
       loading = false;
+    }
+  }
+
+  async function revoke(linkId: string): Promise<void> {
+    revoking = new Set(revoking).add(linkId);
+    try {
+      const { ok } = await revokeShareLink(linkId);
+      if (ok) void loadLinks();
+    } finally {
+      const next = new Set(revoking);
+      next.delete(linkId);
+      revoking = next;
     }
   }
 
   $effect(() => {
     if (open) {
       url = '';
+      links = null;
       void generate();
+      void loadLinks();
     }
   });
+
+  function linkStatus(l: ShareLinkRecord): 'active' | 'revoked' | 'expired' {
+    if (l.revoked) return 'revoked';
+    if (l.expiresAt <= Date.now()) return 'expired';
+    return 'active';
+  }
 </script>
 
 <Dialog {open} {onOpenChange} class="max-w-sm">
@@ -60,4 +89,27 @@
     </div>
   {/if}
   <Button variant="secondary" size="sm" class="mt-3 w-full" loading={loading} onclick={generate}>Regenerate</Button>
+
+  {#if links && links.length > 0}
+    <div class="border-border mt-4 border-t pt-3">
+      <div class="mb-2 text-xs text-muted">Issued links for this job</div>
+      <div class="flex flex-col gap-1.5">
+        {#each links as l (l.id)}
+          {@const status = linkStatus(l)}
+          <div class="border-border flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <Badge variant={status === 'active' ? 'success' : status === 'revoked' ? 'destructive' : 'secondary'}>{status}</Badge>
+                <span class="text-muted">by {l.issuedBy}</span>
+              </div>
+              <div class="text-muted mt-0.5"><RelativeTime ms={l.issuedAt} /> · expires {fmtUntil(l.expiresAt)}</div>
+            </div>
+            {#if status === 'active'}
+              <Button size="sm" variant="destructive" loading={revoking.has(l.id)} onclick={() => revoke(l.id)}>Revoke</Button>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
 </Dialog>

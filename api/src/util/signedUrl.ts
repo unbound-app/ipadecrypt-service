@@ -29,3 +29,12 @@ export function buildSignedFileUrl(jobId: string, ttlMinutes: number): string {
   const token = signDownloadToken(jobId, expiresAtMs);
   return `${config.publicBaseUrl}/v1/jobs/${jobId}/file?token=${token}`;
 }
+
+// Same as buildSignedFileUrl but also hands back the raw token, so a caller that wants to track
+// the link it just issued (e.g. the dashboard's "Share" flow) doesn't have to parse it back out
+// of the URL string.
+export function buildSignedFileUrlWithToken(jobId: string, ttlMinutes: number): { url: string; token: string; expiresAtMs: number } {
+  const expiresAtMs = Date.now() + ttlMinutes * 60_000;
+  const token = signDownloadToken(jobId, expiresAtMs);
+  return { url: `${config.publicBaseUrl}/v1/jobs/${jobId}/file?token=${token}`, token, expiresAtMs };
+}
