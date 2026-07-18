@@ -1,22 +1,30 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { config } from './config.js';
-import { getSessionVersion, PERMISSION_KEYS, type Permissions } from './store/state.js';
+import { hasAnyPermission, parseBits, serializeBits } from './permissions.js';
+import { getSessionVersion } from './store/state.js';
 
 const COOKIE_NAME = 'session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export interface Session {
   sub: string;
-  permissions: Permissions;
+  permissions: bigint;
   exp: number;
   ver: number;
 }
 
-function isPermissions(value: unknown): value is Permissions {
+interface SessionPayload {
+  sub: string;
+  permissions: string;
+  exp: number;
+  ver?: number;
+}
+
+function isSessionPayload(value: unknown): value is SessionPayload {
   if (typeof value !== 'object' || value === null) return false;
   const p = value as Record<string, unknown>;
-  return PERMISSION_KEYS.every((k) => typeof p[k] === 'boolean');
+  return typeof p.sub === 'string' && typeof p.permissions === 'string' && typeof p.exp === 'number';
 }
 
 function safeEqualStr(a: string, b: string): boolean {
@@ -31,7 +39,8 @@ function sign(payload: string): string {
 }
 
 function serialize(session: Omit<Session, 'exp'>, expiresAtMs: number): string {
-  const body = Buffer.from(JSON.stringify({ ...session, exp: expiresAtMs })).toString('base64url');
+  const payload: SessionPayload = { sub: session.sub, permissions: serializeBits(session.permissions), ver: session.ver, exp: expiresAtMs };
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${body}.${sign(body)}`;
 }
 
@@ -41,12 +50,12 @@ function deserialize(cookieValue: string): Session | undefined {
   if (!safeEqualStr(sig, sign(body))) return undefined;
 
   try {
-    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Session;
+    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as unknown;
+    if (!isSessionPayload(parsed)) return undefined;
     if (Date.now() > parsed.exp) return undefined;
-    if (typeof parsed.sub !== 'string' || !isPermissions(parsed.permissions)) return undefined;
     // A version mismatch means "log out everywhere" fired since this cookie was issued.
     if ((parsed.ver ?? 0) !== getSessionVersion(parsed.sub)) return undefined;
-    return { sub: parsed.sub, permissions: parsed.permissions, exp: parsed.exp, ver: parsed.ver ?? 0 };
+    return { sub: parsed.sub, permissions: parseBits(parsed.permissions), exp: parsed.exp, ver: parsed.ver ?? 0 };
   } catch {
     return undefined;
   }
@@ -98,15 +107,15 @@ export function requireSession(req: Request, res: Response, next: NextFunction):
   next();
 }
 
-export function requirePermission(...perms: (keyof Permissions)[]) {
+export function requirePermission(...flags: bigint[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const session = getSession(req);
     if (!session) {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }
-    if (!perms.some((p) => session.permissions[p])) {
-      res.status(403).json({ error: `requires one of these permissions: ${perms.join(', ')}` });
+    if (!hasAnyPermission(session.permissions, flags)) {
+      res.status(403).json({ error: 'you do not have permission to do that' });
       return;
     }
     res.locals.session = session;

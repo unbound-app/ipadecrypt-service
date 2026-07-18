@@ -11,12 +11,13 @@
   import { fmtDurationApprox } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
   import { scrollFade } from '../../lib/scrollFade';
-  import { sessionState } from '../../lib/session.svelte';
+  import { PermissionFlag } from '../../lib/permissions';
+  import { sessionHasPermission } from '../../lib/session.svelte';
   import { confirmDialog } from '../../lib/ui.svelte';
 
   const jobs = $derived(liveState.overview?.activeJobs ?? []);
   const loaded = $derived(liveState.overview !== null);
-  const canCancel = $derived(!!sessionState.permissions?.decrypt);
+  const canCancel = $derived(sessionHasPermission(PermissionFlag.requestDecrypt));
 
   let cancelling = $state<Set<string>>(new Set());
   let prioritizing = $state<Set<string>>(new Set());

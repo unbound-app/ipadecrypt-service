@@ -19,17 +19,21 @@
   import { myDecryptsState } from './lib/decrypts.svelte';
   import { connectLive, disconnectLive, liveState } from './lib/live.svelte';
   import { disablePush, enablePush, getExistingPushSubscription, pushSupported, registerServiceWorker } from './lib/push';
+  import { PermissionFlag } from './lib/permissions';
   import {
     logout,
     logoutEverywhere,
-    PERMISSION_META,
     permissionsSummary,
     pushAccentPref,
     pushDensityPref,
     pushThemePref,
     refreshSession,
+    sessionBits,
+    sessionCanSeeSettings,
+    sessionHasAnyPermission,
+    sessionHasPermission,
+    sessionPermissionLabels,
     sessionState,
-    type Permissions,
   } from './lib/session.svelte';
   import { testPush } from './lib/api';
   import {
@@ -80,11 +84,7 @@
     return name.slice(0, 2).toUpperCase();
   }
 
-  const myGrantedPermissions = $derived(
-    PERMISSION_META.filter((f) => sessionState.permissions?.[f.key] && !f.impliedBy?.some((k) => sessionState.permissions?.[k])).map(
-      (f) => f.label,
-    ),
-  );
+  const myGrantedPermissions = $derived(sessionPermissionLabels());
 
   type NotifPermission = NotificationPermission | 'unsupported';
   let notifPermission = $state<NotifPermission>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
@@ -133,21 +133,24 @@
     }
   }
 
-  const TABS: { id: TabId; label: string; requires?: (keyof Permissions)[] }[] = [
+  const TABS: { id: TabId; label: string; requires?: bigint[] }[] = [
     { id: 'home', label: 'Home' },
-    { id: 'keys', label: 'API Keys', requires: ['decrypt', 'viewApiKeys', 'approveApiKeys', 'revokeApiKeys'] },
-    { id: 'logs', label: 'Logs', requires: ['viewLogs'] },
+    {
+      id: 'keys',
+      label: 'API Keys',
+      requires: [PermissionFlag.requestDecrypt, PermissionFlag.viewApiKeys, PermissionFlag.approveApiKeys, PermissionFlag.revokeApiKeys],
+    },
+    { id: 'logs', label: 'Logs', requires: [PermissionFlag.viewLogs] },
     { id: 'insights', label: 'Insights' },
     { id: 'docs', label: 'Docs' },
-    {
-      id: 'settings',
-      label: 'Settings',
-      requires: ['manageScheduler', 'triggerDispatch', 'manageAppleAuth', 'viewUsers', 'manageUsers'],
-    },
+    { id: 'settings', label: 'Settings' },
   ];
 
   const visibleTabs = $derived(
-    TABS.filter((t) => !t.requires || t.requires.some((p) => sessionState.permissions?.[p])),
+    TABS.filter((t) => {
+      if (t.id === 'settings') return sessionCanSeeSettings();
+      return !t.requires || sessionHasAnyPermission(t.requires);
+    }),
   );
 
   async function doLogout(): Promise<void> {
@@ -353,7 +356,7 @@
               align="end"
             >
               <div class="mb-1 truncate text-sm font-medium">{sessionState.sub}</div>
-              <div class="mb-3 text-xs text-muted">{permissionsSummary(sessionState.permissions)}</div>
+              <div class="mb-3 text-xs text-muted">{permissionsSummary(sessionBits())}</div>
               {#if myGrantedPermissions.length > 0}
                 <div class="mb-3 flex flex-wrap gap-1.5">
                   {#each myGrantedPermissions as label (label)}
@@ -462,7 +465,7 @@
           <div class:hidden={tabState.active !== 'keys'}>
             <Keys />
           </div>
-          {#if sessionState.permissions?.viewLogs}
+          {#if sessionHasPermission(PermissionFlag.viewLogs)}
             <div class:hidden={tabState.active !== 'logs'}>
               <Logs />
             </div>
@@ -473,7 +476,7 @@
           <div class:hidden={tabState.active !== 'docs'}>
             <Docs />
           </div>
-          {#if sessionState.permissions?.manageScheduler || sessionState.permissions?.triggerDispatch || sessionState.permissions?.manageAppleAuth || sessionState.permissions?.viewUsers || sessionState.permissions?.manageUsers}
+          {#if sessionCanSeeSettings()}
             <div class:hidden={tabState.active !== 'settings'}>
               <Settings />
             </div>

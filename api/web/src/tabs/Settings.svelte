@@ -1,23 +1,26 @@
 <script lang="ts">
   import Tabs from '../lib/components/ui/Tabs.svelte';
-  import { sessionState, type Permissions } from '../lib/session.svelte';
+  import { PermissionFlag } from '../lib/permissions';
+  import { sessionHasAnyPermission } from '../lib/session.svelte';
   import { setSettingsSubtab, tabState } from '../lib/ui.svelte';
   import AppleAuthSettings from './settings/AppleAuthSettings.svelte';
   import BackupSettings from './settings/BackupSettings.svelte';
   import DevicesSettings from './settings/DevicesSettings.svelte';
+  import RolesSettings from './settings/RolesSettings.svelte';
   import SchedulerSettings from './settings/SchedulerSettings.svelte';
   import UsersSettings from './settings/UsersSettings.svelte';
 
-  const ALL_SUBTABS: { id: string; label: string; requires: (keyof Permissions)[] }[] = [
-    { id: 'scheduler', label: 'Scheduler', requires: ['manageScheduler', 'triggerDispatch'] },
-    { id: 'devices', label: 'Devices', requires: ['manageScheduler'] },
-    { id: 'users', label: 'Users', requires: ['viewUsers', 'manageUsers'] },
-    { id: 'apple', label: 'Apple Auth', requires: ['manageAppleAuth'] },
-    { id: 'backup', label: 'Backup', requires: ['manageUsers'] },
+  const ALL_SUBTABS: { id: string; label: string; requires: bigint[] }[] = [
+    { id: 'scheduler', label: 'Scheduler', requires: [PermissionFlag.manageWatches, PermissionFlag.manageSchedulerSettings, PermissionFlag.triggerDispatch] },
+    { id: 'devices', label: 'Devices', requires: [PermissionFlag.manageDevices] },
+    { id: 'users', label: 'Users', requires: [PermissionFlag.viewUsers, PermissionFlag.manageUsers] },
+    { id: 'roles', label: 'Roles', requires: [PermissionFlag.viewUsers, PermissionFlag.manageUsers, PermissionFlag.manageRoles] },
+    { id: 'apple', label: 'Apple Auth', requires: [PermissionFlag.manageAppleAuth] },
+    { id: 'backup', label: 'Backup', requires: [PermissionFlag.manageBackup] },
   ];
 
-  function hasAccess(requires: (keyof Permissions)[]): boolean {
-    return requires.some((p) => sessionState.permissions?.[p]);
+  function hasAccess(requires: bigint[]): boolean {
+    return sessionHasAnyPermission(requires);
   }
 
   const visibleSubtabs = $derived(ALL_SUBTABS.filter((t) => hasAccess(t.requires)));
@@ -31,27 +34,32 @@
 
 <Tabs items={visibleSubtabs} value={tabState.settingsSubtab} onValueChange={setSettingsSubtab} class="mb-5" />
 
-{#if hasAccess(['manageScheduler', 'triggerDispatch'])}
+{#if hasAccess([PermissionFlag.manageWatches, PermissionFlag.manageSchedulerSettings, PermissionFlag.triggerDispatch])}
   <div class:hidden={tabState.settingsSubtab !== 'scheduler'}>
     <SchedulerSettings />
   </div>
 {/if}
-{#if hasAccess(['manageScheduler'])}
+{#if hasAccess([PermissionFlag.manageDevices])}
   <div class:hidden={tabState.settingsSubtab !== 'devices'}>
     <DevicesSettings />
   </div>
 {/if}
-{#if hasAccess(['viewUsers', 'manageUsers'])}
+{#if hasAccess([PermissionFlag.viewUsers, PermissionFlag.manageUsers])}
   <div class:hidden={tabState.settingsSubtab !== 'users'}>
     <UsersSettings />
   </div>
 {/if}
-{#if hasAccess(['manageAppleAuth'])}
+{#if hasAccess([PermissionFlag.viewUsers, PermissionFlag.manageUsers, PermissionFlag.manageRoles])}
+  <div class:hidden={tabState.settingsSubtab !== 'roles'}>
+    <RolesSettings />
+  </div>
+{/if}
+{#if hasAccess([PermissionFlag.manageAppleAuth])}
   <div class:hidden={tabState.settingsSubtab !== 'apple'}>
     <AppleAuthSettings />
   </div>
 {/if}
-{#if hasAccess(['manageUsers'])}
+{#if hasAccess([PermissionFlag.manageBackup])}
   <div class:hidden={tabState.settingsSubtab !== 'backup'}>
     <BackupSettings />
   </div>

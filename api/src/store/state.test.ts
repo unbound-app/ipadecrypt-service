@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'bun:test';
+import { PermissionFlag, serializeBits } from '../permissions.js';
 import {
   addAllowedUser,
   createDevice,
+  createRole,
   createWatch,
   deleteDevice,
   deleteWatch,
@@ -21,15 +23,15 @@ import {
   updateDevice,
   updateSettings,
   updateWatch,
-  VIEWER_PERMISSIONS,
 } from './state.js';
 
 describe('exportBackup / importBackup', () => {
   test('round-trips the allowlist through export and import', () => {
-    addAllowedUser('roundtrip-user', { ...VIEWER_PERMISSIONS, decrypt: true }, 'tester');
+    const role = createRole({ name: 'Roundtrip Role', color: '#5865f2', permissions: serializeBits(PermissionFlag.requestDecrypt) }, 'tester');
+    addAllowedUser('roundtrip-user', [role.id], 'tester');
     const backup = exportBackup();
 
-    expect(backup.backupVersion).toBe(2);
+    expect(backup.backupVersion).toBe(3);
     expect(backup.allowedUsers.some((u) => u.username === 'roundtrip-user')).toBe(true);
 
     const result = importBackup(backup, 'tester');

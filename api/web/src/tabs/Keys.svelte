@@ -30,7 +30,8 @@
   import { statusToBadgeVariant } from '../lib/components/ui/variants';
   import { debounce, fmtUntil } from '../lib/format';
   import { scrollFade } from '../lib/scrollFade';
-  import { sessionState } from '../lib/session.svelte';
+  import { PermissionFlag } from '../lib/permissions';
+  import { sessionHasPermission, sessionState } from '../lib/session.svelte';
   import { confirmDialog, keyUsageJumpState, showToast } from '../lib/ui.svelte';
 
   const PAGE_SIZE = 25;
@@ -101,9 +102,9 @@
     { value: '90', label: 'In 90 days' },
   ];
 
-  const canApprove = $derived(!!sessionState.permissions?.approveApiKeys);
-  const canViewAll = $derived(!!sessionState.permissions?.viewApiKeys);
-  const canRevokeAny = $derived(!!sessionState.permissions?.revokeApiKeys);
+  const canApprove = $derived(sessionHasPermission(PermissionFlag.approveApiKeys));
+  const canViewAll = $derived(sessionHasPermission(PermissionFlag.viewApiKeys));
+  const canRevokeAny = $derived(sessionHasPermission(PermissionFlag.revokeApiKeys));
 
   async function loadAllKeysPage(): Promise<void> {
     const data = await fetchAllKeys(0, PAGE_SIZE, allSearch);

@@ -28,7 +28,8 @@
   import Switch from '../../lib/components/ui/Switch.svelte';
   import { debounce } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
-  import { sessionState } from '../../lib/session.svelte';
+  import { PermissionFlag } from '../../lib/permissions';
+  import { sessionHasPermission } from '../../lib/session.svelte';
   import { confirmDialog, showToast } from '../../lib/ui.svelte';
 
   const FORMAT_OPTIONS = [
@@ -122,8 +123,9 @@
   const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
   const WEBHOOK_URL_RE = /^https?:\/\/.+/;
 
-  const canManageScheduler = $derived(!!sessionState.permissions?.manageScheduler);
-  const canTriggerDispatch = $derived(!!sessionState.permissions?.triggerDispatch);
+  const canManageWatches = $derived(sessionHasPermission(PermissionFlag.manageWatches));
+  const canManageSchedulerSettings = $derived(sessionHasPermission(PermissionFlag.manageSchedulerSettings));
+  const canTriggerDispatch = $derived(sessionHasPermission(PermissionFlag.triggerDispatch));
 
   // --- Watches ---------------------------------------------------------------------------
 
@@ -341,7 +343,7 @@
 <div class="flex flex-col gap-4">
   <Card title="Watches">
     {#snippet headerExtra()}
-      {#if canManageScheduler}
+      {#if canManageWatches}
         <Button size="sm" onclick={openAddWatch}>
           <Plus class="h-3.5 w-3.5" />
           Add watch
@@ -361,7 +363,7 @@
                 <span class="text-xs text-muted">next run <RelativeTime ms={w.nextRunAt} /></span>
               {/if}
               <div class="ml-auto flex flex-wrap gap-1.5">
-                {#if canManageScheduler}
+                {#if canManageWatches}
                   <Switch checked={w.enabled} onCheckedChange={() => void toggleWatchEnabled(w)} aria-label="Enable {w.name || w.bundleId}" />
                   <Button size="sm" variant="secondary" onclick={() => openEditWatch(w)}>Edit</Button>
                   <Button size="sm" variant="destructive" loading={deletingWatch.has(w.id)} onclick={() => removeWatch(w.id)}>Remove</Button>
@@ -410,7 +412,7 @@
 
   <Card title="Notifications & alerts">
     {#snippet headerExtra()}
-      <Button size="sm" variant="secondary" onclick={openSettingsDialog}>{canManageScheduler ? 'Edit' : 'View'}</Button>
+      <Button size="sm" variant="secondary" onclick={openSettingsDialog}>{canManageSchedulerSettings ? 'Edit' : 'View'}</Button>
     {/snippet}
     <dl class="flex flex-col gap-2 text-sm">
       <div class="flex items-center justify-between gap-3">
@@ -463,7 +465,7 @@
   {/if}
 </div>
 
-{#if canManageScheduler}
+{#if canManageWatches}
   <Dialog open={watchDialogOpen} onOpenChange={(v) => (watchDialogOpen = v)} class="max-w-md">
     <div class="mb-3 text-sm font-medium">{editingWatchId ? 'Edit watch' : 'Add watch'}</div>
     <div class="max-h-[60vh] overflow-y-auto pr-0.5">
@@ -506,7 +508,7 @@
 <Dialog open={settingsDialogOpen} onOpenChange={(v) => (settingsDialogOpen = v)} class="max-w-md">
   <div class="mb-3 text-sm font-medium">Notifications & alerts</div>
   <div class="max-h-[70vh] overflow-y-auto pr-0.5">
-    {#if !canManageScheduler}
+    {#if !canManageSchedulerSettings}
       <div class="border-border bg-panel-muted mb-3.5 rounded-md border p-2.5 text-xs text-muted">
         You can operate the scheduler but not change its configuration - fields below are read-only.
       </div>
@@ -514,7 +516,7 @@
 
     <label for="s-notifyWebhookUrl" class="mb-1 block text-xs text-muted">Webhook URL (Discord/Slack-compatible, optional)</label>
     <div class="flex gap-2">
-      <Input id="s-notifyWebhookUrl" bind:value={form.notifyWebhookUrl} disabled={!canManageScheduler} />
+      <Input id="s-notifyWebhookUrl" bind:value={form.notifyWebhookUrl} disabled={!canManageSchedulerSettings} />
       {#if canTriggerDispatch}
         <Button variant="secondary" loading={testingWebhook} onclick={runTestWebhook}>Test</Button>
       {/if}
@@ -532,7 +534,7 @@
       items={FORMAT_OPTIONS}
       value={form.notifyFormat}
       onValueChange={(v) => (form = { ...form, notifyFormat: v as SchedulerSettings['notifyFormat'] })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
 
@@ -546,7 +548,7 @@
           </div>
           <Switch
             checked={form[event.key] as boolean}
-            disabled={!canManageScheduler}
+            disabled={!canManageSchedulerSettings}
             onCheckedChange={(checked) => (form = { ...form, [event.key]: checked })}
             aria-label={event.label}
           />
@@ -560,7 +562,7 @@
       items={RETRY_OPTIONS}
       value={String(form.schedulerRetryCount)}
       onValueChange={(v) => (form = { ...form, schedulerRetryCount: Number(v) })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
     <div class="mt-1 text-xs text-muted">Retries back off: 30s, 60s, 120s… Applies to every watch.</div>
@@ -571,7 +573,7 @@
       items={RETENTION_OPTIONS}
       value={String(form.jobHistoryRetentionDays)}
       onValueChange={(v) => (form = { ...form, jobHistoryRetentionDays: Number(v) })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
 
@@ -581,7 +583,7 @@
       items={OFFLINE_ALERT_OPTIONS}
       value={String(form.deviceOfflineAlertMinutes)}
       onValueChange={(v) => (form = { ...form, deviceOfflineAlertMinutes: Number(v) })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
 
@@ -591,7 +593,7 @@
       items={BATTERY_HOT_ALERT_OPTIONS}
       value={String(form.batteryHotAlertC)}
       onValueChange={(v) => (form = { ...form, batteryHotAlertC: Number(v) })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
 
@@ -601,7 +603,7 @@
       items={BATTERY_LOW_ALERT_OPTIONS}
       value={String(form.batteryLowAlertPercent)}
       onValueChange={(v) => (form = { ...form, batteryLowAlertPercent: Number(v) })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
 
@@ -611,7 +613,7 @@
       items={STORAGE_ALERT_OPTIONS}
       value={String(form.diskFullAlertPercent)}
       onValueChange={(v) => (form = { ...form, diskFullAlertPercent: Number(v) })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
 
@@ -621,7 +623,7 @@
       items={STORAGE_ALERT_OPTIONS}
       value={String(form.deviceStorageAlertPercent)}
       onValueChange={(v) => (form = { ...form, deviceStorageAlertPercent: Number(v) })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
 
@@ -631,12 +633,12 @@
       items={TESTFLIGHT_BRIDGE_ALERT_OPTIONS}
       value={String(form.testFlightBridgeAlertMinutes)}
       onValueChange={(v) => (form = { ...form, testFlightBridgeAlertMinutes: Number(v) })}
-      disabled={!canManageScheduler}
+      disabled={!canManageSchedulerSettings}
       class="w-full"
     />
   </div>
 
-  {#if canManageScheduler}
+  {#if canManageSchedulerSettings}
     <Button class="mt-3.5 w-full" loading={saving} onclick={save}>Save</Button>
   {/if}
 </Dialog>

@@ -1,151 +1,66 @@
+import { hasPermission, parseBits, PermissionFlag, permissionLabels } from './permissions';
 import { accentState, densityState, setAccent, setDensity, setTheme, themePrefState, type Density, type ThemePref } from './ui.svelte';
 
-export interface Permissions {
-  decrypt: boolean;
-  viewApiKeys: boolean;
-  approveApiKeys: boolean;
-  revokeApiKeys: boolean;
-  manageScheduler: boolean;
-  triggerDispatch: boolean;
-  manageAppleAuth: boolean;
-  viewLogs: boolean;
-  viewUsers: boolean;
-  manageUsers: boolean;
+export interface Role {
+  id: string;
+  name: string;
+  color: string;
+  permissions: string;
+  position: number;
+  isDefault: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
-export const PERMISSION_KEYS: (keyof Permissions)[] = [
-  'decrypt',
-  'viewApiKeys',
-  'approveApiKeys',
-  'revokeApiKeys',
-  'manageScheduler',
-  'triggerDispatch',
-  'manageAppleAuth',
-  'viewLogs',
-  'viewUsers',
-  'manageUsers',
-];
-
-export const VIEWER_PERMISSIONS: Permissions = {
-  decrypt: false,
-  viewApiKeys: false,
-  approveApiKeys: false,
-  revokeApiKeys: false,
-  manageScheduler: false,
-  triggerDispatch: false,
-  manageAppleAuth: false,
-  viewLogs: false,
-  viewUsers: false,
-  manageUsers: false,
-};
-
-export const ADMIN_PERMISSIONS: Permissions = {
-  decrypt: true,
-  viewApiKeys: true,
-  approveApiKeys: true,
-  revokeApiKeys: true,
-  manageScheduler: true,
-  triggerDispatch: true,
-  manageAppleAuth: true,
-  viewLogs: true,
-  viewUsers: true,
-  manageUsers: true,
-};
-
-// Some capabilities imply others - keep that consistent no matter how permissions were set.
-export function normalizePermissions(p: Permissions): Permissions {
-  return {
-    ...p,
-    viewApiKeys: p.viewApiKeys || p.approveApiKeys || p.revokeApiKeys,
-    viewUsers: p.viewUsers || p.manageUsers,
-  };
-}
-
-export type PermissionGroup = 'Decryption' | 'API Keys' | 'Scheduler & Dispatch' | 'Apple Authentication' | 'Logs' | 'Users';
-
-export interface PermissionMeta {
-  key: keyof Permissions;
-  label: string;
-  description: string;
-  group: PermissionGroup;
-  impliedBy?: (keyof Permissions)[];
-}
-
-// Single source of truth for permission copy/grouping - used by the permission editor,
-// the allowlist table's badges, and the "your permissions" breakdown.
-export const PERMISSION_META: PermissionMeta[] = [
-  { key: 'decrypt', label: 'Decrypt apps', description: 'Queue decrypts and request their own API keys', group: 'Decryption' },
-  {
-    key: 'viewApiKeys',
-    label: 'View all keys',
-    description: 'See every key across every user, not just their own',
-    group: 'API Keys',
-    impliedBy: ['approveApiKeys', 'revokeApiKeys'],
-  },
-  {
-    key: 'approveApiKeys',
-    label: 'Approve requests',
-    description: 'Approve or deny pending key requests; their own requests auto-approve',
-    group: 'API Keys',
-  },
-  {
-    key: 'revokeApiKeys',
-    label: "Revoke anyone's key",
-    description: "Revoke or bulk-revoke any user's key, not just their own",
-    group: 'API Keys',
-  },
-  {
-    key: 'manageScheduler',
-    label: 'Manage scheduler',
-    description: 'Edit watch/dispatch settings and the poll cron',
-    group: 'Scheduler & Dispatch',
-  },
-  {
-    key: 'triggerDispatch',
-    label: 'Trigger dispatch',
-    description: 'Run scheduler checks/previews, test webhook, dismiss auth alerts',
-    group: 'Scheduler & Dispatch',
-  },
-  {
-    key: 'manageAppleAuth',
-    label: 'Apple ID re-authentication',
-    description: 'Runs Apple sign-in with real credentials',
-    group: 'Apple Authentication',
-  },
-  { key: 'viewLogs', label: 'View logs', description: 'See the live scheduler/job log feed', group: 'Logs' },
-  {
-    key: 'viewUsers',
-    label: 'View allowlist',
-    description: 'See who has access and what they can do',
-    group: 'Users',
-    impliedBy: ['manageUsers'],
-  },
-  {
-    key: 'manageUsers',
-    label: 'Manage allowlist',
-    description: "Add or remove people, change anyone's permissions",
-    group: 'Users',
-  },
-];
-
-export function permissionsSummary(p?: Permissions): string {
-  if (!p) return '';
-  const values = Object.values(p);
-  if (values.every(Boolean)) return 'admin';
-  if (values.every((v) => !v)) return 'viewer';
+export function permissionsSummary(bits: bigint): string {
+  if (hasPermission(bits, PermissionFlag.administrator)) return 'administrator';
+  if (bits === 0n) return 'viewer';
   return 'custom';
 }
 
 export interface SessionInfo {
   loggedIn: boolean;
   sub?: string;
-  permissions?: Permissions;
+  // Decimal-string-serialized bigint bitfield, as returned by the API - parse with sessionBits().
+  permissions?: string;
   expiresAt?: number;
   githubOauthEnabled: boolean;
   publicBaseUrl?: string;
 }
 
 export const sessionState = $state<SessionInfo>({ loggedIn: false, githubOauthEnabled: false });
+
+export function sessionBits(): bigint {
+  return parseBits(sessionState.permissions);
+}
+
+export function sessionHasPermission(flag: bigint): boolean {
+  return hasPermission(sessionBits(), flag);
+}
+
+export function sessionHasAnyPermission(flags: bigint[]): boolean {
+  return flags.some((flag) => sessionHasPermission(flag));
+}
+
+export function sessionPermissionLabels(): string[] {
+  return permissionLabels(sessionBits());
+}
+
+// Any permission that unlocks something under the Settings tab - shared by the tab bar, the
+// Settings subtab list, and the command palette so "can they see Settings at all" is defined once.
+export function sessionCanSeeSettings(): boolean {
+  return sessionHasAnyPermission([
+    PermissionFlag.manageWatches,
+    PermissionFlag.manageDevices,
+    PermissionFlag.manageSchedulerSettings,
+    PermissionFlag.triggerDispatch,
+    PermissionFlag.manageAppleAuth,
+    PermissionFlag.viewUsers,
+    PermissionFlag.manageUsers,
+    PermissionFlag.manageRoles,
+    PermissionFlag.manageBackup,
+  ]);
+}
 
 export async function refreshSession(): Promise<SessionInfo> {
   const res = await fetch('/v1/auth/session');

@@ -2,8 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { config, githubOauthEnabled } from '../config.js';
 import { log } from '../logger.js';
+import { PermissionFlag, serializeBits } from '../permissions.js';
 import { checkRootPassword, clearSessionCookie, getSession, requireSession, setSessionCookie } from '../session.js';
-import { ADMIN_PERMISSIONS, bumpSessionVersion, getUserPermissions } from '../store/state.js';
+import { bumpSessionVersion, getUserEffectivePermissions } from '../store/state.js';
 
 export const authRouter = Router();
 
@@ -51,7 +52,7 @@ authRouter.get('/v1/auth/session', (req, res) => {
   res.json({
     loggedIn: !!session,
     sub: session?.sub,
-    permissions: session?.permissions,
+    permissions: session ? serializeBits(session.permissions) : undefined,
     expiresAt: session?.exp,
     githubOauthEnabled,
     publicBaseUrl: config.publicBaseUrl,
@@ -67,8 +68,8 @@ authRouter.post('/v1/auth/refresh', requireSession, (req, res) => {
 
   // Re-check current permissions rather than carrying the old cookie's forward -
   // otherwise a revoked/downgraded user keeps stale access for as long as they keep refreshing.
-  const permissions = session.sub === 'root' ? ADMIN_PERMISSIONS : getUserPermissions(session.sub);
-  if (!permissions) {
+  const permissions = session.sub === 'root' ? PermissionFlag.administrator : getUserEffectivePermissions(session.sub);
+  if (permissions === undefined) {
     clearSessionCookie(res);
     res.status(401).json({ error: 'no longer allowed' });
     return;
@@ -96,7 +97,7 @@ authRouter.post('/v1/auth/login', (req, res) => {
   }
 
   loginAttempts.delete(key);
-  setSessionCookie(res, { sub: 'root', permissions: ADMIN_PERMISSIONS });
+  setSessionCookie(res, { sub: 'root', permissions: PermissionFlag.administrator });
   res.json({ ok: true });
 });
 
@@ -187,15 +188,15 @@ authRouter.get('/v1/auth/github/callback', async (req, res) => {
     if (!userRes.ok) throw new Error(`GET /user failed: HTTP ${userRes.status}`);
     const user = (await userRes.json()) as { login: string };
 
-    const permissions = getUserPermissions(user.login);
-    if (!permissions) {
+    const permissions = getUserEffectivePermissions(user.login);
+    if (permissions === undefined) {
       log.warn('github oauth login rejected - not on allowlist', { login: user.login });
       res.redirect(`/?auth_error=not_allowed&user=${encodeURIComponent(user.login)}`);
       return;
     }
 
     setSessionCookie(res, { sub: user.login.toLowerCase(), permissions });
-    log.info('github oauth login succeeded', { login: user.login, permissions });
+    log.info('github oauth login succeeded', { login: user.login, permissions: serializeBits(permissions) });
     res.redirect('/');
   } catch (err) {
     log.error('github oauth callback failed', { error: String(err) });

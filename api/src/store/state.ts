@@ -6,138 +6,55 @@ import { config } from '../config.js';
 import { emitHistoryAdded } from '../events.js';
 import type { TestFlightJobSource } from '../jobs/types.js';
 import { categorizeFailure } from '../util/failureCategory.js';
+import { combineBits, hasPermission, parseBits, PermissionFlag, serializeBits } from '../permissions.js';
 
 export type ApiKeyStatus = 'pending' | 'approved' | 'denied';
 
-export interface Permissions {
-  decrypt: boolean;
-  viewApiKeys: boolean;
-  approveApiKeys: boolean;
-  revokeApiKeys: boolean;
-  manageScheduler: boolean;
-  triggerDispatch: boolean;
-  manageAppleAuth: boolean;
-  viewLogs: boolean;
-  viewUsers: boolean;
-  manageUsers: boolean;
+export interface Role {
+  id: string;
+  name: string;
+  color: string;
+  // Decimal-string-serialized bigint bitfield - bigint isn't JSON-safe, so it's parsed with
+  // parseBits() wherever it's read and serialized with serializeBits() wherever it's written.
+  permissions: string;
+  position: number;
+  // Exactly one role has this set - it's the "@everyone" equivalent, implicitly held by every
+  // allowed user without appearing in their roleIds, and it can't be deleted or unassigned.
+  isDefault: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
-export const PERMISSION_KEYS: (keyof Permissions)[] = [
-  'decrypt',
-  'viewApiKeys',
-  'approveApiKeys',
-  'revokeApiKeys',
-  'manageScheduler',
-  'triggerDispatch',
-  'manageAppleAuth',
-  'viewLogs',
-  'viewUsers',
-  'manageUsers',
-];
+export const DEFAULT_ROLE_ID = 'everyone';
 
-export const VIEWER_PERMISSIONS: Permissions = {
-  decrypt: false,
-  viewApiKeys: false,
-  approveApiKeys: false,
-  revokeApiKeys: false,
-  manageScheduler: false,
-  triggerDispatch: false,
-  manageAppleAuth: false,
-  viewLogs: false,
-  viewUsers: false,
-  manageUsers: false,
-};
+const DEFAULT_ROLE_COLOR = '#99aab5';
+export const ROLE_COLOR_PRESETS = ['#99aab5', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#f1c40f', '#e67e22', '#e74c3c', '#5865f2', '#2ecc71'];
 
-export const ADMIN_PERMISSIONS: Permissions = {
-  decrypt: true,
-  viewApiKeys: true,
-  approveApiKeys: true,
-  revokeApiKeys: true,
-  manageScheduler: true,
-  triggerDispatch: true,
-  manageAppleAuth: true,
-  viewLogs: true,
-  viewUsers: true,
-  manageUsers: true,
-};
-
-// Some capabilities imply others - keep that consistent no matter how permissions were set.
-export function normalizePermissions(p: Permissions): Permissions {
+function seedDefaultRole(now: number): Role {
+  // "Every added user starts with view-only access to non-sensitive stuff" - the live log feed
+  // is operational noise, not a secret, so it's the one thing @everyone can see out of the box.
   return {
-    ...p,
-    viewApiKeys: p.viewApiKeys || p.approveApiKeys || p.revokeApiKeys,
-    viewUsers: p.viewUsers || p.manageUsers,
+    id: DEFAULT_ROLE_ID,
+    name: '@everyone',
+    color: DEFAULT_ROLE_COLOR,
+    permissions: serializeBits(PermissionFlag.viewLogs),
+    position: 0,
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
-// Legacy migrations (v1/v2 role strings, v3's 4 flags) always grant viewLogs - the Logs tab
-// was unconditionally visible to any authenticated user before it became its own permission.
-function legacyRoleToPermissions(role: string): Permissions {
-  switch (role) {
-    case 'admin':
-      return { ...ADMIN_PERMISSIONS };
-    case 'operator':
-      return { ...VIEWER_PERMISSIONS, decrypt: true, viewApiKeys: true, approveApiKeys: true, revokeApiKeys: true, viewLogs: true };
-    case 'member':
-      return { ...VIEWER_PERMISSIONS, decrypt: true, viewLogs: true };
-    default:
-      return { ...VIEWER_PERMISSIONS, viewLogs: true };
-  }
-}
-
-interface LegacyV3Permissions {
-  decrypt: boolean;
-  manageKeys: boolean;
-  manageSettings: boolean;
-  manageUsers: boolean;
-}
-
-function migratePermissionsV3(old: LegacyV3Permissions): Permissions {
-  return {
-    decrypt: old.decrypt,
-    viewApiKeys: old.manageKeys,
-    approveApiKeys: old.manageKeys,
-    revokeApiKeys: old.manageKeys,
-    manageScheduler: old.manageSettings,
-    triggerDispatch: old.manageSettings,
-    manageAppleAuth: old.manageSettings && old.manageUsers,
-    viewLogs: true,
-    viewUsers: old.manageUsers,
-    manageUsers: old.manageUsers,
-  };
-}
-
-interface LegacyV4Permissions {
-  decrypt: boolean;
-  viewApiKeys: boolean;
-  approveApiKeys: boolean;
-  revokeApiKeys: boolean;
-  manageScheduler: boolean;
-  manageAppleAuth: boolean;
-  viewUsers: boolean;
-  manageUsers: boolean;
-}
-
-// v4 -> v5 split manageScheduler into manageScheduler (config) + triggerDispatch (operate),
-// and added viewLogs as its own permission - preserve exactly what v4 already granted.
-function migratePermissionsV4(old: LegacyV4Permissions): Permissions {
-  return {
-    decrypt: old.decrypt,
-    viewApiKeys: old.viewApiKeys,
-    approveApiKeys: old.approveApiKeys,
-    revokeApiKeys: old.revokeApiKeys,
-    manageScheduler: old.manageScheduler,
-    triggerDispatch: old.manageScheduler,
-    manageAppleAuth: old.manageAppleAuth,
-    viewLogs: true,
-    viewUsers: old.viewUsers,
-    manageUsers: old.manageUsers,
-  };
+export function effectiveBitsForRoleIds(roleIds: string[], roles: Role[]): bigint {
+  const byId = new Map(roles.map((r) => [r.id, r]));
+  const held = roleIds.map((id) => byId.get(id)).filter((r): r is Role => !!r);
+  const defaultRole = roles.find((r) => r.isDefault);
+  return combineBits([...(defaultRole ? [parseBits(defaultRole.permissions)] : []), ...held.map((r) => parseBits(r.permissions))]);
 }
 
 export interface AllowedUser {
   username: string;
-  permissions: Permissions;
+  roleIds: string[];
   addedAt: number;
   sessionVersion?: number;
   lastActiveAt?: number;
@@ -281,7 +198,10 @@ export type AuditAction =
   | 'watch.remove'
   | 'device.add'
   | 'device.update'
-  | 'device.remove';
+  | 'device.remove'
+  | 'role.add'
+  | 'role.update'
+  | 'role.remove';
 
 export interface AuditLogEntry {
   id: string;
@@ -344,9 +264,10 @@ export interface ShareLinkRecord {
 }
 
 interface PersistedState {
-  version: 6;
+  version: 7;
   apiKeys: ApiKeyRecord[];
   allowedUsers: AllowedUser[];
+  roles: Role[];
   settings: Partial<SchedulerSettings>;
   watches: AppWatch[];
   devices: DeviceRecord[];
@@ -377,9 +298,10 @@ const statePath = path.join(config.stateDir, 'state.json');
 
 function defaultState(): PersistedState {
   return {
-    version: 6,
+    version: 7,
     apiKeys: [],
     allowedUsers: [],
+    roles: [seedDefaultRole(Date.now())],
     settings: {},
     watches: [],
     devices: [],
@@ -398,13 +320,164 @@ function defaultState(): PersistedState {
   };
 }
 
-// Every legacy branch below produces a v5-shaped object (as it always has); this final hop
-// carries any of them the rest of the way to v6 so the multi-watch/multi-device/webhook-log
-// additions only need to be handled in one place.
-function migrateV5ToV6(v5: Record<string, unknown>): PersistedState {
+// Shape of the boolean-flag Permissions object every version through v6 stored per user, kept
+// only so the migration chain below has something concrete to translate into role bitfields.
+interface LegacyPermissions {
+  decrypt: boolean;
+  viewApiKeys: boolean;
+  approveApiKeys: boolean;
+  revokeApiKeys: boolean;
+  manageScheduler: boolean;
+  triggerDispatch: boolean;
+  manageAppleAuth: boolean;
+  viewLogs: boolean;
+  viewUsers: boolean;
+  manageUsers: boolean;
+}
+
+const LEGACY_VIEWER_PERMISSIONS: LegacyPermissions = {
+  decrypt: false,
+  viewApiKeys: false,
+  approveApiKeys: false,
+  revokeApiKeys: false,
+  manageScheduler: false,
+  triggerDispatch: false,
+  manageAppleAuth: false,
+  viewLogs: false,
+  viewUsers: false,
+  manageUsers: false,
+};
+
+const LEGACY_ADMIN_PERMISSIONS: LegacyPermissions = {
+  decrypt: true,
+  viewApiKeys: true,
+  approveApiKeys: true,
+  revokeApiKeys: true,
+  manageScheduler: true,
+  triggerDispatch: true,
+  manageAppleAuth: true,
+  viewLogs: true,
+  viewUsers: true,
+  manageUsers: true,
+};
+
+// Legacy migrations (v1/v2 role strings, v3's 4 flags) always grant viewLogs - the Logs tab
+// was unconditionally visible to any authenticated user before it became its own permission.
+function legacyRoleToPermissions(role: string): LegacyPermissions {
+  switch (role) {
+    case 'admin':
+      return { ...LEGACY_ADMIN_PERMISSIONS };
+    case 'operator':
+      return { ...LEGACY_VIEWER_PERMISSIONS, decrypt: true, viewApiKeys: true, approveApiKeys: true, revokeApiKeys: true, viewLogs: true };
+    case 'member':
+      return { ...LEGACY_VIEWER_PERMISSIONS, decrypt: true, viewLogs: true };
+    default:
+      return { ...LEGACY_VIEWER_PERMISSIONS, viewLogs: true };
+  }
+}
+
+interface LegacyV3Permissions {
+  decrypt: boolean;
+  manageKeys: boolean;
+  manageSettings: boolean;
+  manageUsers: boolean;
+}
+
+function migratePermissionsV3(old: LegacyV3Permissions): LegacyPermissions {
+  return {
+    decrypt: old.decrypt,
+    viewApiKeys: old.manageKeys,
+    approveApiKeys: old.manageKeys,
+    revokeApiKeys: old.manageKeys,
+    manageScheduler: old.manageSettings,
+    triggerDispatch: old.manageSettings,
+    manageAppleAuth: old.manageSettings && old.manageUsers,
+    viewLogs: true,
+    viewUsers: old.manageUsers,
+    manageUsers: old.manageUsers,
+  };
+}
+
+interface LegacyV4Permissions {
+  decrypt: boolean;
+  viewApiKeys: boolean;
+  approveApiKeys: boolean;
+  revokeApiKeys: boolean;
+  manageScheduler: boolean;
+  manageAppleAuth: boolean;
+  viewUsers: boolean;
+  manageUsers: boolean;
+}
+
+// v4 -> v5 split manageScheduler into manageScheduler (config) + triggerDispatch (operate),
+// and added viewLogs as its own permission - preserve exactly what v4 already granted.
+function migratePermissionsV4(old: LegacyV4Permissions): LegacyPermissions {
+  return {
+    decrypt: old.decrypt,
+    viewApiKeys: old.viewApiKeys,
+    approveApiKeys: old.approveApiKeys,
+    revokeApiKeys: old.revokeApiKeys,
+    manageScheduler: old.manageScheduler,
+    triggerDispatch: old.manageScheduler,
+    manageAppleAuth: old.manageAppleAuth,
+    viewLogs: true,
+    viewUsers: old.viewUsers,
+    manageUsers: old.manageUsers,
+  };
+}
+
+// Translates a v6-and-earlier boolean flag set into the new bitfield, preserving the exact same
+// effective grants a user had before - a flag that used to imply another (approveApiKeys implying
+// the ability to touch key limits, manageUsers implying role/backup management) carries both bits
+// across so nobody's access silently narrows just because the data model changed.
+function legacyBooleansToBits(p: LegacyPermissions): bigint {
+  if (Object.values(p).every(Boolean)) return PermissionFlag.administrator;
+  let bits = 0n;
+  if (p.decrypt) bits |= PermissionFlag.requestDecrypt;
+  if (p.viewApiKeys) bits |= PermissionFlag.viewApiKeys;
+  if (p.approveApiKeys) bits |= PermissionFlag.approveApiKeys | PermissionFlag.manageApiKeyLimits;
+  if (p.revokeApiKeys) bits |= PermissionFlag.revokeApiKeys;
+  if (p.manageScheduler) bits |= PermissionFlag.manageWatches | PermissionFlag.manageDevices | PermissionFlag.manageSchedulerSettings;
+  if (p.triggerDispatch) bits |= PermissionFlag.triggerDispatch;
+  if (p.manageAppleAuth) bits |= PermissionFlag.manageAppleAuth;
+  if (p.viewLogs) bits |= PermissionFlag.viewLogs;
+  if (p.viewUsers) bits |= PermissionFlag.viewUsers;
+  if (p.manageUsers) bits |= PermissionFlag.manageUsers | PermissionFlag.manageRoles | PermissionFlag.manageBackup;
+  return bits;
+}
+
+const PRESET_ROLE_BITS: Record<string, bigint> = {
+  Member: PermissionFlag.requestDecrypt,
+  'Key Manager': combineBits([
+    PermissionFlag.requestDecrypt,
+    PermissionFlag.viewApiKeys,
+    PermissionFlag.approveApiKeys,
+    PermissionFlag.manageApiKeyLimits,
+    PermissionFlag.revokeApiKeys,
+  ]),
+  'Ops Admin': combineBits([
+    PermissionFlag.requestDecrypt,
+    PermissionFlag.manageWatches,
+    PermissionFlag.manageDevices,
+    PermissionFlag.manageSchedulerSettings,
+    PermissionFlag.triggerDispatch,
+    PermissionFlag.manageAppleAuth,
+  ]),
+};
+
+function presetNameForBits(bits: bigint): string | undefined {
+  if (bits === PermissionFlag.administrator) return 'Admin';
+  return Object.entries(PRESET_ROLE_BITS).find(([, presetBits]) => presetBits === bits)?.[0];
+}
+
+// Every legacy branch below produces a v5-shaped object (as it always has); this hop carries any
+// of them the rest of the way to v6 so the multi-watch/multi-device/webhook-log additions only
+// need to be handled in one place. It's an intermediate shape, not the final persisted one - its
+// `allowedUsers` still carry the old boolean Permissions object, which migrateV6ToV7 below
+// translates into role bitfields.
+function migrateV5ToV6(v5: Record<string, unknown>): Record<string, unknown> {
   const legacyHealthHistory = v5.deviceHealthHistory;
   return {
-    ...defaultState(),
     ...v5,
     version: 6,
     watches: Array.isArray(v5.watches) ? (v5.watches as AppWatch[]) : [],
@@ -415,68 +488,119 @@ function migrateV5ToV6(v5: Record<string, unknown>): PersistedState {
       : typeof legacyHealthHistory === 'object' && legacyHealthHistory !== null
         ? (legacyHealthHistory as Record<string, DeviceHealthCheck[]>)
         : {},
-  } as PersistedState;
+  };
+}
+
+// Converts every allowedUsers[].permissions boolean flag set into a role assignment. Users with
+// an identical old flag set share a single generated role (named after the closest built-in
+// preset when one matches exactly) instead of getting one bespoke role each.
+function migrateV6ToV7(v6: Record<string, unknown>): PersistedState {
+  const now = Date.now();
+  const roles: Role[] = [seedDefaultRole(now)];
+  const roleIdByBits = new Map<string, string>();
+  let position = 1;
+
+  function roleIdForBits(bits: bigint): string[] {
+    if (bits === 0n) return [];
+    const key = bits.toString();
+    const existing = roleIdByBits.get(key);
+    if (existing) return [existing];
+    const role: Role = {
+      id: randomUUID(),
+      name: presetNameForBits(bits) ?? `Migrated role ${roleIdByBits.size + 1}`,
+      color: ROLE_COLOR_PRESETS[position % ROLE_COLOR_PRESETS.length],
+      permissions: key,
+      position: position++,
+      isDefault: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    roles.push(role);
+    roleIdByBits.set(key, role.id);
+    return [role.id];
+  }
+
+  const legacyUsers = Array.isArray(v6.allowedUsers) ? (v6.allowedUsers as Record<string, unknown>[]) : [];
+  const allowedUsers: AllowedUser[] = legacyUsers.map((u) => ({
+    username: u.username as string,
+    roleIds: roleIdForBits(legacyBooleansToBits((u.permissions ?? LEGACY_VIEWER_PERMISSIONS) as LegacyPermissions)),
+    addedAt: u.addedAt as number,
+    sessionVersion: u.sessionVersion as number | undefined,
+    lastActiveAt: u.lastActiveAt as number | undefined,
+    priority: u.priority as number | undefined,
+  }));
+
+  return { ...defaultState(), ...v6, version: 7, roles, allowedUsers } as PersistedState;
 }
 
 function migrate(raw: Record<string, unknown>): PersistedState {
-  if (raw.version === 6) return { ...defaultState(), ...raw } as PersistedState;
-  if (raw.version === 5) return migrateV5ToV6(raw);
+  if (raw.version === 7) return { ...defaultState(), ...raw } as PersistedState;
+  if (raw.version === 6) return migrateV6ToV7(raw);
+  if (raw.version === 5) return migrateV6ToV7(migrateV5ToV6(raw));
 
   if (raw.version === 4) {
     const v4Users = Array.isArray(raw.allowedUsers) ? (raw.allowedUsers as Record<string, unknown>[]) : [];
-    return migrateV5ToV6({
-      ...raw,
-      version: 5,
-      allowedUsers: v4Users.map((u) => ({
-        username: u.username as string,
-        permissions: migratePermissionsV4(u.permissions as LegacyV4Permissions),
-        addedAt: u.addedAt as number,
-      })),
-    });
+    return migrateV6ToV7(
+      migrateV5ToV6({
+        ...raw,
+        version: 5,
+        allowedUsers: v4Users.map((u) => ({
+          username: u.username as string,
+          permissions: migratePermissionsV4(u.permissions as LegacyV4Permissions),
+          addedAt: u.addedAt as number,
+        })),
+      }),
+    );
   }
 
   if (raw.version === 3) {
     const v3Users = Array.isArray(raw.allowedUsers) ? (raw.allowedUsers as Record<string, unknown>[]) : [];
-    return migrateV5ToV6({
-      ...raw,
-      version: 5,
-      allowedUsers: v3Users.map((u) => ({
-        username: u.username as string,
-        permissions: migratePermissionsV3(u.permissions as LegacyV3Permissions),
-        addedAt: u.addedAt as number,
-      })),
-    });
+    return migrateV6ToV7(
+      migrateV5ToV6({
+        ...raw,
+        version: 5,
+        allowedUsers: v3Users.map((u) => ({
+          username: u.username as string,
+          permissions: migratePermissionsV3(u.permissions as LegacyV3Permissions),
+          addedAt: u.addedAt as number,
+        })),
+      }),
+    );
   }
 
   if (raw.version === 2) {
     const legacyUsers = Array.isArray(raw.allowedUsers) ? (raw.allowedUsers as Record<string, unknown>[]) : [];
-    return migrateV5ToV6({
-      ...raw,
-      version: 5,
-      allowedUsers: legacyUsers.map((u) => ({
-        username: u.username as string,
-        permissions: legacyRoleToPermissions(String(u.role ?? '')),
-        addedAt: u.addedAt as number,
-      })),
-    });
+    return migrateV6ToV7(
+      migrateV5ToV6({
+        ...raw,
+        version: 5,
+        allowedUsers: legacyUsers.map((u) => ({
+          username: u.username as string,
+          permissions: legacyRoleToPermissions(String(u.role ?? '')),
+          addedAt: u.addedAt as number,
+        })),
+      }),
+    );
   }
 
   const legacyKeys = Array.isArray(raw.apiKeys) ? (raw.apiKeys as Record<string, unknown>[]) : [];
-  return migrateV5ToV6({
-    apiKeys: legacyKeys.map((k) => ({
-      id: k.id as string,
-      name: k.name as string,
-      ownerId: 'root',
-      status: 'approved',
-      hash: k.hash as string,
-      createdAt: k.createdAt as number,
-      approvedAt: k.createdAt as number,
-      lastUsedAt: k.lastUsedAt as number | undefined,
-    })),
-    settings: (raw.settings as Partial<SchedulerSettings>) ?? {},
-    jobHistory: (raw.jobHistory as JobHistoryEntry[]) ?? [],
-    appleAuthAlert: (raw.appleAuthAlert as AppleAuthAlert) ?? { suspected: false },
-  });
+  return migrateV6ToV7(
+    migrateV5ToV6({
+      apiKeys: legacyKeys.map((k) => ({
+        id: k.id as string,
+        name: k.name as string,
+        ownerId: 'root',
+        status: 'approved',
+        hash: k.hash as string,
+        createdAt: k.createdAt as number,
+        approvedAt: k.createdAt as number,
+        lastUsedAt: k.lastUsedAt as number | undefined,
+      })),
+      settings: (raw.settings as Partial<SchedulerSettings>) ?? {},
+      jobHistory: (raw.jobHistory as JobHistoryEntry[]) ?? [],
+      appleAuthAlert: (raw.appleAuthAlert as AppleAuthAlert) ?? { suspected: false },
+    }),
+  );
 }
 
 function normalizeLegacySchedulerRunOutcome(raw: unknown): SchedulerRunOutcome {
@@ -541,8 +665,18 @@ export function listAllowedUsers(): AllowedUser[] {
   return state.allowedUsers;
 }
 
-export function getUserPermissions(username: string): Permissions | undefined {
-  return state.allowedUsers.find((u) => u.username === username.toLowerCase())?.permissions;
+export function listRoles(): Role[] {
+  return [...state.roles].sort((a, b) => a.position - b.position);
+}
+
+export function getRole(id: string): Role | undefined {
+  return state.roles.find((r) => r.id === id);
+}
+
+export function getUserEffectivePermissions(username: string): bigint | undefined {
+  const user = state.allowedUsers.find((u) => u.username === username.toLowerCase());
+  if (!user) return undefined;
+  return effectiveBitsForRoleIds(user.roleIds, state.roles);
 }
 
 export function getSessionVersion(username: string): number {
@@ -580,20 +714,39 @@ export function recordUserActivity(username: string): void {
 
 // True if applying this change would leave nobody on the allowlist able to grant access back
 // (root's ADMIN_PASSWORD still works, but GitHub-OAuth-only teams would be locked out of self-service).
-// Only blocks the change that actually removes the last holder - if this user never had
-// manageUsers to begin with, deleting/editing them can't be what orphans it.
-export function wouldOrphanManageUsers(username: string, newPermissions: Permissions | null): boolean {
+// Only blocks the change that actually removes the last holder - if this user never had the flag
+// to begin with, editing/removing them can't be what orphans it.
+export function wouldOrphanPermission(username: string, flag: bigint, hypotheticalRoleIds: string[] | null): boolean {
   const lower = username.toLowerCase();
-  const existing = state.allowedUsers.find((u) => u.username === lower);
-  if (!existing?.permissions.manageUsers) return false;
-  const othersHaveIt = state.allowedUsers.some((u) => u.username !== lower && u.permissions.manageUsers);
+  const currentBits = getUserEffectivePermissions(lower);
+  if (!currentBits || !hasPermission(currentBits, flag)) return false;
+  const othersHaveIt = state.allowedUsers.some(
+    (u) => u.username !== lower && hasPermission(effectiveBitsForRoleIds(u.roleIds, state.roles), flag),
+  );
   if (othersHaveIt) return false;
-  return !newPermissions?.manageUsers;
+  const newBits = effectiveBitsForRoleIds(hypotheticalRoleIds ?? [], state.roles);
+  return !hasPermission(newBits, flag);
 }
 
-function permissionDiff(before: Permissions, after: Permissions): string {
-  const changes = PERMISSION_KEYS.filter((k) => before[k] !== after[k]).map((k) => `${after[k] ? '+' : '-'}${k}`);
-  return changes.length > 0 ? changes.join(', ') : '(no change)';
+// Same idea as wouldOrphanPermission, but for a role edit/delete rather than a single user's
+// assignment - simulates the role's bits changing (or vanishing, for delete) across every
+// holder at once, since one role can be the sole source of manageUsers for several people.
+function wouldOrphanManageUsersViaRole(roleId: string, newBits: bigint | null): boolean {
+  const before = state.allowedUsers.some((u) => hasPermission(effectiveBitsForRoleIds(u.roleIds, state.roles), PermissionFlag.manageUsers));
+  if (!before) return false;
+  const simulatedRoles =
+    newBits === null
+      ? state.roles.filter((r) => r.id !== roleId)
+      : state.roles.map((r) => (r.id === roleId ? { ...r, permissions: serializeBits(newBits) } : r));
+  const after = state.allowedUsers.some((u) => hasPermission(effectiveBitsForRoleIds(u.roleIds, simulatedRoles), PermissionFlag.manageUsers));
+  return !after;
+}
+
+function roleAssignmentDiff(before: string[], after: string[]): string {
+  const added = after.filter((id) => !before.includes(id)).map((id) => getRole(id)?.name ?? id);
+  const removed = before.filter((id) => !after.includes(id)).map((id) => getRole(id)?.name ?? id);
+  const parts = [...added.map((n) => `+${n}`), ...removed.map((n) => `-${n}`)];
+  return parts.length > 0 ? parts.join(', ') : '(no change)';
 }
 
 export function recordAudit(actor: string, action: AuditAction, target: string, detail?: string): void {
@@ -606,33 +759,117 @@ export function getAuditLog(limit = 100): AuditLogEntry[] {
   return state.auditLog.slice(0, limit);
 }
 
-export function addAllowedUser(username: string, permissions: Permissions, actor: string): AllowedUser {
+// Silently drops any id that isn't a real, non-default role - the default role is implicit and
+// never belongs in roleIds, and a stale/forged id shouldn't grant nothing-in-particular.
+function sanitizeRoleIds(roleIds: string[]): string[] {
+  return [...new Set(roleIds)].filter((id) => state.roles.some((r) => r.id === id && !r.isDefault));
+}
+
+export function addAllowedUser(username: string, roleIds: string[], actor: string): AllowedUser {
   const lower = username.toLowerCase();
-  const normalized = normalizePermissions(permissions);
+  const sanitized = sanitizeRoleIds(roleIds);
   const existing = state.allowedUsers.find((u) => u.username === lower);
   if (existing) {
-    const detail = permissionDiff(existing.permissions, normalized);
-    existing.permissions = normalized;
+    const detail = roleAssignmentDiff(existing.roleIds, sanitized);
+    existing.roleIds = sanitized;
     persistNow();
     recordAudit(actor, 'user.update', lower, detail);
     return existing;
   }
-  const record: AllowedUser = { username: lower, permissions: normalized, addedAt: Date.now() };
+  const record: AllowedUser = { username: lower, roleIds: sanitized, addedAt: Date.now() };
   state.allowedUsers.push(record);
   persistNow();
-  recordAudit(actor, 'user.add', lower, permissionDiff(VIEWER_PERMISSIONS, normalized));
+  recordAudit(actor, 'user.add', lower, roleAssignmentDiff([], sanitized));
   return record;
 }
 
-export function updateAllowedUserPermissions(username: string, permissions: Permissions, actor: string): AllowedUser | undefined {
+export function updateAllowedUserRoles(username: string, roleIds: string[], actor: string): AllowedUser | undefined {
   const existing = state.allowedUsers.find((u) => u.username === username.toLowerCase());
   if (!existing) return undefined;
-  const normalized = normalizePermissions(permissions);
-  const detail = permissionDiff(existing.permissions, normalized);
-  existing.permissions = normalized;
+  const sanitized = sanitizeRoleIds(roleIds);
+  const detail = roleAssignmentDiff(existing.roleIds, sanitized);
+  existing.roleIds = sanitized;
   persistNow();
   recordAudit(actor, 'user.update', existing.username, detail);
   return existing;
+}
+
+export interface CreateRoleInput {
+  name: string;
+  color: string;
+  permissions: string;
+}
+
+export function createRole(input: CreateRoleInput, actor: string): Role {
+  const now = Date.now();
+  const position = Math.max(0, ...state.roles.map((r) => r.position)) + 1;
+  const role: Role = {
+    id: randomUUID(),
+    name: input.name,
+    color: input.color,
+    permissions: serializeBits(parseBits(input.permissions)),
+    position,
+    isDefault: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  state.roles.push(role);
+  persistNow();
+  recordAudit(actor, 'role.add', role.id, role.name);
+  return role;
+}
+
+export interface UpdateRoleInput {
+  name?: string;
+  color?: string;
+  permissions?: string;
+}
+
+export function updateRole(id: string, patch: UpdateRoleInput, actor: string): { ok: boolean; role?: Role; error?: string } {
+  const role = state.roles.find((r) => r.id === id);
+  if (!role) return { ok: false, error: 'role not found' };
+  if (patch.permissions !== undefined) {
+    const newBits = parseBits(patch.permissions);
+    if (wouldOrphanManageUsersViaRole(id, newBits)) {
+      return { ok: false, error: 'this would leave nobody able to manage users - grant it to someone else first' };
+    }
+    role.permissions = serializeBits(newBits);
+  }
+  if (patch.name !== undefined && !role.isDefault) role.name = patch.name;
+  if (patch.color !== undefined) role.color = patch.color;
+  role.updatedAt = Date.now();
+  persistNow();
+  recordAudit(actor, 'role.update', role.id, role.name);
+  return { ok: true, role };
+}
+
+export function deleteRole(id: string, actor: string): { ok: boolean; error?: string } {
+  const role = state.roles.find((r) => r.id === id);
+  if (!role) return { ok: false, error: 'role not found' };
+  if (role.isDefault) return { ok: false, error: "the @everyone role can't be deleted" };
+  if (wouldOrphanManageUsersViaRole(id, null)) {
+    return { ok: false, error: 'this would leave nobody able to manage users - grant it to someone else first' };
+  }
+  state.roles = state.roles.filter((r) => r.id !== id);
+  for (const u of state.allowedUsers) u.roleIds = u.roleIds.filter((rid) => rid !== id);
+  persistNow();
+  recordAudit(actor, 'role.remove', id, role.name);
+  return { ok: true };
+}
+
+// Only reassigns positions among non-default roles - the default role is always position 0 and
+// isn't draggable in the UI.
+export function reorderRoles(orderedIds: string[], actor: string): boolean {
+  const nonDefaultIds = orderedIds.filter((id) => id !== DEFAULT_ROLE_ID);
+  const nonDefaultRoles = state.roles.filter((r) => !r.isDefault);
+  if (nonDefaultIds.length !== nonDefaultRoles.length || !nonDefaultRoles.every((r) => nonDefaultIds.includes(r.id))) return false;
+  nonDefaultIds.forEach((id, idx) => {
+    const role = state.roles.find((r) => r.id === id);
+    if (role) role.position = idx + 1;
+  });
+  persistNow();
+  recordAudit(actor, 'role.update', 'reorder', 'positions changed');
+  return true;
 }
 
 export function removeAllowedUser(username: string, actor: string): boolean {
@@ -1631,12 +1868,13 @@ export function updateUserPrefs(username: string, patch: Partial<UserPrefs>): Us
   return updated;
 }
 
-const BACKUP_VERSION = 2;
+const BACKUP_VERSION = 3;
 
 export interface BackupPayload {
   backupVersion: typeof BACKUP_VERSION;
   exportedAt: number;
   allowedUsers: AllowedUser[];
+  roles: Role[];
   apiKeys: ApiKeyRecord[];
   settings: Partial<SchedulerSettings>;
   watches: AppWatch[];
@@ -1660,6 +1898,7 @@ export function exportBackup(): BackupPayload {
     backupVersion: BACKUP_VERSION,
     exportedAt: Date.now(),
     allowedUsers: state.allowedUsers,
+    roles: state.roles,
     apiKeys: state.apiKeys.map((k) => ({ ...k, pendingReveal: undefined })),
     settings: state.settings,
     watches: getEffectiveWatches(),
@@ -1676,16 +1915,28 @@ export function exportBackup(): BackupPayload {
   };
 }
 
-function isPermissionsShape(value: unknown): value is Permissions {
-  if (typeof value !== 'object' || value === null) return false;
-  const p = value as Record<string, unknown>;
-  return PERMISSION_KEYS.every((k) => typeof p[k] === 'boolean');
-}
-
 function isAllowedUserShape(value: unknown): value is AllowedUser {
   if (typeof value !== 'object' || value === null) return false;
   const u = value as Record<string, unknown>;
-  return typeof u.username === 'string' && typeof u.addedAt === 'number' && isPermissionsShape(u.permissions);
+  return (
+    typeof u.username === 'string' &&
+    typeof u.addedAt === 'number' &&
+    Array.isArray(u.roleIds) &&
+    u.roleIds.every((id) => typeof id === 'string')
+  );
+}
+
+function isRoleShape(value: unknown): value is Role {
+  if (typeof value !== 'object' || value === null) return false;
+  const r = value as Record<string, unknown>;
+  return (
+    typeof r.id === 'string' &&
+    typeof r.name === 'string' &&
+    typeof r.color === 'string' &&
+    typeof r.permissions === 'string' &&
+    typeof r.position === 'number' &&
+    typeof r.isDefault === 'boolean'
+  );
 }
 
 function isApiKeyRecordShape(value: unknown): value is ApiKeyRecord {
@@ -1758,6 +2009,9 @@ export function importBackup(raw: unknown, actor: string): ImportBackupResult {
   if (!Array.isArray(b.allowedUsers) || !b.allowedUsers.every(isAllowedUserShape)) {
     return { ok: false, error: 'allowedUsers is missing or malformed' };
   }
+  if (!Array.isArray(b.roles) || !b.roles.every(isRoleShape) || !b.roles.some((r) => (r as Role).isDefault)) {
+    return { ok: false, error: 'roles is missing or malformed' };
+  }
   if (!Array.isArray(b.apiKeys) || !b.apiKeys.every(isApiKeyRecordShape)) {
     return { ok: false, error: 'apiKeys is missing or malformed' };
   }
@@ -1797,6 +2051,7 @@ export function importBackup(raw: unknown, actor: string): ImportBackupResult {
   }
 
   state.allowedUsers = b.allowedUsers as AllowedUser[];
+  state.roles = b.roles as Role[];
   state.apiKeys = (b.apiKeys as ApiKeyRecord[]).map((k) => ({ ...k, pendingReveal: undefined }));
   state.settings = b.settings as Partial<SchedulerSettings>;
   state.watches = b.watches as AppWatch[];

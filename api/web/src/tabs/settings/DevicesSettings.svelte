@@ -16,10 +16,11 @@
   import Dialog from '../../lib/components/ui/Dialog.svelte';
   import Input from '../../lib/components/ui/Input.svelte';
   import { liveState } from '../../lib/live.svelte';
-  import { sessionState } from '../../lib/session.svelte';
+  import { PermissionFlag } from '../../lib/permissions';
+  import { sessionHasPermission } from '../../lib/session.svelte';
   import { confirmDialog, showToast } from '../../lib/ui.svelte';
 
-  const canManageScheduler = $derived(!!sessionState.permissions?.manageScheduler);
+  const canManageDevices = $derived(sessionHasPermission(PermissionFlag.manageDevices));
   const devices = $derived(liveState.overview?.devices ?? []);
 
   let health = $state<Record<string, DeviceHealth | undefined>>({});
@@ -97,7 +98,7 @@
 
 <Card title="Device pool">
   {#snippet headerExtra()}
-    {#if canManageScheduler}
+    {#if canManageDevices}
       <Button size="sm" onclick={openAdd}>
         <Plus class="h-3.5 w-3.5" />
         Add device
@@ -125,7 +126,7 @@
               <Badge variant={h.reachable ? 'success' : 'destructive'}>{h.reachable ? 'online' : 'unreachable'}</Badge>
             {/if}
             <div class="ml-auto flex flex-wrap gap-1.5">
-              {#if canManageScheduler}
+              {#if canManageDevices}
                 {#if !d.isPrimary}
                   <Button size="sm" variant="secondary" onclick={() => void makePrimary(d)}>Make primary</Button>
                 {/if}
@@ -147,7 +148,7 @@
   {/if}
 </Card>
 
-{#if canManageScheduler}
+{#if canManageDevices}
   <Dialog open={dialogOpen} onOpenChange={(v) => (dialogOpen = v)} class="max-w-md">
     <div class="mb-3 text-sm font-medium">{editingId ? 'Edit device' : 'Add device'}</div>
     <label for="d-name" class="mb-1 block text-xs text-muted">Name</label>

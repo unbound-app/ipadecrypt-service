@@ -1,39 +1,65 @@
 <script lang="ts">
   import { Plus, ScrollText, UserX } from 'lucide-svelte';
   import EmptyState from '../../components/EmptyState.svelte';
-  import PermissionEditor, { PRESETS } from '../../components/PermissionEditor.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
-  import { addUser, type AuditLogEntry, fetchAuditLog, fetchUsers, removeUser, updateUserPermissions, type AllowedUser } from '../../lib/api';
+  import {
+    addUser,
+    type AuditLogEntry,
+    fetchAuditLog,
+    fetchRoles,
+    fetchUsers,
+    removeUser,
+    updateUserRoles,
+    type AllowedUser,
+    type Role,
+  } from '../../lib/api';
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import Dialog from '../../lib/components/ui/Dialog.svelte';
   import Input from '../../lib/components/ui/Input.svelte';
+  import { PermissionFlag } from '../../lib/permissions';
   import { scrollFade } from '../../lib/scrollFade';
-  import { PERMISSION_KEYS, PERMISSION_META, sessionState, VIEWER_PERMISSIONS, type Permissions } from '../../lib/session.svelte';
+  import { sessionHasPermission, sessionState } from '../../lib/session.svelte';
   import { confirmDialog } from '../../lib/ui.svelte';
 
-  const canManage = $derived(!!sessionState.permissions?.manageUsers);
+  const canManage = $derived(sessionHasPermission(PermissionFlag.manageUsers));
 
   let addOpen = $state(false);
   let username = $state('');
-  let newPermissions = $state<Permissions>({ ...VIEWER_PERMISSIONS });
+  let newRoleIds = $state<string[]>([]);
   let users = $state<AllowedUser[] | null>(null);
+  let roles = $state<Role[] | null>(null);
   let userSearch = $state('');
   let submitting = $state(false);
-  let savingPermissions = $state(false);
+  let savingRoles = $state(false);
   let removing = $state(false);
   let auditLog = $state<AuditLogEntry[] | null>(null);
   let auditSearch = $state('');
 
   const AUDIT_ACTION_LABEL: Record<AuditLogEntry['action'], string> = {
-    'user.add': 'added',
-    'user.update': 'updated',
-    'user.remove': 'removed',
+    'user.add': 'added user',
+    'user.update': 'updated user',
+    'user.remove': 'removed user',
     'state.import': 'restored backup',
     'settings.update': 'updated scheduler settings',
+    'watch.add': 'added watch',
+    'watch.update': 'updated watch',
+    'watch.remove': 'removed watch',
+    'device.add': 'added device',
+    'device.update': 'updated device',
+    'device.remove': 'removed device',
+    'role.add': 'added role',
+    'role.update': 'updated role',
+    'role.remove': 'removed role',
   };
+
+  const assignableRoles = $derived((roles ?? []).filter((r) => !r.isDefault).sort((a, b) => b.position - a.position));
+
+  function roleById(id: string): Role | undefined {
+    return (roles ?? []).find((r) => r.id === id);
+  }
 
   const filteredUsers = $derived(
     (users ?? []).filter((u) => u.username.includes(userSearch.trim().toLowerCase())),
@@ -55,12 +81,13 @@
     selectedUsers = selectedUsers.size === selectableUsers.length ? new Set() : new Set(selectableUsers.map((u) => u.username));
   }
 
-  async function applyPresetToSelected(permissions: Permissions): Promise<void> {
+  async function applyRoleToSelected(role: Role): Promise<void> {
     if (selectedUsers.size === 0) return;
-    if (!(await confirmDialog(`Apply this preset to ${selectedUsers.size} selected user(s)?`, { variant: 'default', confirmLabel: 'Apply' }))) return;
+    if (!(await confirmDialog(`Set "${role.name}" as the only role for ${selectedUsers.size} selected user(s)?`, { variant: 'default', confirmLabel: 'Apply' })))
+      return;
     bulkApplying = true;
     try {
-      for (const username of selectedUsers) await updateUserPermissions(username, permissions);
+      for (const username of selectedUsers) await updateUserRoles(username, [role.id]);
       selectedUsers = new Set();
       void load();
     } finally {
@@ -80,13 +107,11 @@
     );
   });
 
-  function activePermissionLabels(p: Permissions): string[] {
-    return PERMISSION_META.filter((f) => p[f.key] && !f.impliedBy?.some((k) => p[k])).map((f) => f.label);
-  }
-
   async function load(): Promise<void> {
-    users = (await fetchUsers()).users;
-    auditLog = (await fetchAuditLog(200)).entries;
+    const [u, r, a] = await Promise.all([fetchUsers(), fetchRoles(), fetchAuditLog(200)]);
+    users = u.users;
+    roles = r.roles;
+    auditLog = a.entries;
   }
 
   $effect(() => {
@@ -95,8 +120,15 @@
 
   function openAdd(): void {
     username = '';
-    newPermissions = { ...VIEWER_PERMISSIONS };
+    newRoleIds = [];
     addOpen = true;
+    // Settings subtabs stay mounted (just hidden) once visited, so a role created while this tab
+    // wasn't showing wouldn't otherwise show up here until some other reload happened to fire.
+    void load();
+  }
+
+  function toggleNewRole(id: string): void {
+    newRoleIds = newRoleIds.includes(id) ? newRoleIds.filter((r) => r !== id) : [...newRoleIds, id];
   }
 
   async function submit(): Promise<void> {
@@ -104,7 +136,7 @@
     if (!name) return;
     submitting = true;
     try {
-      const { ok } = await addUser(name, newPermissions);
+      const { ok } = await addUser(name, newRoleIds);
       if (ok) {
         addOpen = false;
         void load();
@@ -116,32 +148,39 @@
 
   let manageOpen = $state(false);
   let manageUser = $state<AllowedUser | null>(null);
-  let managePermissions = $state<Permissions>({ ...VIEWER_PERMISSIONS });
+  let manageRoleIds = $state<string[]>([]);
   let managePriority = $state('0');
 
   function openManage(u: AllowedUser): void {
     manageUser = u;
-    managePermissions = { ...u.permissions };
+    manageRoleIds = [...u.roleIds];
     managePriority = String(u.priority ?? 0);
     manageOpen = true;
+    void load();
   }
 
-  const permissionsUnchanged = $derived.by(() => {
+  function toggleManageRole(id: string): void {
+    manageRoleIds = manageRoleIds.includes(id) ? manageRoleIds.filter((r) => r !== id) : [...manageRoleIds, id];
+  }
+
+  const rolesUnchanged = $derived.by(() => {
     if (!manageUser) return true;
-    return PERMISSION_KEYS.every((k) => managePermissions[k] === manageUser?.permissions[k]) && Number(managePriority) === (manageUser.priority ?? 0);
+    const sameRoles =
+      manageRoleIds.length === manageUser.roleIds.length && manageRoleIds.every((id) => manageUser?.roleIds.includes(id));
+    return sameRoles && Number(managePriority) === (manageUser.priority ?? 0);
   });
 
-  async function savePermissions(): Promise<void> {
-    if (!manageUser || permissionsUnchanged) return;
-    savingPermissions = true;
+  async function saveRoles(): Promise<void> {
+    if (!manageUser || rolesUnchanged) return;
+    savingRoles = true;
     try {
-      const { ok } = await updateUserPermissions(manageUser.username, managePermissions, Number(managePriority));
+      const { ok } = await updateUserRoles(manageUser.username, manageRoleIds, Number(managePriority));
       if (ok) {
         manageOpen = false;
         void load();
       }
     } finally {
-      savingPermissions = false;
+      savingRoles = false;
     }
   }
 
@@ -174,12 +213,12 @@
     {#if (users?.length ?? 0) > 5}
       <Input placeholder="Search by username…" bind:value={userSearch} class="mb-3 max-w-xs" />
     {/if}
-    {#if canManage && selectedUsers.size > 0}
+    {#if canManage && selectedUsers.size > 0 && assignableRoles.length > 0}
       <div class="mb-3 flex flex-wrap items-center gap-1.5">
-        <span class="text-xs text-muted">Apply to {selectedUsers.size} selected:</span>
-        {#each PRESETS as preset (preset.label)}
-          <Button size="sm" variant="secondary" loading={bulkApplying} onclick={() => applyPresetToSelected(preset.permissions)}>
-            {preset.label}
+        <span class="text-xs text-muted">Set role for {selectedUsers.size} selected:</span>
+        {#each assignableRoles as role (role.id)}
+          <Button size="sm" variant="secondary" loading={bulkApplying} onclick={() => applyRoleToSelected(role)}>
+            {role.name}
           </Button>
         {/each}
       </div>
@@ -192,7 +231,7 @@
               <th><input type="checkbox" checked={selectableUsers.length > 0 && selectedUsers.size === selectableUsers.length} onchange={toggleSelectAllUsers} /></th>
             {/if}
             <th>Username</th>
-            <th>Permissions</th>
+            <th>Roles</th>
             <th>Added</th>
             <th>Last active</th>
             {#if canManage}<th></th>{/if}
@@ -204,7 +243,6 @@
           {:else}
             {#each filteredUsers as u (u.username)}
               {@const isSelf = u.username === (sessionState.sub ?? '').toLowerCase()}
-              {@const labels = activePermissionLabels(u.permissions)}
               <tr>
                 {#if canManage}
                   <td>
@@ -216,11 +254,16 @@
                 <td>{u.username}{#if isSelf}<span class="ml-1.5 text-xs text-muted">(you)</span>{/if}</td>
                 <td>
                   <div class="flex flex-wrap gap-1">
-                    {#if labels.length === 0}
-                      <Badge variant="secondary">Viewer</Badge>
+                    {#if u.roleIds.length === 0}
+                      <Badge variant="secondary">@everyone only</Badge>
                     {:else}
-                      {#each labels as label (label)}
-                        <Badge variant="default">{label}</Badge>
+                      {#each u.roleIds as id (id)}
+                        {@const role = roleById(id)}
+                        {#if role}
+                          <Badge style="background-color: {role.color}22; color: {role.color}; border: 1px solid {role.color}55">
+                            {role.name}
+                          </Badge>
+                        {/if}
                       {/each}
                     {/if}
                   </div>
@@ -299,7 +342,20 @@
     <label for="user-username" class="mb-1 block text-xs text-muted">GitHub username</label>
     <Input id="user-username" placeholder="e.g. octocat" bind:value={username} />
     <div class="mt-3 max-h-[46vh] overflow-y-auto pr-0.5">
-      <PermissionEditor bind:value={newPermissions} />
+      <div class="mb-1 text-xs text-muted">Roles (everyone also holds @everyone)</div>
+      {#if assignableRoles.length === 0}
+        <div class="text-xs text-muted">No roles yet - create one on the Roles tab first.</div>
+      {:else}
+        <div class="border-border flex flex-col divide-y rounded-lg border">
+          {#each assignableRoles as role (role.id)}
+            <label class="flex cursor-pointer items-center gap-2.5 px-3 py-2">
+              <input type="checkbox" checked={newRoleIds.includes(role.id)} onchange={() => toggleNewRole(role.id)} />
+              <span class="h-2 w-2 shrink-0 rounded-full" style="background-color: {role.color}"></span>
+              <span class="text-[13px]">{role.name}</span>
+            </label>
+          {/each}
+        </div>
+      {/if}
     </div>
     <Button class="mt-3.5 w-full" loading={submitting} onclick={submit} disabled={!username.trim()}>Add</Button>
   </Dialog>
@@ -308,15 +364,28 @@
     {#if manageUser}
       <div class="mb-3 text-sm font-medium">Manage {manageUser.username}</div>
       <div class="max-h-[50vh] overflow-y-auto pr-0.5">
-        <PermissionEditor bind:value={managePermissions} />
+        <div class="mb-1 text-xs text-muted">Roles (everyone also holds @everyone)</div>
+        {#if assignableRoles.length === 0}
+          <div class="text-xs text-muted">No roles yet - create one on the Roles tab first.</div>
+        {:else}
+          <div class="border-border flex flex-col divide-y rounded-lg border">
+            {#each assignableRoles as role (role.id)}
+              <label class="flex cursor-pointer items-center gap-2.5 px-3 py-2">
+                <input type="checkbox" checked={manageRoleIds.includes(role.id)} onchange={() => toggleManageRole(role.id)} />
+                <span class="h-2 w-2 shrink-0 rounded-full" style="background-color: {role.color}"></span>
+                <span class="text-[13px]">{role.name}</span>
+              </label>
+            {/each}
+          </div>
+        {/if}
         <label for="user-priority" class="mt-3 mb-1 block text-xs text-muted">Queue priority (-5 to 5)</label>
         <Input id="user-priority" type="number" min="-5" max="5" bind:value={managePriority} />
         <div class="mt-1 text-xs text-muted">
           Higher goes first among queued manual decrypts. 0 is the default - most people never need to touch this.
         </div>
       </div>
-      <Button class="mt-3.5 w-full" loading={savingPermissions} onclick={savePermissions} disabled={permissionsUnchanged}>
-        Save permissions
+      <Button class="mt-3.5 w-full" loading={savingRoles} onclick={saveRoles} disabled={rolesUnchanged}>
+        Save roles
       </Button>
       <div class="border-border mt-4 border-t pt-4">
         <Button variant="destructive" class="w-full" loading={removing} onclick={removeManaged}>Remove from allowlist</Button>

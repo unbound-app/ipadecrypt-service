@@ -1,7 +1,7 @@
-import { markLoggedOut, type Permissions } from './session.svelte';
+import { markLoggedOut, type Role } from './session.svelte';
 import { showToast } from './ui.svelte';
 
-export type { Permissions };
+export type { Role };
 
 async function request(path: string, opts: RequestInit = {}): Promise<Response> {
   let res: Response;
@@ -227,7 +227,7 @@ export interface ApiKeyRecord {
 
 export interface AllowedUser {
   username: string;
-  permissions: Permissions;
+  roleIds: string[];
   addedAt: number;
   lastActiveAt?: number;
   priority?: number;
@@ -237,7 +237,21 @@ export interface AuditLogEntry {
   id: string;
   ts: number;
   actor: string;
-  action: 'user.add' | 'user.update' | 'user.remove' | 'state.import' | 'settings.update';
+  action:
+    | 'user.add'
+    | 'user.update'
+    | 'user.remove'
+    | 'state.import'
+    | 'settings.update'
+    | 'watch.add'
+    | 'watch.update'
+    | 'watch.remove'
+    | 'device.add'
+    | 'device.update'
+    | 'device.remove'
+    | 'role.add'
+    | 'role.update'
+    | 'role.remove';
   target: string;
   detail?: string;
 }
@@ -696,20 +710,40 @@ export function fetchAuditLog(limit = 100): Promise<{ entries: AuditLogEntry[] }
   return apiJson(`/v1/dashboard/audit-log?limit=${limit}`);
 }
 
-export function addUser(username: string, permissions: Permissions): Promise<{ ok: boolean }> {
-  return apiAction('/v1/dashboard/users', { method: 'POST', body: JSON.stringify({ username, permissions }) }, `${username} added`);
+export function fetchRoles(): Promise<{ roles: Role[] }> {
+  return apiJson('/v1/dashboard/roles');
+}
+
+export function addUser(username: string, roleIds: string[]): Promise<{ ok: boolean }> {
+  return apiAction('/v1/dashboard/users', { method: 'POST', body: JSON.stringify({ username, roleIds }) }, `${username} added`);
 }
 
 export function removeUser(username: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/users/${encodeURIComponent(username)}`, { method: 'DELETE' }, `${username} removed`);
 }
 
-export function updateUserPermissions(username: string, permissions: Permissions, priority?: number): Promise<{ ok: boolean }> {
+export function updateUserRoles(username: string, roleIds: string[], priority?: number): Promise<{ ok: boolean }> {
   return apiAction(
     `/v1/dashboard/users/${encodeURIComponent(username)}`,
-    { method: 'PATCH', body: JSON.stringify({ permissions, priority }) },
-    `${username}'s permissions updated`,
+    { method: 'PATCH', body: JSON.stringify({ roleIds, priority }) },
+    `${username}'s roles updated`,
   );
+}
+
+export function createRole(name: string, color: string, permissions: string): Promise<{ ok: boolean; data: Role }> {
+  return apiAction<Role>('/v1/dashboard/roles', { method: 'POST', body: JSON.stringify({ name, color, permissions }) }, `Role "${name}" created`);
+}
+
+export function updateRole(id: string, patch: { name?: string; color?: string; permissions?: string }): Promise<{ ok: boolean; data: Role }> {
+  return apiAction<Role>(`/v1/dashboard/roles/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }, 'Role updated');
+}
+
+export function deleteRole(id: string, name: string): Promise<{ ok: boolean }> {
+  return apiAction(`/v1/dashboard/roles/${encodeURIComponent(id)}`, { method: 'DELETE' }, `Role "${name}" deleted`);
+}
+
+export function reorderRoles(roleIds: string[]): Promise<{ ok: boolean; data: { roles: Role[] } }> {
+  return apiAction<{ roles: Role[] }>('/v1/dashboard/roles/reorder', { method: 'POST', body: JSON.stringify({ roleIds }) }, 'Role order updated');
 }
 
 export function backupExportUrl(): string {

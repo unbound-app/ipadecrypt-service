@@ -15,6 +15,7 @@ import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
 import { EMBED_COLOR, notify, sendTestNotification } from '../notify.js';
 import { getVapidPublicKey, sendPushToUser } from '../push.js';
+import { hasPermission, isSubsetPermission, parseBits, PermissionFlag } from '../permissions.js';
 import { applyWatchSchedules, checkForTestFlightUpdate, checkForUpdate, triggerTickNow } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requirePermission, requireSession } from '../session.js';
@@ -36,11 +37,15 @@ import {
   clearAppleAuthAlert,
   createApiKey,
   createDevice,
+  createRole,
   createWatch,
+  DEFAULT_ROLE_ID,
   deleteDevice,
+  deleteRole,
   deleteWatch,
   denyApiKey,
   type DeviceRecord,
+  effectiveBitsForRoleIds,
   exportBackup,
   getAllJobHistory,
   getApiKeyById,
@@ -78,14 +83,14 @@ import {
   listAllowedUsers,
   listApiKeysForOwner,
   listPendingApiKeys,
+  listRoles,
   listShareLinksForJob,
-  PERMISSION_KEYS,
-  type Permissions,
   recordShareLink,
   recordUserActivity,
   regenerateApiKey,
   removeAllowedUser,
   removePushSubscription,
+  reorderRoles,
   requestApiKey,
   revealApiKeySecret,
   revokeApiKey,
@@ -93,23 +98,42 @@ import {
   type SchedulerSettings,
   setApiKeyPriority,
   setUserPriority,
-  updateAllowedUserPermissions,
+  updateAllowedUserRoles,
   updateDevice,
+  updateRole,
   updateSettings,
   updateUserPrefs,
   updateWatch,
-  wouldOrphanManageUsers,
+  wouldOrphanPermission,
 } from '../store/state.js';
 
-const canDecrypt = requirePermission('decrypt');
-const canViewApiKeys = requirePermission('viewApiKeys');
-const canApproveApiKeys = requirePermission('approveApiKeys');
-const canManageScheduler = requirePermission('manageScheduler');
-const canTriggerDispatch = requirePermission('triggerDispatch');
-const canManageAppleAuth = requirePermission('manageAppleAuth');
-const canViewLogs = requirePermission('viewLogs');
-const canViewUsers = requirePermission('viewUsers', 'manageUsers');
-const canManageUsers = requirePermission('manageUsers');
+const canDecrypt = requirePermission(PermissionFlag.requestDecrypt);
+const canViewApiKeys = requirePermission(
+  PermissionFlag.viewApiKeys,
+  PermissionFlag.approveApiKeys,
+  PermissionFlag.revokeApiKeys,
+  PermissionFlag.manageApiKeyLimits,
+);
+const canApproveApiKeys = requirePermission(PermissionFlag.approveApiKeys);
+const canManageApiKeyLimits = requirePermission(PermissionFlag.manageApiKeyLimits);
+const canViewScheduler = requirePermission(
+  PermissionFlag.manageWatches,
+  PermissionFlag.manageDevices,
+  PermissionFlag.manageSchedulerSettings,
+  PermissionFlag.triggerDispatch,
+);
+const canManageWatches = requirePermission(PermissionFlag.manageWatches);
+const canManageDevices = requirePermission(PermissionFlag.manageDevices);
+const canManageSchedulerSettings = requirePermission(PermissionFlag.manageSchedulerSettings);
+// pollCron lives on both watches and (legacy) scheduler settings, so either side can validate one.
+const canValidateCron = requirePermission(PermissionFlag.manageSchedulerSettings, PermissionFlag.manageWatches);
+const canTriggerDispatch = requirePermission(PermissionFlag.triggerDispatch);
+const canManageAppleAuth = requirePermission(PermissionFlag.manageAppleAuth);
+const canViewLogs = requirePermission(PermissionFlag.viewLogs);
+const canViewUsers = requirePermission(PermissionFlag.viewUsers, PermissionFlag.manageUsers, PermissionFlag.manageRoles);
+const canManageUsers = requirePermission(PermissionFlag.manageUsers);
+const canManageRoles = requirePermission(PermissionFlag.manageRoles);
+const canManageBackup = requirePermission(PermissionFlag.manageBackup);
 
 export const dashboardRouter = Router();
 
@@ -182,10 +206,10 @@ dashboardRouter.get('/v1/dashboard/events', (req, res) => {
   const onPresenceChanged = (usernames: string[]) => sendEvent('presence', usernames);
 
   dashboardEvents.on('jobsChanged', onJobsChanged);
-  if (res.locals.session.permissions.viewLogs) dashboardEvents.on('logAdded', onLogAdded);
+  if (hasPermission(res.locals.session.permissions, PermissionFlag.viewLogs)) dashboardEvents.on('logAdded', onLogAdded);
   dashboardEvents.on('historyAdded', onHistoryAdded);
   dashboardEvents.on('presenceChanged', onPresenceChanged);
-  if (res.locals.session.permissions.manageAppleAuth) {
+  if (hasPermission(res.locals.session.permissions, PermissionFlag.manageAppleAuth)) {
     sendEvent('appleAuth', getAppleAuthStatus());
     dashboardEvents.on('appleAuthChanged', onAppleAuthChanged);
   }
@@ -381,7 +405,7 @@ function serializeDevice(d: DeviceRecord) {
   return d;
 }
 
-dashboardRouter.get('/v1/dashboard/devices', canManageScheduler, (_req, res) => {
+dashboardRouter.get('/v1/dashboard/devices', canManageDevices, (_req, res) => {
   res.json({ devices: getEffectiveDevices().map(serializeDevice) });
 });
 
@@ -406,7 +430,7 @@ function parseDeviceInput(body: unknown): DeviceInput | undefined {
   };
 }
 
-dashboardRouter.post('/v1/dashboard/devices', canManageScheduler, async (req, res) => {
+dashboardRouter.post('/v1/dashboard/devices', canManageDevices, async (req, res) => {
   const input = parseDeviceInput(req.body);
   if (!input) {
     res.status(400).json({ error: 'name and rootDir are required' });
@@ -423,7 +447,7 @@ dashboardRouter.post('/v1/dashboard/devices', canManageScheduler, async (req, re
   res.status(201).json(device);
 });
 
-dashboardRouter.patch('/v1/dashboard/devices/:id', canManageScheduler, async (req, res) => {
+dashboardRouter.patch('/v1/dashboard/devices/:id', canManageDevices, async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const patch: Partial<DeviceInput> = {};
   if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim();
@@ -449,7 +473,7 @@ dashboardRouter.patch('/v1/dashboard/devices/:id', canManageScheduler, async (re
   res.json(result.device);
 });
 
-dashboardRouter.delete('/v1/dashboard/devices/:id', canManageScheduler, (req, res) => {
+dashboardRouter.delete('/v1/dashboard/devices/:id', canManageDevices, (req, res) => {
   const ok = deleteDevice(req.params.id, res.locals.session.sub);
   if (!ok) {
     res.status(404).json({ error: 'device not found' });
@@ -497,7 +521,7 @@ function serializeWatch(w: AppWatch) {
   return { ...w, schedulable: isWatchSchedulable(w), configIssues: getWatchConfigIssues(w) };
 }
 
-dashboardRouter.get('/v1/dashboard/watches', canManageScheduler, (_req, res) => {
+dashboardRouter.get('/v1/dashboard/watches', canViewScheduler, (_req, res) => {
   res.json({ watches: getEffectiveWatches().map(serializeWatch) });
 });
 
@@ -525,7 +549,7 @@ function parseWatchInput(body: unknown): WatchInput | undefined {
   };
 }
 
-dashboardRouter.post('/v1/dashboard/watches', canManageScheduler, (req, res) => {
+dashboardRouter.post('/v1/dashboard/watches', canManageWatches, (req, res) => {
   const input = parseWatchInput(req.body);
   if (!input) {
     res.status(400).json({ error: 'bundleId is required' });
@@ -545,7 +569,7 @@ dashboardRouter.post('/v1/dashboard/watches', canManageScheduler, (req, res) => 
   res.status(201).json(serializeWatch(result.watch as AppWatch));
 });
 
-dashboardRouter.patch('/v1/dashboard/watches/:id', canManageScheduler, (req, res) => {
+dashboardRouter.patch('/v1/dashboard/watches/:id', canManageWatches, (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const patch: Partial<WatchInput> = {};
   if (typeof body.name === 'string') patch.name = body.name.trim() || undefined;
@@ -570,7 +594,7 @@ dashboardRouter.patch('/v1/dashboard/watches/:id', canManageScheduler, (req, res
   res.json(serializeWatch(result.watch as AppWatch));
 });
 
-dashboardRouter.delete('/v1/dashboard/watches/:id', canManageScheduler, (req, res) => {
+dashboardRouter.delete('/v1/dashboard/watches/:id', canManageWatches, (req, res) => {
   const ok = deleteWatch(req.params.id, res.locals.session.sub);
   if (!ok) {
     res.status(404).json({ error: 'watch not found' });
@@ -762,7 +786,7 @@ dashboardRouter.post('/v1/dashboard/keys/request', canDecrypt, (req, res) => {
   const allowedBundleIds = parseAllowedBundleIds(req.body?.allowedBundleIds);
   const dailyLimit = parseDailyLimit(req.body?.dailyLimit);
 
-  if (permissions.approveApiKeys) {
+  if (hasPermission(permissions, PermissionFlag.approveApiKeys)) {
     res.status(201).json(createApiKey(name, sub, expiresInDays, allowedBundleIds, dailyLimit));
     return;
   }
@@ -798,7 +822,7 @@ dashboardRouter.post('/v1/dashboard/keys/:id/regenerate', (req, res) => {
 
 dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
   const { sub, permissions } = res.locals.session;
-  const ok = revokeApiKey(req.params.id, sub, permissions.revokeApiKeys);
+  const ok = revokeApiKey(req.params.id, sub, hasPermission(permissions, PermissionFlag.revokeApiKeys));
   if (!ok) {
     res.status(404).json({ error: 'key not found or not yours' });
     return;
@@ -809,14 +833,15 @@ dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
 dashboardRouter.post('/v1/dashboard/keys/bulk-revoke', (req, res) => {
   const { sub, permissions } = res.locals.session;
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown) => typeof id === 'string') : [];
-  const revoked = ids.filter((id: string) => revokeApiKey(id, sub, permissions.revokeApiKeys));
+  const canRevokeAny = hasPermission(permissions, PermissionFlag.revokeApiKeys);
+  const revoked = ids.filter((id: string) => revokeApiKey(id, sub, canRevokeAny));
   res.json({ revoked });
 });
 
 const MIN_EXPIRY_EXTEND_DAYS = 1;
 const MAX_EXPIRY_EXTEND_DAYS = 3650;
 
-dashboardRouter.post('/v1/dashboard/keys/bulk-extend-expiry', canApproveApiKeys, (req, res) => {
+dashboardRouter.post('/v1/dashboard/keys/bulk-extend-expiry', canManageApiKeyLimits, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown) => typeof id === 'string') : [];
   const days = typeof req.body?.days === 'number' ? Math.round(req.body.days) : undefined;
   if (!days || days < MIN_EXPIRY_EXTEND_DAYS || days > MAX_EXPIRY_EXTEND_DAYS) {
@@ -827,7 +852,7 @@ dashboardRouter.post('/v1/dashboard/keys/bulk-extend-expiry', canApproveApiKeys,
   res.json({ extended });
 });
 
-dashboardRouter.post('/v1/dashboard/keys/bulk-set-daily-limit', canApproveApiKeys, (req, res) => {
+dashboardRouter.post('/v1/dashboard/keys/bulk-set-daily-limit', canManageApiKeyLimits, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown) => typeof id === 'string') : [];
   const raw = req.body?.dailyLimit;
   const dailyLimit = raw === null ? undefined : parseDailyLimit(raw);
@@ -846,7 +871,7 @@ dashboardRouter.get('/v1/dashboard/keys/:id/usage', (req, res) => {
     return;
   }
   const { sub, permissions } = res.locals.session;
-  if (key.ownerId !== sub && !permissions.viewApiKeys) {
+  if (key.ownerId !== sub && !hasPermission(permissions, PermissionFlag.viewApiKeys)) {
     res.status(403).json({ error: "not your key" });
     return;
   }
@@ -861,7 +886,7 @@ dashboardRouter.get('/v1/dashboard/keys/:id/bundle-usage', (req, res) => {
     return;
   }
   const { sub, permissions } = res.locals.session;
-  if (key.ownerId !== sub && !permissions.viewApiKeys) {
+  if (key.ownerId !== sub && !hasPermission(permissions, PermissionFlag.viewApiKeys)) {
     res.status(403).json({ error: "not your key" });
     return;
   }
@@ -896,7 +921,7 @@ dashboardRouter.post('/v1/dashboard/keys/bulk-approve', canApproveApiKeys, (req,
   res.json({ approved });
 });
 
-dashboardRouter.patch('/v1/dashboard/keys/:id/priority', canApproveApiKeys, (req, res) => {
+dashboardRouter.patch('/v1/dashboard/keys/:id/priority', canManageApiKeyLimits, (req, res) => {
   const priority = typeof req.body?.priority === 'number' ? req.body.priority : undefined;
   if (priority === undefined || !Number.isFinite(priority)) {
     res.status(400).json({ error: 'priority (a number) is required' });
@@ -953,7 +978,7 @@ const MIN_TESTFLIGHT_BRIDGE_ALERT_MINUTES = 5;
 const MAX_TESTFLIGHT_BRIDGE_ALERT_MINUTES = 180;
 const MAX_JOB_HISTORY_RETENTION_DAYS = 365;
 
-dashboardRouter.put('/v1/dashboard/settings', canManageScheduler, (req, res) => {
+dashboardRouter.put('/v1/dashboard/settings', canManageSchedulerSettings, (req, res) => {
   const body = req.body ?? {};
   const patch: Partial<SchedulerSettings> = {};
 
@@ -1007,7 +1032,7 @@ dashboardRouter.put('/v1/dashboard/settings', canManageScheduler, (req, res) => 
   res.json(updated);
 });
 
-dashboardRouter.get('/v1/dashboard/settings/validate-cron', canManageScheduler, (req, res) => {
+dashboardRouter.get('/v1/dashboard/settings/validate-cron', canValidateCron, (req, res) => {
   const expr = typeof req.query.expr === 'string' ? req.query.expr : '';
   res.json({ valid: expr !== '' && validateCronExpr(expr) });
 });
@@ -1023,11 +1048,17 @@ dashboardRouter.post('/v1/dashboard/auth-alert/clear', canTriggerDispatch, (_req
   res.json({ ok: true });
 });
 
-function parsePermissions(body: unknown): Permissions | undefined {
-  if (typeof body !== 'object' || body === null) return undefined;
-  const b = body as Record<string, unknown>;
-  if (!PERMISSION_KEYS.every((k) => typeof b[k] === 'boolean')) return undefined;
-  return Object.fromEntries(PERMISSION_KEYS.map((k) => [k, b[k] as boolean])) as unknown as Permissions;
+function parseRoleIds(body: unknown): string[] | undefined {
+  if (!Array.isArray(body) || !body.every((id) => typeof id === 'string')) return undefined;
+  return body as string[];
+}
+
+// A role can only be handed to a user, or created/edited to grant a given bit, by someone who
+// either already holds manageRoles (the "I define what roles can do" permission) or already has
+// every bit involved themselves - otherwise a manageUsers-only admin could bootstrap their way to
+// Administrator by creating or assigning a role more powerful than their own access.
+function canGrantBits(actorBits: bigint, targetBits: bigint): boolean {
+  return hasPermission(actorBits, PermissionFlag.manageRoles) || isSubsetPermission(targetBits, actorBits);
 }
 
 dashboardRouter.get('/v1/dashboard/users', canViewUsers, (_req, res) => {
@@ -1039,31 +1070,125 @@ dashboardRouter.get('/v1/dashboard/audit-log', canViewUsers, (req, res) => {
   res.json({ entries: getAuditLog(limit) });
 });
 
-dashboardRouter.post('/v1/dashboard/users', canManageUsers, (req, res) => {
-  const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
-  const permissions = parsePermissions(req.body?.permissions);
-  if (!username || !permissions) {
-    res.status(400).json({ error: `username and permissions (${PERMISSION_KEYS.join(', ')}) are required` });
+dashboardRouter.get('/v1/dashboard/roles', canViewUsers, (_req, res) => {
+  res.json({ roles: listRoles() });
+});
+
+interface RoleInput {
+  name: string;
+  color: string;
+  permissions: string;
+}
+
+function parseRoleInput(body: unknown): RoleInput | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const b = body as Record<string, unknown>;
+  const name = typeof b.name === 'string' ? b.name.trim() : '';
+  const color = typeof b.color === 'string' && /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : undefined;
+  if (!name || !color || (b.permissions !== undefined && typeof b.permissions !== 'string')) return undefined;
+  return { name, color, permissions: typeof b.permissions === 'string' ? b.permissions : '0' };
+}
+
+dashboardRouter.post('/v1/dashboard/roles', canManageRoles, (req, res) => {
+  const input = parseRoleInput(req.body);
+  if (!input) {
+    res.status(400).json({ error: 'name (non-empty) and color (#rrggbb) are required' });
     return;
   }
-  res.status(201).json(addAllowedUser(username, permissions, res.locals.session.sub));
+  const bits = parseBits(input.permissions);
+  if (!canGrantBits(res.locals.session.permissions, bits)) {
+    res.status(403).json({ error: "you can't grant permissions you don't have yourself" });
+    return;
+  }
+  res.status(201).json(createRole(input, res.locals.session.sub));
+});
+
+dashboardRouter.patch('/v1/dashboard/roles/:id', canManageRoles, (req, res) => {
+  if (req.params.id === DEFAULT_ROLE_ID) {
+    res.status(400).json({ error: "the @everyone role can't be renamed" });
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const patch: { name?: string; color?: string; permissions?: string } = {};
+  if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim();
+  if (typeof body.color === 'string' && /^#[0-9a-f]{6}$/i.test(body.color)) patch.color = body.color;
+  if (typeof body.permissions === 'string') {
+    const bits = parseBits(body.permissions);
+    if (!canGrantBits(res.locals.session.permissions, bits)) {
+      res.status(403).json({ error: "you can't grant permissions you don't have yourself" });
+      return;
+    }
+    patch.permissions = body.permissions;
+  }
+  const result = updateRole(req.params.id, patch, res.locals.session.sub);
+  if (!result.ok) {
+    res.status(result.error === 'role not found' ? 404 : 400).json({ error: result.error });
+    return;
+  }
+  res.json(result.role);
+});
+
+dashboardRouter.delete('/v1/dashboard/roles/:id', canManageRoles, (req, res) => {
+  const result = deleteRole(req.params.id, res.locals.session.sub);
+  if (!result.ok) {
+    res.status(result.error === 'role not found' ? 404 : 400).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+dashboardRouter.post('/v1/dashboard/roles/reorder', canManageRoles, (req, res) => {
+  const ids = parseRoleIds(req.body?.roleIds);
+  if (!ids) {
+    res.status(400).json({ error: 'roleIds (an array of role ids) is required' });
+    return;
+  }
+  const ok = reorderRoles(ids, res.locals.session.sub);
+  if (!ok) {
+    res.status(400).json({ error: 'roleIds must contain every non-default role exactly once' });
+    return;
+  }
+  res.json({ roles: listRoles() });
+});
+
+dashboardRouter.post('/v1/dashboard/users', canManageUsers, (req, res) => {
+  const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+  const roleIds = parseRoleIds(req.body?.roleIds);
+  if (!username || !roleIds) {
+    res.status(400).json({ error: 'username and roleIds (an array of role ids) are required' });
+    return;
+  }
+  const targetBits = effectiveBitsForRoleIds(roleIds, listRoles());
+  if (!canGrantBits(res.locals.session.permissions, targetBits)) {
+    res.status(403).json({ error: "you can't grant permissions you don't have yourself" });
+    return;
+  }
+  res.status(201).json(addAllowedUser(username, roleIds, res.locals.session.sub));
 });
 
 dashboardRouter.patch('/v1/dashboard/users/:username', canManageUsers, (req, res) => {
-  const permissions = parsePermissions(req.body?.permissions);
-  if (!permissions) {
-    res.status(400).json({ error: `permissions (${PERMISSION_KEYS.join(', ')}) are required` });
+  const roleIds = parseRoleIds(req.body?.roleIds);
+  if (!roleIds) {
+    res.status(400).json({ error: 'roleIds (an array of role ids) is required' });
     return;
   }
-  if (req.params.username.toLowerCase() === res.locals.session.sub.toLowerCase() && !permissions.manageUsers) {
+  const targetBits = effectiveBitsForRoleIds(roleIds, listRoles());
+  if (!canGrantBits(res.locals.session.permissions, targetBits)) {
+    res.status(403).json({ error: "you can't grant permissions you don't have yourself" });
+    return;
+  }
+  if (
+    req.params.username.toLowerCase() === res.locals.session.sub.toLowerCase() &&
+    !hasPermission(targetBits, PermissionFlag.manageUsers)
+  ) {
     res.status(400).json({ error: "you can't remove your own ability to manage users" });
     return;
   }
-  if (wouldOrphanManageUsers(req.params.username, permissions)) {
+  if (wouldOrphanPermission(req.params.username, PermissionFlag.manageUsers, roleIds)) {
     res.status(400).json({ error: 'this would leave nobody on the allowlist able to manage users - grant it to someone else first' });
     return;
   }
-  const updated = updateAllowedUserPermissions(req.params.username, permissions, res.locals.session.sub);
+  const updated = updateAllowedUserRoles(req.params.username, roleIds, res.locals.session.sub);
   if (!updated) {
     res.status(404).json({ error: 'not on the allowlist' });
     return;
@@ -1075,7 +1200,7 @@ dashboardRouter.patch('/v1/dashboard/users/:username', canManageUsers, (req, res
 });
 
 dashboardRouter.delete('/v1/dashboard/users/:username', canManageUsers, (req, res) => {
-  if (wouldOrphanManageUsers(req.params.username, null)) {
+  if (wouldOrphanPermission(req.params.username, PermissionFlag.manageUsers, null)) {
     res.status(400).json({ error: 'this would leave nobody on the allowlist able to manage users - grant it to someone else first' });
     return;
   }
@@ -1087,12 +1212,12 @@ dashboardRouter.delete('/v1/dashboard/users/:username', canManageUsers, (req, re
   res.json({ ok: true });
 });
 
-dashboardRouter.get('/v1/dashboard/backup/export', canManageUsers, (_req, res) => {
+dashboardRouter.get('/v1/dashboard/backup/export', canManageBackup, (_req, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename="dkrypt-backup.json"');
   res.json(exportBackup());
 });
 
-dashboardRouter.post('/v1/dashboard/backup/import', canManageUsers, (req, res) => {
+dashboardRouter.post('/v1/dashboard/backup/import', canManageBackup, (req, res) => {
   const result = importBackup(req.body, res.locals.session.sub);
   if (!result.ok) {
     res.status(400).json({ error: result.error });

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { cancelJob, fetchJobHistory, fetchMyKeys, jobHistoryExportUrl, triggerWatchDispatch } from '../lib/api';
-  import { logout, sessionState } from '../lib/session.svelte';
+  import { PermissionFlag } from '../lib/permissions';
+  import { logout, sessionCanSeeSettings, sessionHasPermission } from '../lib/session.svelte';
   import {
     closePalette,
     confirmDialog,
@@ -60,18 +61,12 @@
       { id: 'home', label: 'Go to Home', run: () => setActiveTab('home') },
       { id: 'keys', label: 'Go to API Keys', run: () => setActiveTab('keys') },
     ];
-    if (sessionState.permissions?.viewLogs) {
+    if (sessionHasPermission(PermissionFlag.viewLogs)) {
       base.push({ id: 'logs', label: 'Go to Logs', run: () => setActiveTab('logs') });
     }
     base.push({ id: 'insights', label: 'Go to Insights', run: () => setActiveTab('insights') });
     base.push({ id: 'docs', label: 'Go to Docs', run: () => setActiveTab('docs') });
-    if (
-      sessionState.permissions?.manageScheduler ||
-      sessionState.permissions?.triggerDispatch ||
-      sessionState.permissions?.manageAppleAuth ||
-      sessionState.permissions?.viewUsers ||
-      sessionState.permissions?.manageUsers
-    ) {
+    if (sessionCanSeeSettings()) {
       base.push({ id: 'settings', label: 'Go to Settings', run: () => setActiveTab('settings') });
     }
     const THEME_CYCLE = ['dark', 'light', 'auto'] as const;
@@ -82,14 +77,14 @@
     });
     base.push({ id: 'shortcuts', label: 'Show keyboard shortcuts', run: () => openHelp() });
 
-    if (sessionState.permissions?.decrypt) {
+    if (sessionHasPermission(PermissionFlag.requestDecrypt)) {
       base.push({ id: 'batch-decrypt', label: 'Open batch decrypt', run: () => requestOpenBatch() });
       const activeCount = liveState.overview?.activeJobs.length ?? 0;
       if (activeCount > 0) {
         base.push({ id: 'cancel-all', label: `Cancel all ${activeCount} active job(s)`, run: () => void cancelAllJobs() });
       }
     }
-    if (sessionState.permissions?.triggerDispatch) {
+    if (sessionHasPermission(PermissionFlag.triggerDispatch)) {
       for (const w of liveState.overview?.watches ?? []) {
         if (!w.schedulable) continue;
         base.push({

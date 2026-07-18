@@ -20,7 +20,8 @@
   import { debounce } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
   import { requestNotificationPermission } from '../../lib/notifications';
-  import { sessionState } from '../../lib/session.svelte';
+  import { PermissionFlag } from '../../lib/permissions';
+  import { sessionHasPermission } from '../../lib/session.svelte';
   import { showToast } from '../../lib/ui.svelte';
   import { cn } from '../../lib/utils';
   import TestFlightPickerDialog from './TestFlightPickerDialog.svelte';
@@ -94,7 +95,7 @@
     inputEl?.focus();
   }
 
-  const canDecrypt = $derived(!!sessionState.permissions?.decrypt);
+  const canDecrypt = $derived(sessionHasPermission(PermissionFlag.requestDecrypt));
 
   let versionsOpen = $state(false);
   let versionsBundleId = $state('');
