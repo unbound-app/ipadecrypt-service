@@ -102,7 +102,7 @@ async function queryDeviceStorage(conn: Client): Promise<DeviceStorage | undefin
   let parsed: { totalKb: number; usedKb: number; freeKb: number } | undefined;
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const line = lines[i].trim();
-    const match = line.match(/(?:^|\s)(\d+)\s+(\d+)\s+(\d+)\s+\d+%\b/);
+    const match = line.match(/(?:^|\s)(\d+)\s+(\d+)\s+(\d+)\s+\d+%(?:\s|$)/);
     if (!match) continue;
     parsed = {
       totalKb: Number(match[1]),
