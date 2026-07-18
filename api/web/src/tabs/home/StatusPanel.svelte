@@ -6,13 +6,11 @@
     fetchDeviceBatteryHistory,
     fetchDeviceHealth,
     fetchDeviceHealthHistory,
-    fetchDeviceStorageHistory,
     fetchDeviceTemperatureHistory,
     fetchJobVolume,
     type DeviceHealth,
     type HourlyBatteryBucket,
     type HourlyHealthBucket,
-    type HourlyStorageBucket,
     type HourlyTemperatureBucket,
     type SchedulerRunOutcome,
   } from '../../lib/api';
@@ -194,30 +192,6 @@
   }
 
   const hasTemperatureHistory = $derived(temperatureHistory?.some((b) => b.batteryTemperatureC !== null) ?? false);
-
-  let storageHistory = $state<HourlyStorageBucket[] | null>(null);
-
-  $effect(() => {
-    const load = () => void fetchDeviceStorageHistory(24).then((r) => (storageHistory = r.buckets));
-    load();
-    const interval = setInterval(load, 60_000);
-    return () => clearInterval(interval);
-  });
-
-  function storageBucketColor(pct: number | null): string {
-    if (pct === null) return 'bg-panel-muted';
-    if (pct >= 90) return 'bg-err';
-    if (pct >= 75) return 'bg-warn';
-    return 'bg-ok';
-  }
-
-  function storageBucketTitle(bucket: HourlyStorageBucket): string {
-    const time = new Date(bucket.hourStart).toLocaleString(undefined, { hour: 'numeric', month: 'short', day: 'numeric' });
-    if (bucket.storageUsedPercent === null) return `${time}: no data`;
-    return `${time}: ${bucket.storageUsedPercent}% used`;
-  }
-
-  const hasStorageHistory = $derived(storageHistory?.some((b) => b.storageUsedPercent !== null) ?? false);
 
   const deviceStorageColor = $derived.by(() => {
     const pct = health?.storageUsedPercent ?? 0;
@@ -434,16 +408,6 @@
       </div>
       <div class="bg-panel-muted h-1.5 w-full overflow-hidden rounded-full">
         <div class="h-full rounded-full {deviceStorageColor}" style="width: {Math.min(100, health.storageUsedPercent * 100)}%"></div>
-      </div>
-    </div>
-  {/if}
-  {#if hasStorageHistory}
-    <div class="border-border mt-3 border-t pt-3">
-      <div class="mb-1.5 text-xs text-muted">iDevice storage · last 24h</div>
-      <div class="flex gap-0.5">
-        {#each storageHistory ?? [] as bucket (bucket.hourStart)}
-          <div class="h-4 flex-1 rounded-sm {storageBucketColor(bucket.storageUsedPercent)}" title={storageBucketTitle(bucket)}></div>
-        {/each}
       </div>
     </div>
   {/if}
