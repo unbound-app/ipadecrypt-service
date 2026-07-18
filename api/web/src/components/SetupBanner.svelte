@@ -20,7 +20,7 @@
       {#each issues as issue (issue)}
         <div>{issue}</div>
       {/each}
-      <button class="mt-1.5 cursor-pointer underline underline-offset-2" onclick={goToScheduler}>Go to Scheduler settings</button>
+      <button class="mt-1.5 cursor-pointer underline underline-offset-2" onclick={goToScheduler}>Go to Automation settings</button>
     </div>
   </div>
 {/if}

@@ -11,7 +11,7 @@
   import UsersSettings from './settings/UsersSettings.svelte';
 
   const ALL_SUBTABS: { id: string; label: string; requires: bigint[] }[] = [
-    { id: 'scheduler', label: 'Scheduler', requires: [PermissionFlag.manageWatches, PermissionFlag.manageSchedulerSettings, PermissionFlag.triggerDispatch] },
+    { id: 'scheduler', label: 'Automation', requires: [PermissionFlag.manageWatches, PermissionFlag.manageSchedulerSettings, PermissionFlag.triggerDispatch] },
     { id: 'devices', label: 'Devices', requires: [PermissionFlag.manageDevices] },
     { id: 'users', label: 'Users', requires: [PermissionFlag.viewUsers, PermissionFlag.manageUsers] },
     { id: 'roles', label: 'Roles', requires: [PermissionFlag.viewUsers, PermissionFlag.manageUsers, PermissionFlag.manageRoles] },

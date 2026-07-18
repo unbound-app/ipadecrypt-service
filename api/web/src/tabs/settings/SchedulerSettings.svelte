@@ -358,7 +358,7 @@
           <div class="border-border rounded-lg border p-3">
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-[13px] font-medium">{w.name || w.bundleId}</span>
-              <Badge variant={w.schedulable ? 'success' : 'secondary'}>{w.schedulable ? 'active' : 'off'}</Badge>
+              <Badge variant={w.schedulable ? 'success' : 'secondary'}>{w.schedulable ? 'watching' : 'off'}</Badge>
               {#if w.nextRunAt}
                 <span class="text-xs text-muted">next run <RelativeTime ms={w.nextRunAt} /></span>
               {/if}

@@ -394,7 +394,7 @@
               <div class="truncate font-mono text-[10.5px] text-muted" title={w.bundleId || '-'}>{w.bundleId || '-'}</div>
             {/if}
           </div>
-          <Badge variant={w.schedulable ? 'success' : 'secondary'} class="shrink-0">{w.schedulable ? 'on' : 'off'}</Badge>
+          <Badge variant={w.schedulable ? 'success' : 'secondary'} class="shrink-0 text-xs">{w.schedulable ? 'watching' : 'off'}</Badge>
         </div>
       {/each}
       {#if nextRunLabel}

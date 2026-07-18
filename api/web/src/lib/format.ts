@@ -4,14 +4,16 @@ export function fmtTime(ms?: number): string {
 
 export function fmtRelative(ms?: number): string {
   if (!ms) return '-';
-  const sec = Math.round(Math.abs(Date.now() - ms) / 1000);
-  if (sec < 45) return 'just now';
+  const diff = ms - Date.now();
+  const future = diff > 0;
+  const sec = Math.round(Math.abs(diff) / 1000);
+  if (sec < 45) return future ? 'in a moment' : 'just now';
   const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return future ? `in ${min}m` : `${min}m ago`;
   const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return future ? `in ${hr}h` : `${hr}h ago`;
   const day = Math.round(hr / 24);
-  if (day < 30) return `${day}d ago`;
+  if (day < 30) return future ? `in ${day}d` : `${day}d ago`;
   return new Date(ms).toLocaleDateString();
 }
 
