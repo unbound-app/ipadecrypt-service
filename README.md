@@ -1,33 +1,36 @@
 # dkrypt
 
 Docker Compose service that wraps [londek/ipadecrypt](https://github.com/londek/ipadecrypt)
-behind an authenticated HTTP API, run against a jailbroken iDevice reachable
-over SSH from the host. Two jobs:
+behind an authenticated HTTP API, run against one or more jailbroken iDevices
+reachable over SSH from the host. Two jobs:
 
 1. **On-demand decrypt** - `GET /v1/decrypt?bundleId=...` decrypts and
    returns any app by bundle ID.
-2. **Automated release watch** - on a cron schedule, checks whether the
-   currently-live App Store version of `WATCH_BUNDLE_ID` already has a
-   matching release in `WATCH_APP_REPO`; if not, decrypts it, temporarily
-   hosts the IPA, and fires a `repository_dispatch` (`ipa-update`) at your
-   build workflow with a signed, short-lived download URL. The scheduler
-   records that outcome the moment the dispatch call itself succeeds - it
-   doesn't block the next scheduled check on waiting for your build
-   workflow to actually finish (which can take a while). It then tracks
-   that workflow run in the background and patches the same history entry
-   with the final status once it completes, so the Status card's recent
-   checks go `dispatched → succeeded/failed` live instead of just sitting
-   on "dispatched" until everything's done.
+2. **Automated release watch** - one or more *watches*, each on its own cron
+   schedule, check whether the currently-live App Store version of a watched
+   bundle ID already has a matching release in its app repo; if not, decrypt
+   it, temporarily host the IPA, and fire a `repository_dispatch`
+   (`ipa-update`) at that watch's build workflow with a signed, short-lived
+   download URL. A watch records its outcome the moment the dispatch call
+   itself succeeds - it doesn't block the next scheduled check on waiting
+   for the build workflow to actually finish (which can take a while). It
+   then tracks that workflow run in the background and patches the same
+   history entry with the final status once it completes, so the Status
+   card's recent checks go `dispatched → succeeded/failed` live instead of
+   just sitting on "dispatched" until everything's done. See **Multiple
+   watches** below for managing more than one.
 
-Both paths share one job queue, because the physical jailbroken device can
-only run one `ipadecrypt decrypt` at a time. Queuing is FIFO by default, but
-manually-queued jobs can carry a priority weight (see **Priority** below) -
-scheduler jobs always jump straight to the front regardless.
+Both paths share one priority-ordered job queue per registered device (see
+**Multiple devices** below) - manually-queued jobs can carry a priority
+weight (see **Priority** below), scheduler jobs always jump straight to the
+front regardless. A single-device install (the default - nothing extra to
+configure) behaves exactly as before: one shared queue, one worker.
 
 A third path, **TestFlight builds**, lets you browse an app's beta trains,
 install a specific build, and decrypt it (`ipadecrypt decrypt
 --use-installed`) - see **TestFlight builds** below for the extra
-device-side setup this needs.
+device-side setup this needs. TestFlight installs always run against the
+primary device, even in a multi-device pool - see **Multiple devices**.
 
 ## Setup
 
@@ -44,8 +47,9 @@ device-side setup this needs.
    docker compose build
    ```
 4. **Bootstrap ipadecrypt once, interactively** (App Store login + device
-   SSH details - persisted in the `appstore-config` volume). The `api`
-   service has a fixed `container_name`, so if it's already running,
+   SSH details - persisted under `IPADECRYPT_ROOT_DIR`, default
+   `/root/.ipadecrypt`, itself inside the `appstore-config` volume). The
+   `api` service has a fixed `container_name`, so if it's already running,
    `docker compose run` needs an explicit different name to avoid clashing
    with it:
    ```sh
@@ -55,6 +59,11 @@ device-side setup this needs.
    ```sh
    docker compose up -d
    ```
+
+To add a second (or third...) physical device later, bootstrap it the same
+way against a distinct root dir (`ipadecrypt --root-dir /data/devices/b
+bootstrap`, run interactively, same as step 4) and register that root dir
+from **Settings → Devices** - see **Multiple devices** below.
 
 ## Fronting with Caddy
 
@@ -226,13 +235,18 @@ Tabs:
 - **Settings** (needs `manageScheduler`, `triggerDispatch`,
   `manageAppleAuth`, `viewUsers`, or `manageUsers`) - sub-tabs shown
   depend on which you have:
-  - *Scheduler* (`manageScheduler` and/or `triggerDispatch`) - edit the
-    watch bundle ID, watch/dispatch repos, workflow file, poll cron, and
-    notification webhook URL live, no restart needed, if you have
-    `manageScheduler` (fields are read-only otherwise). The
-    preview/trigger/test-webhook/dismiss-alert actions need
-    `triggerDispatch` instead - an operator can have one without the
-    other. `GH_TOKEN` and `API_KEY` stay env-only, not editable here.
+  - *Scheduler* (`manageScheduler` and/or `triggerDispatch`) - manage the
+    watch list (see **Multiple watches** below) and the global notification
+    webhook, job-completion webhook, and alert thresholds live, no restart
+    needed, if you have `manageScheduler` (fields are read-only otherwise).
+    The per-watch preview/trigger actions and the test-webhook/dismiss-alert
+    actions need `triggerDispatch` instead - an operator can have one
+    without the other. `GH_TOKEN` and `API_KEY` stay env-only, not editable
+    here. A "Recent webhook deliveries" panel at the bottom shows the last
+    30 attempts (scheduler notifications and job-completion webhooks alike)
+    with their target host, success/failure, and error if any.
+  - *Devices* (`manageScheduler`) - manage the device pool (see **Multiple
+    devices** below).
   - *Users* (`viewUsers` or `manageUsers`) - the GitHub OAuth allowlist:
     `viewUsers` alone gets a read-only list plus the audit log below it
     (who added/updated/removed which user, and what changed);
@@ -303,6 +317,42 @@ survives a fresh `appstore-config` volume the same way `ipadecrypt
 bootstrap` doesn't (bootstrap's App Store login still has to be done once,
 interactively, per the Setup steps above).
 
+## Multiple watches
+
+**Settings → Scheduler → Watches** manages a list of independently-scheduled
+watches, each with its own bundle ID, app repo, GitHub dispatch repo,
+workflow file, and poll cron - add as many as you need. Each ticks entirely
+on its own schedule (no shared global tick), and each is also always watched
+for new TestFlight builds the same way the single legacy watch was (its
+numeric App Store ID resolved automatically, no separate config). Two
+*enabled* watches can't target the same bundle ID (a disabled one can, so
+you can keep an old config around without it colliding).
+
+Existing single-watch installs (the `WATCH_BUNDLE_ID` / `WATCH_APP_REPO` /
+`GH_DISPATCH_REPO` / `GH_WORKFLOW_FILE` / `POLL_CRON` env vars) keep working
+unmodified - they're treated as one implicit watch until you explicitly add
+a watch of your own or edit that implicit one from the dashboard, at which
+point it's materialized into a real, editable entry. `GH_TOKEN` stays a
+single env-only credential shared by every watch (it needs access to all of
+their dispatch repos).
+
+## Multiple devices
+
+**Settings → Devices** manages a pool of registered iDevices. Each device
+needs to already be independently bootstrapped (`ipadecrypt --root-dir
+<path> bootstrap`, interactively, per device - see **Setup** above) before
+it can be registered; the dashboard only consumes an already-bootstrapped
+root dir, it can't run the interactive App Store sign-in for you. App Store
+decrypt jobs distribute across every *enabled* device (first idle device
+takes the next queued job); TestFlight jobs always run on whichever device
+is flagged **primary**, since a TestFlight install and its tfauto bridge are
+tied to one specific physical device. Device health (reachability, battery,
+temperature, storage) is tracked and alerted on per device; the alert
+*thresholds* themselves (Settings → Scheduler) are global across the whole
+pool. Existing single-device installs (`IPADECRYPT_ROOT_DIR`, default
+`/root/.ipadecrypt`) keep working unmodified as an implicit primary device,
+materialized into a real entry the same way an implicit watch is.
+
 ## TestFlight builds
 
 Browsing/installing TestFlight builds needs a small companion tweak,
@@ -326,19 +376,27 @@ for `ipadecrypt` (reads the device host/port/key straight out of
 
 - Only free apps are supported (same limitation as `ipadecrypt` itself).
 - The queue is in-memory (priority-ordered among manual jobs, otherwise
-  FIFO) - restarting the container drops any in-flight/queued jobs (the
-  physical device only supports one worker anyway, so this hasn't been
-  built out further).
+  FIFO) per device - restarting the container drops any in-flight/queued
+  jobs.
 - Version matching for the automated App Store watch compares the iTunes
-  Lookup API `version` field against release tags in `WATCH_APP_REPO`,
+  Lookup API `version` field against release tags in a watch's app repo,
   normalizing a leading `v` (`v334.0` vs `334.0`). It looks for an *exact*
   match, not "newer than" - if your release tags diverge from the App
   Store version scheme this will need adjusting in `api/src/util/
   version.ts`.
-- The scheduler also always watches TestFlight for new builds of
-  `WATCH_BUNDLE_ID` (its numeric App Store ID is resolved automatically
-  via the same iTunes lookup, no separate config), matching tags shaped
+- Each watch also always watches TestFlight for new builds of its own
+  bundle ID (its numeric App Store ID is resolved automatically via the
+  same iTunes lookup, no separate config), matching tags shaped
   `v{shortVersion}_{buildNumber}` (e.g. `v1.0.0_106191`) - a different,
   exact-string match against the *raw* tag name, not the normalized App
   Store comparison above. Fails silently (logged, not fatal) if `tfauto`
   isn't installed on the device - see **TestFlight builds**.
+- Job history retention (Settings → Scheduler) defaults to keeping the most
+  recent 100 entries indefinitely; setting a day count also purges anything
+  older than that window on top of the count cap.
+- Decrypted apps' `Info.plist` (bundle/short version, minimum OS,
+  executable name, and the full primitive-valued key set) is captured at
+  decrypt time and stored alongside that job's history entry - the Job
+  History panel's bundle-stats view uses it to diff any two versions of the
+  same app (size delta + changed plist keys) without needing the original
+  files, which don't stick around past `FILE_TTL_MINUTES`.
