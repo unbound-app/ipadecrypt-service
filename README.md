@@ -12,8 +12,10 @@ over SSH from the host. Two jobs:
    hosts the IPA, and fires a `repository_dispatch` (`ipa-update`) at your
    build workflow with a signed, short-lived download URL.
 
-Both paths share one FIFO job queue, because the physical jailbroken device
-can only run one `ipadecrypt decrypt` at a time.
+Both paths share one job queue, because the physical jailbroken device can
+only run one `ipadecrypt decrypt` at a time. Queuing is FIFO by default, but
+manually-queued jobs can carry a priority weight (see **Priority** below) -
+scheduler jobs always jump straight to the front regardless.
 
 A third path, **TestFlight builds**, lets you browse an app's beta trains,
 install a specific build, and decrypt it (`ipadecrypt decrypt
@@ -155,6 +157,24 @@ Per-account preferences (currently just light/dark theme) are synced
 server-side, not just `localStorage` - switching browsers or devices keeps
 your last choice.
 
+**Priority**: `manageUsers` can set a user's queue priority (-5 to 5,
+default 0) from the Manage dialog on the Users tab, and `approveApiKeys` can
+set a priority per API key from the API Keys tab's "All keys" table.
+Higher-priority manually-queued jobs jump ahead of lower/default-priority
+ones already waiting - useful for e.g. keeping a CI runner's key below an
+on-call operator's own requests. It only reorders the manual queue; the
+scheduler's own jobs are unaffected (they already always jump to the
+front).
+
+**Push notifications**: the bell/permissions dropdown has an "Enable"
+button that requests browser notification permission and registers a Web
+Push subscription (VAPID keys are generated once and persisted in
+`STATE_DIR`) - once enabled, you get notified when your own queued decrypt
+finishes or fails even with the dashboard tab (or the whole browser)
+closed, not just while it's open in the foreground. Subscriptions are
+per-browser; a stale/expired one is dropped automatically the next time a
+push to it fails.
+
 Tabs:
 
 - **Home** - search the App Store and queue a decrypt, your own
@@ -172,15 +192,16 @@ Tabs:
   creation time (e.g. for a CI runner that should only ever touch one
   app) - the `/v1/decrypt` and `/v1/jobs/*` endpoints reject any bundle ID
   outside that list with a 403. Anyone with `approveApiKeys` additionally
-  sees pending requests (approve/deny, individually or in bulk) and can
-  create an auto-approved key directly; anyone with `viewApiKeys` sees the
-  full key list across every user (paginated); anyone with `revokeApiKeys`
-  can revoke or bulk-revoke keys that aren't theirs. A pending request
-  posts to `NOTIFY_WEBHOOK_URL` (if configured) so an approver doesn't
-  have to keep checking the tab. Keys are stored hashed - the plaintext is
-  only ever shown once, right after approval/regeneration. The root
-  `API_KEY` from `.env` always works too, is unrestricted, and isn't
-  managed here.
+  sees pending requests (approve/deny, individually or in bulk), can
+  create an auto-approved key directly, and can set a key's queue priority
+  from the "All keys" table (see **Priority** above); anyone with
+  `viewApiKeys` sees the full key list across every user (paginated);
+  anyone with `revokeApiKeys` can revoke or bulk-revoke keys that aren't
+  theirs. A pending request posts to `NOTIFY_WEBHOOK_URL` (if configured)
+  so an approver doesn't have to keep checking the tab. Keys are stored
+  hashed - the plaintext is only ever shown once, right after
+  approval/regeneration. The root `API_KEY` from `.env` always works too,
+  is unrestricted, isn't priority-weighted, and isn't managed here.
 - **Logs** (needs `viewLogs`) - a live feed of scheduler/job log lines,
   filterable by scope (all/scheduler/jobs), level (info/warning/error),
   and free-text search, with CSV/JSON export of whatever's currently
@@ -203,10 +224,13 @@ Tabs:
     (who added/updated/removed which user, and what changed);
     `manageUsers` additionally lets you add a username with a permission
     set, or open the Manage dialog on an existing entry to change their
-    permissions or remove them. A user can't remove their own
-    `manageUsers` permission, and no change is allowed that would leave
-    the allowlist with zero `manageUsers` holders - get someone else with
-    it to do that, or fall back to `ADMIN_PASSWORD`.
+    permissions, queue priority (see **Priority** above), or remove them.
+    A user can't remove their own `manageUsers` permission, and no change
+    is allowed that would leave the allowlist with zero `manageUsers`
+    holders - get someone else with it to do that, or fall back to
+    `ADMIN_PASSWORD`. The allowlist table also supports selecting several
+    users at once and applying a permission preset to all of them in one
+    go.
   - *Apple Auth* (`manageAppleAuth`) - re-runs just the App Store sign-in step of `ipadecrypt
     bootstrap` (email/password, and a 2FA code if Apple asks for one) as
     a piped child process, streaming its prompts to the page so you don't
@@ -274,9 +298,10 @@ for `ipadecrypt` (reads the device host/port/key straight out of
 ## Notes / limitations
 
 - Only free apps are supported (same limitation as `ipadecrypt` itself).
-- The queue is a simple in-memory FIFO - restarting the container drops
-  any in-flight/queued jobs (the physical device only supports one worker
-  anyway, so this hasn't been built out further).
+- The queue is in-memory (priority-ordered among manual jobs, otherwise
+  FIFO) - restarting the container drops any in-flight/queued jobs (the
+  physical device only supports one worker anyway, so this hasn't been
+  built out further).
 - Version matching for the automated App Store watch compares the iTunes
   Lookup API `version` field against release tags in `WATCH_APP_REPO`,
   normalizing a leading `v` (`v334.0` vs `334.0`). It looks for an *exact*

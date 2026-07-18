@@ -43,6 +43,9 @@ app.get('/og-image.png', (_req, res) =>
 app.get('/manifest.webmanifest', (_req, res) =>
   res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'manifest.webmanifest')),
 );
+// No long-lived cache header (the blanket no-store above already covers it) - a stale cached
+// service worker would keep old push-handling logic around instead of picking up updates.
+app.get('/sw.js', (_req, res) => res.type('application/javascript').sendFile(path.join(publicDir, 'sw.js')));
 
 app.use(healthRouter);
 app.use(decryptRouter);

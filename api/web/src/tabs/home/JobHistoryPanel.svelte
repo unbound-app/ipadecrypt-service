@@ -1,6 +1,7 @@
 <script lang="ts">
   import { History, X } from 'lucide-svelte';
   import BundleStatsDialog from '../../components/BundleStatsDialog.svelte';
+  import CopyButton from '../../components/CopyButton.svelte';
   import EmptyState from '../../components/EmptyState.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import ShareLinkDialog from '../../components/ShareLinkDialog.svelte';
@@ -16,6 +17,7 @@
   import { csvCell, debounce, downloadBlob, fmtSize } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
   import { scrollFade } from '../../lib/scrollFade';
+  import { sessionState } from '../../lib/session.svelte';
   import { confirmDialog, historyJumpState, showToast } from '../../lib/ui.svelte';
 
   const PAGE_SIZE = 15;
@@ -38,10 +40,10 @@
   let loadingMore = $state(false);
   let seenIds = new Set<string>();
   let requeueing = $state<Set<string>>(new Set());
-  let searchText = $state('');
+  let searchText = $state(localStorage.getItem('jobHistorySearchText') ?? '');
   let activeQuery = $state('');
-  let sourceFilter = $state<SourceFilter>('all');
-  let statusFilter = $state<StatusFilter>('all');
+  let sourceFilter = $state<SourceFilter>((localStorage.getItem('jobHistorySourceFilter') as SourceFilter | null) ?? 'all');
+  let statusFilter = $state<StatusFilter>((localStorage.getItem('jobHistoryStatusFilter') as StatusFilter | null) ?? 'all');
   let selected = $state<Set<string>>(new Set());
   let bulkRequeueing = $state(false);
   let presets = $state<FilterPreset[]>(loadFilterPresets<FilterPreset>(PRESETS_KEY));
@@ -139,6 +141,16 @@
     }
   });
 
+  $effect(() => {
+    localStorage.setItem('jobHistorySearchText', searchText);
+  });
+  $effect(() => {
+    localStorage.setItem('jobHistorySourceFilter', sourceFilter);
+  });
+  $effect(() => {
+    localStorage.setItem('jobHistoryStatusFilter', statusFilter);
+  });
+
   function clearSearch(): void {
     searchText = '';
   }
@@ -167,6 +179,12 @@
   function openStats(bundleId: string): void {
     statsBundleId = bundleId;
     statsOpen = true;
+  }
+
+  function curlFor(entry: JobHistoryEntry): string {
+    const base = sessionState.publicBaseUrl ?? location.origin;
+    const versionQuery = entry.externalVersionId ? `&externalVersionId=${entry.externalVersionId}` : '';
+    return `curl -H "Authorization: Bearer <YOUR_API_KEY>" "${base}/v1/decrypt?bundleId=${entry.bundleId}${versionQuery}" -o ${entry.bundleId}.ipa`;
   }
 
   async function decryptAgain(entry: JobHistoryEntry): Promise<void> {
@@ -386,6 +404,9 @@
                       </Button>
                       {#if j.status === 'done'}
                         <Button size="sm" variant="secondary" onclick={() => openShare(j.id)}>Share</Button>
+                      {/if}
+                      {#if !j.testflight}
+                        <CopyButton text={curlFor(j)} label="curl" />
                       {/if}
                     </div>
                   </td>

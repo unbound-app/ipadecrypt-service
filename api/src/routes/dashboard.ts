@@ -14,6 +14,7 @@ import { cancelJob, enqueueDecryptJob, getActiveJobs, getJob, prioritizeQueuedJo
 import type { LogEntry } from '../logger.js';
 import { getRecentLogs } from '../logger.js';
 import { EMBED_COLOR, notify, sendTestNotification } from '../notify.js';
+import { getVapidPublicKey, sendPushToUser } from '../push.js';
 import { applySchedule, checkForTestFlightUpdate, checkForUpdate, triggerTickNow } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requirePermission, requireSession } from '../session.js';
@@ -24,6 +25,7 @@ import { buildSignedFileUrl } from '../util/signedUrl.js';
 import { listAppVersions } from '../versions.js';
 import {
   addAllowedUser,
+  addPushSubscription,
   approveApiKey,
   bulkApproveApiKeys,
   clearAppleAuthAlert,
@@ -49,6 +51,7 @@ import {
   getSchedulerConfigIssues,
   getSchedulerRunHistory,
   getUserPrefs,
+  getUserPriority,
   importBackup,
   isSchedulerEnabled,
   type JobHistoryEntry,
@@ -61,10 +64,13 @@ import {
   recordUserActivity,
   regenerateApiKey,
   removeAllowedUser,
+  removePushSubscription,
   requestApiKey,
   revealApiKeySecret,
   revokeApiKey,
   type SchedulerSettings,
+  setApiKeyPriority,
+  setUserPriority,
   updateAllowedUserPermissions,
   updateSettings,
   updateUserPrefs,
@@ -112,6 +118,7 @@ function buildOverview() {
         ? { appId: j.testflight.appId, buildId: j.testflight.build.id, version: j.testflight.build.cfBundleShortVersion, buildNumber: j.testflight.build.cfBundleVersion }
         : undefined,
       queuedBy: j.queuedBy,
+      priority: j.priority,
       createdAt: j.createdAt,
     })),
   };
@@ -262,7 +269,15 @@ dashboardRouter.post('/v1/dashboard/decrypt', canDecrypt, (req, res) => {
 
   const versionLabel = typeof req.body?.versionLabel === 'string' ? req.body.versionLabel.trim().slice(0, 64) || undefined : undefined;
 
-  const job = enqueueDecryptJob(bundleId, 'manual', externalVersionId, undefined, versionLabel, res.locals.session.sub);
+  const job = enqueueDecryptJob(
+    bundleId,
+    'manual',
+    externalVersionId,
+    undefined,
+    versionLabel,
+    res.locals.session.sub,
+    getUserPriority(res.locals.session.sub),
+  );
   res.status(202).json(jobSummary(job));
 });
 
@@ -345,7 +360,15 @@ dashboardRouter.post('/v1/dashboard/testflight/decrypt', canDecrypt, (req, res) 
     return;
   }
 
-  const job = enqueueDecryptJob(bundleId, 'manual', undefined, { appId, build }, undefined, res.locals.session.sub);
+  const job = enqueueDecryptJob(
+    bundleId,
+    'manual',
+    undefined,
+    { appId, build },
+    undefined,
+    res.locals.session.sub,
+    getUserPriority(res.locals.session.sub),
+  );
   res.status(202).json(jobSummary(job));
 });
 
@@ -537,6 +560,20 @@ dashboardRouter.post('/v1/dashboard/keys/bulk-approve', canApproveApiKeys, (req,
   res.json({ approved });
 });
 
+dashboardRouter.patch('/v1/dashboard/keys/:id/priority', canApproveApiKeys, (req, res) => {
+  const priority = typeof req.body?.priority === 'number' ? req.body.priority : undefined;
+  if (priority === undefined || !Number.isFinite(priority)) {
+    res.status(400).json({ error: 'priority (a number) is required' });
+    return;
+  }
+  const updated = setApiKeyPriority(req.params.id, priority);
+  if (!updated) {
+    res.status(404).json({ error: 'key not found' });
+    return;
+  }
+  res.json({ ok: true, priority: updated.priority });
+});
+
 dashboardRouter.post('/v1/dashboard/keys/:id/deny', canApproveApiKeys, (req, res) => {
   const ok = denyApiKey(req.params.id);
   if (!ok) {
@@ -683,6 +720,9 @@ dashboardRouter.patch('/v1/dashboard/users/:username', canManageUsers, (req, res
     res.status(404).json({ error: 'not on the allowlist' });
     return;
   }
+  if (typeof req.body?.priority === 'number' && Number.isFinite(req.body.priority)) {
+    setUserPriority(req.params.username, req.body.priority, res.locals.session.sub);
+  }
   res.json(updated);
 });
 
@@ -716,6 +756,45 @@ dashboardRouter.post('/v1/dashboard/backup/import', canManageUsers, (req, res) =
 
 dashboardRouter.get('/v1/dashboard/me/prefs', (_req, res) => {
   res.json(getUserPrefs(res.locals.session.sub));
+});
+
+dashboardRouter.get('/v1/dashboard/push/public-key', (_req, res) => {
+  res.json({ publicKey: getVapidPublicKey() });
+});
+
+function isPushSubscriptionShape(value: unknown): value is { endpoint: string; keys: { p256dh: string; auth: string } } {
+  if (typeof value !== 'object' || value === null) return false;
+  const s = value as Record<string, unknown>;
+  if (typeof s.endpoint !== 'string') return false;
+  const keys = s.keys as Record<string, unknown> | undefined;
+  return typeof keys === 'object' && keys !== null && typeof keys.p256dh === 'string' && typeof keys.auth === 'string';
+}
+
+dashboardRouter.post('/v1/dashboard/push/subscribe', (req, res) => {
+  if (!isPushSubscriptionShape(req.body)) {
+    res.status(400).json({ error: 'a valid push subscription (endpoint, keys.p256dh, keys.auth) is required' });
+    return;
+  }
+  addPushSubscription(res.locals.session.sub, { endpoint: req.body.endpoint, keys: req.body.keys });
+  res.json({ ok: true });
+});
+
+dashboardRouter.post('/v1/dashboard/push/unsubscribe', (req, res) => {
+  const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint : '';
+  if (!endpoint) {
+    res.status(400).json({ error: 'endpoint is required' });
+    return;
+  }
+  removePushSubscription(res.locals.session.sub, endpoint);
+  res.json({ ok: true });
+});
+
+dashboardRouter.post('/v1/dashboard/push/test', async (_req, res) => {
+  await sendPushToUser(res.locals.session.sub, {
+    title: 'dkrypt',
+    body: 'Push notifications are set up - you\'ll get one of these when your queued decrypts finish.',
+  });
+  res.json({ ok: true });
 });
 
 dashboardRouter.put('/v1/dashboard/me/prefs', (req, res) => {

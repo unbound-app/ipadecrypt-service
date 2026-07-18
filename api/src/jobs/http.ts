@@ -17,6 +17,7 @@ export function jobSummary(job: Job) {
     versionLabel: job.versionLabel,
     source: job.source,
     queuedBy: job.queuedBy,
+    priority: job.priority,
     status: job.status,
     progress: job.progress,
     error: job.error,

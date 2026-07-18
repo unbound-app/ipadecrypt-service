@@ -1,5 +1,6 @@
 <script lang="ts">
   import DonationNudge from '../components/DonationNudge.svelte';
+  import { batchDecryptJumpState } from '../lib/ui.svelte';
   import ActiveJobsPanel from './home/ActiveJobsPanel.svelte';
   import DecryptPanel from './home/DecryptPanel.svelte';
   import JobHistoryPanel from './home/JobHistoryPanel.svelte';
@@ -11,14 +12,27 @@
   export function focusSearch(): void {
     decryptPanel?.focusSearch();
   }
+
+  export function openBatch(): void {
+    decryptPanel?.openBatch();
+  }
+
+  $effect(() => {
+    if (batchDecryptJumpState.requested) {
+      batchDecryptJumpState.requested = false;
+      decryptPanel?.openBatch();
+    }
+  });
 </script>
 
 <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
   <div class="flex flex-col gap-4">
     <DecryptPanel bind:this={decryptPanel} />
     <DonationNudge />
-    <MyRequestsPanel />
-    <ActiveJobsPanel />
+    <div class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      <MyRequestsPanel />
+      <ActiveJobsPanel />
+    </div>
     <JobHistoryPanel />
   </div>
   <div class="flex flex-col gap-4">

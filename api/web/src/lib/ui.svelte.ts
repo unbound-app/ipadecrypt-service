@@ -147,6 +147,15 @@ export function jumpToKeyUsage(keyId: string): void {
   setActiveTab('keys');
 }
 
+// Consumed by Home - lets the command palette (and the `b` shortcut) open the batch decrypt
+// dialog directly instead of just landing on Home and making you find the button yourself.
+export const batchDecryptJumpState = $state<{ requested: boolean }>({ requested: false });
+
+export function requestOpenBatch(): void {
+  batchDecryptJumpState.requested = true;
+  setActiveTab('home');
+}
+
 export type TabId = 'home' | 'keys' | 'logs' | 'insights' | 'docs' | 'settings';
 
 export const tabState = $state<{ active: TabId; settingsSubtab: string }>({

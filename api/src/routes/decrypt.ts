@@ -31,7 +31,15 @@ decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
   const versionId =
     typeof externalVersionId === 'string' && EXTERNAL_VERSION_ID_RE.test(externalVersionId) ? externalVersionId : undefined;
 
-  const job = enqueueDecryptJob(bundleId, 'manual', versionId, undefined, undefined, res.locals.apiKeyOwner as string | undefined);
+  const job = enqueueDecryptJob(
+    bundleId,
+    'manual',
+    versionId,
+    undefined,
+    undefined,
+    res.locals.apiKeyOwner as string | undefined,
+    (res.locals.apiKeyPriority as number | undefined) ?? 0,
+  );
   const finished = await waitForJob(job, config.jobMaxWaitSeconds * 1000);
 
   if (finished.status === 'queued' || finished.status === 'running') {

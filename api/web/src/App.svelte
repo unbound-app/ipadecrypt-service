@@ -18,6 +18,7 @@
   import { KOFI_URL, REPO_URL } from './lib/constants';
   import { myDecryptsState } from './lib/decrypts.svelte';
   import { connectLive, disconnectLive, liveState } from './lib/live.svelte';
+  import { disablePush, enablePush, getExistingPushSubscription, pushSupported, registerServiceWorker } from './lib/push';
   import {
     logout,
     logoutEverywhere,
@@ -29,6 +30,7 @@
     sessionState,
     type Permissions,
   } from './lib/session.svelte';
+  import { testPush } from './lib/api';
   import {
     confirmDialog,
     densityState,
@@ -39,6 +41,7 @@
     setActiveTab,
     setDensity,
     setTheme,
+    showToast,
     tabState,
     themePrefState,
     themeState,
@@ -68,10 +71,49 @@
 
   type NotifPermission = NotificationPermission | 'unsupported';
   let notifPermission = $state<NotifPermission>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
+  let pushEnabled = $state(false);
+  let enablingPush = $state(false);
+  let sendingTestPush = $state(false);
+
+  void registerServiceWorker();
+
+  $effect(() => {
+    if (sessionState.loggedIn && pushSupported()) {
+      void getExistingPushSubscription().then((sub) => (pushEnabled = !!sub));
+    }
+  });
 
   async function enableNotifications(): Promise<void> {
     if (typeof Notification === 'undefined') return;
     notifPermission = await Notification.requestPermission();
+    if (notifPermission !== 'granted' || !pushSupported()) return;
+    enablingPush = true;
+    try {
+      pushEnabled = await enablePush();
+    } catch {
+      showToast("Couldn't enable push notifications - try again", 'error');
+    } finally {
+      enablingPush = false;
+    }
+  }
+
+  async function disableNotifications(): Promise<void> {
+    enablingPush = true;
+    try {
+      await disablePush();
+      pushEnabled = false;
+    } finally {
+      enablingPush = false;
+    }
+  }
+
+  async function sendTestPush(): Promise<void> {
+    sendingTestPush = true;
+    try {
+      await testPush();
+    } finally {
+      sendingTestPush = false;
+    }
   }
 
   const TABS: { id: TabId; label: string; requires?: (keyof Permissions)[] }[] = [
@@ -137,6 +179,10 @@
     document.title = count > 0 ? `(${count}) ${BASE_TITLE}` : BASE_TITLE;
   });
 
+  const TAB_JUMP_KEYS: Record<string, TabId> = { h: 'home', k: 'keys', l: 'logs', i: 'insights', d: 'docs', s: 'settings' };
+  let awaitingTabJump = $state(false);
+  let tabJumpTimer: ReturnType<typeof setTimeout> | undefined;
+
   function onKeydown(e: KeyboardEvent): void {
     const typingInField = ['INPUT', 'TEXTAREA', 'SELECT'].includes((document.activeElement as HTMLElement)?.tagName ?? '');
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -144,9 +190,30 @@
       openPalette();
       return;
     }
+    if (awaitingTabJump) {
+      awaitingTabJump = false;
+      clearTimeout(tabJumpTimer);
+      const target = TAB_JUMP_KEYS[e.key.toLowerCase()];
+      if (target && visibleTabs.some((t) => t.id === target)) {
+        e.preventDefault();
+        setActiveTab(target);
+      }
+      return;
+    }
+    if (e.key === 'g' && !typingInField) {
+      e.preventDefault();
+      awaitingTabJump = true;
+      tabJumpTimer = setTimeout(() => (awaitingTabJump = false), 900);
+      return;
+    }
     if (e.key === '/' && !typingInField && tabState.active === 'home') {
       e.preventDefault();
       homeRef?.focusSearch();
+      return;
+    }
+    if (e.key === 'b' && !typingInField && tabState.active === 'home') {
+      e.preventDefault();
+      homeRef?.openBatch();
       return;
     }
     if (e.key === '?' && !typingInField) {
@@ -302,18 +369,30 @@
   {/if}
   <div class="border-border mt-4 border-t pt-4">
     <div class="flex items-center justify-between gap-3">
-      <div class="text-[13px]">Desktop notifications</div>
-      {#if notifPermission === 'granted'}
+      <div class="text-[13px]">Notifications</div>
+      {#if notifPermission === 'granted' && pushEnabled}
         <Badge variant="success">Enabled</Badge>
       {:else if notifPermission === 'denied'}
         <Badge variant="destructive" title="Blocked by your browser - check site settings">Blocked</Badge>
       {:else if notifPermission === 'unsupported'}
         <Badge variant="secondary">Not supported</Badge>
       {:else}
-        <Button size="sm" variant="secondary" onclick={enableNotifications}>Enable</Button>
+        <Button size="sm" variant="secondary" loading={enablingPush} onclick={enableNotifications}>Enable</Button>
       {/if}
     </div>
-    <div class="mt-1.5 text-xs text-muted">Get notified when your queued decrypts finish, even in a background tab.</div>
+    <div class="mt-1.5 text-xs text-muted">
+      {#if pushSupported()}
+        Get notified when your queued decrypts finish - even in a background tab, or with the browser closed entirely.
+      {:else}
+        Get notified when your queued decrypts finish, even in a background tab. Push (works with the browser closed) isn't supported here.
+      {/if}
+    </div>
+    {#if notifPermission === 'granted' && pushEnabled}
+      <div class="mt-2 flex gap-2">
+        <Button size="sm" variant="secondary" loading={sendingTestPush} onclick={sendTestPush}>Send test</Button>
+        <Button size="sm" variant="secondary" loading={enablingPush} onclick={disableNotifications}>Disable push</Button>
+      </div>
+    {/if}
   </div>
   <div class="border-border mt-4 border-t pt-4">
     <Button variant="destructive" size="sm" class="w-full" loading={loggingOutEverywhere} onclick={doLogoutEverywhere}>

@@ -59,6 +59,18 @@
     { value: '30', label: '30%' },
   ];
 
+  const CRON_PRESETS: { label: string; expr: string }[] = [
+    { label: 'Every 15 min', expr: '*/15 * * * *' },
+    { label: 'Every 30 min', expr: '*/30 * * * *' },
+    { label: 'Hourly', expr: '0 * * * *' },
+    { label: 'Every 6 hours', expr: '0 */6 * * *' },
+    { label: 'Daily at 3am', expr: '0 3 * * *' },
+  ];
+
+  function applyCronPreset(expr: string): void {
+    form = { ...form, pollCron: expr };
+  }
+
   const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
   const WEBHOOK_URL_RE = /^https?:\/\/.+/;
 
@@ -231,6 +243,19 @@
   <Input id="s-pollCron" bind:value={form.pollCron} disabled={!canManageScheduler} />
   {#if cronValid === false}
     <div class="mt-1 text-xs text-err">Not a valid cron expression</div>
+  {/if}
+  {#if canManageScheduler}
+    <div class="mt-1.5 flex flex-wrap gap-1.5">
+      {#each CRON_PRESETS as p (p.expr)}
+        <button
+          type="button"
+          class="border-border text-muted hover:text-text hover:border-accent cursor-pointer rounded-full border px-2.5 py-1 text-[12px]"
+          onclick={() => applyCronPreset(p.expr)}
+        >
+          {p.label}
+        </button>
+      {/each}
+    </div>
   {/if}
 
   <label for="s-retryCount" class="mt-3 mb-1 block text-xs text-muted">Retry a failed check before recording/notifying failure</label>

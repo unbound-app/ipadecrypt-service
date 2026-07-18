@@ -63,6 +63,7 @@ export interface JobSummary {
   versionLabel?: string;
   source: 'manual' | 'scheduler';
   queuedBy?: string;
+  priority?: number;
   status: 'queued' | 'running' | 'done' | 'failed';
   progress: string;
   error?: string;
@@ -84,6 +85,7 @@ export interface ActiveJob {
   versionLabel?: string;
   testflight?: JobTestFlightSummary;
   queuedBy?: string;
+  priority?: number;
   createdAt: number;
 }
 
@@ -175,6 +177,7 @@ export interface ApiKeyRecord {
   hasUnrevealedSecret: boolean;
   allowedBundleIds?: string[];
   dailyLimit?: number;
+  priority?: number;
 }
 
 export interface AllowedUser {
@@ -182,6 +185,7 @@ export interface AllowedUser {
   permissions: Permissions;
   addedAt: number;
   lastActiveAt?: number;
+  priority?: number;
 }
 
 export interface AuditLogEntry {
@@ -467,6 +471,10 @@ export function denyKey(id: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/keys/${id}/deny`, { method: 'POST' }, 'Key denied');
 }
 
+export function updateKeyPriority(id: string, priority: number): Promise<{ ok: boolean; data: { priority?: number } }> {
+  return apiAction(`/v1/dashboard/keys/${id}/priority`, { method: 'PATCH', body: JSON.stringify({ priority }) }, 'Priority updated');
+}
+
 export function fetchSettings(): Promise<SchedulerSettings> {
   return apiJson('/v1/dashboard/settings');
 }
@@ -526,10 +534,10 @@ export function removeUser(username: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/users/${encodeURIComponent(username)}`, { method: 'DELETE' }, `${username} removed`);
 }
 
-export function updateUserPermissions(username: string, permissions: Permissions): Promise<{ ok: boolean }> {
+export function updateUserPermissions(username: string, permissions: Permissions, priority?: number): Promise<{ ok: boolean }> {
   return apiAction(
     `/v1/dashboard/users/${encodeURIComponent(username)}`,
-    { method: 'PATCH', body: JSON.stringify({ permissions }) },
+    { method: 'PATCH', body: JSON.stringify({ permissions, priority }) },
     `${username}'s permissions updated`,
   );
 }
@@ -559,6 +567,22 @@ export function startAppleAuth(): Promise<{ ok: boolean; data: { error?: string 
 
 export function cancelAppleAuth(): Promise<{ ok: boolean }> {
   return apiAction('/v1/dashboard/apple-auth/cancel', { method: 'POST' });
+}
+
+export function fetchPushPublicKey(): Promise<{ publicKey: string }> {
+  return apiJson('/v1/dashboard/push/public-key');
+}
+
+export function subscribePush(subscription: PushSubscriptionJSON): Promise<{ ok: boolean }> {
+  return apiAction('/v1/dashboard/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) }).then((r) => ({ ok: r.ok }));
+}
+
+export function unsubscribePush(endpoint: string): Promise<{ ok: boolean }> {
+  return apiAction('/v1/dashboard/push/unsubscribe', { method: 'POST', body: JSON.stringify({ endpoint }) }).then((r) => ({ ok: r.ok }));
+}
+
+export function testPush(): Promise<{ ok: boolean }> {
+  return apiAction('/v1/dashboard/push/test', { method: 'POST' }, 'Test push sent').then((r) => ({ ok: r.ok }));
 }
 
 export function submitAppleInput(value: string): Promise<{ ok: boolean }> {

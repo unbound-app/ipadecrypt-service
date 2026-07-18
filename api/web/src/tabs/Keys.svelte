@@ -17,6 +17,7 @@
     requestKey,
     revealKey,
     revokeKey,
+    updateKeyPriority,
     type ApiKeyRecord,
   } from '../lib/api';
   import Badge from '../lib/components/ui/Badge.svelte';
@@ -224,6 +225,16 @@
       if (ok) void loadAll();
     } finally {
       setBusy('approve', id, false);
+    }
+  }
+
+  async function savePriority(id: string, priority: number): Promise<void> {
+    setBusy('priority', id, true);
+    try {
+      await updateKeyPriority(id, priority);
+      void loadAll();
+    } finally {
+      setBusy('priority', id, false);
     }
   }
 
@@ -445,6 +456,7 @@
               <th>Owner</th>
               <th>Status</th>
               <th>Scope</th>
+              {#if canApprove}<th>Priority</th>{/if}
               <th>Created</th>
               <th>Last used</th>
               <th></th>
@@ -453,7 +465,7 @@
           </thead>
           <tbody>
             {#if all === null}
-              <SkeletonRows rows={3} colspan={canRevokeAny ? 10 : 8} />
+              <SkeletonRows rows={3} colspan={8 + (canRevokeAny ? 2 : 0) + (canApprove ? 1 : 0)} />
             {:else}
               {#each filteredAll as k (k.id)}
                 <tr>
@@ -489,6 +501,20 @@
                       <span class="text-muted">unrestricted</span>
                     {/if}
                   </td>
+                  {#if canApprove}
+                    <td data-label="Priority">
+                      <input
+                        type="number"
+                        min="-5"
+                        max="5"
+                        value={k.priority ?? 0}
+                        disabled={isBusy('priority', k.id)}
+                        onchange={(e) => savePriority(k.id, Number((e.target as HTMLInputElement).value))}
+                        class="border-border bg-panel-muted w-14 rounded-md border px-1.5 py-1 text-xs disabled:opacity-60"
+                        title="Higher goes first among queued manual decrypts"
+                      />
+                    </td>
+                  {/if}
                   <td data-label="Created" class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                   <td data-label="Last used" class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
                   <td>

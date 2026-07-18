@@ -44,9 +44,14 @@ function trimToMax(items: TrackedDecrypt[]): TrackedDecrypt[] {
   return items.filter((d) => d.status !== 'done' && d.status !== 'failed' ? true : keptFinished.has(d.id));
 }
 
+// Set by addDecrypt so MyRequestsPanel can scroll to and briefly highlight a just-queued row
+// instead of leaving the user to hunt for it below the fold.
+export const highlightJobIdState = $state<{ id: string | null }>({ id: null });
+
 export function addDecrypt(entry: Omit<TrackedDecrypt, 'createdAt'> & { createdAt?: number }): void {
   myDecryptsState.items = trimToMax([{ ...entry, createdAt: entry.createdAt ?? Date.now() }, ...myDecryptsState.items]);
   persistDecrypts();
+  highlightJobIdState.id = entry.id;
 }
 
 export function updateDecrypt(id: string, patch: Partial<TrackedDecrypt>): void {

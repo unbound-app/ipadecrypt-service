@@ -34,7 +34,7 @@
 
   let scopeFilter = $state(localStorage.getItem('logScopeFilter') ?? 'all');
   let levelFilter = $state(localStorage.getItem('logLevelFilter') ?? 'all');
-  let searchText = $state('');
+  let searchText = $state(localStorage.getItem('logSearchText') ?? '');
   let regexMode = $state(localStorage.getItem('logRegexMode') === 'true');
   let autoScroll = $state(localStorage.getItem('logAutoScroll') !== 'false');
   let initialLogs = $state<LogEntry[] | null>(null);
@@ -99,6 +99,9 @@
   });
   $effect(() => {
     localStorage.setItem('logRegexMode', String(regexMode));
+  });
+  $effect(() => {
+    localStorage.setItem('logSearchText', searchText);
   });
 
   const regexError = $derived.by(() => {

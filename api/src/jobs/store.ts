@@ -6,6 +6,7 @@ import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('jobs');
 import { EMBED_COLOR, notify } from '../notify.js';
+import { sendPushToUser } from '../push.js';
 import { clearAppleAuthAlert, recordJobHistory, setAppleAuthAlert } from '../store/state.js';
 import { looksLikeAppleAuthFailure } from '../util/appleAuth.js';
 import { runDecrypt } from './runner.js';
@@ -34,6 +35,14 @@ function findActiveJobForBundle(
   return undefined;
 }
 
+// Manual jobs are ordered by priority (highest first), FIFO among equal priority - scheduler jobs
+// always jump straight to the front regardless, unchanged from before priority existed.
+function insertByPriority(id: string, priority: number): void {
+  const idx = queue.findIndex((qid) => (jobs.get(qid)?.priority ?? 0) < priority);
+  if (idx === -1) queue.push(id);
+  else queue.splice(idx, 0, id);
+}
+
 export function enqueueDecryptJob(
   bundleId: string,
   source: JobSource,
@@ -41,6 +50,7 @@ export function enqueueDecryptJob(
   testflight?: TestFlightJobSource,
   versionLabel?: string,
   queuedBy?: string,
+  priority = 0,
 ): Job {
   const existing = findActiveJobForBundle(bundleId, externalVersionId, testflight?.build.id);
   if (existing) return existing;
@@ -55,6 +65,7 @@ export function enqueueDecryptJob(
     versionLabel: resolvedLabel,
     source,
     queuedBy,
+    priority,
     status: 'queued',
     progress: 'queued',
     createdAt: Date.now(),
@@ -65,9 +76,9 @@ export function enqueueDecryptJob(
   if (source === 'scheduler') {
     queue.unshift(job.id);
   } else {
-    queue.push(job.id);
+    insertByPriority(job.id, priority);
   }
-  log.info('job queued', { jobId: job.id, bundleId, externalVersionId, source });
+  log.info('job queued', { jobId: job.id, bundleId, externalVersionId, source, priority });
   emitJobsChanged();
 
   void runWorker();
@@ -217,6 +228,14 @@ async function runWorker(): Promise<void> {
 
       recordJobHistory(toHistoryEntry(job));
       emitJobsChanged();
+
+      if (job.queuedBy) {
+        const label = job.versionLabel ? `${job.bundleId} (${job.versionLabel})` : job.bundleId;
+        void sendPushToUser(job.queuedBy, {
+          title: job.status === 'done' ? 'Decrypt finished' : 'Decrypt failed',
+          body: job.status === 'done' ? `${label} is ready to download.` : `${label} failed: ${job.error ?? 'unknown error'}`,
+        });
+      }
 
       settle(job);
     }

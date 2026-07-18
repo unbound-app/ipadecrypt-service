@@ -1,28 +1,7 @@
-<script lang="ts">
-  import Switch from '../lib/components/ui/Switch.svelte';
-  import { normalizePermissions, PERMISSION_META, type Permissions, type PermissionGroup } from '../lib/session.svelte';
-  import { cn } from '../lib/utils';
+<script module lang="ts">
+  import type { Permissions } from '../lib/session.svelte';
 
-  interface Props {
-    value: Permissions;
-  }
-
-  let { value = $bindable() }: Props = $props();
-
-  const GROUP_ORDER: PermissionGroup[] = [
-    'Decryption',
-    'API Keys',
-    'Scheduler & Dispatch',
-    'Apple Authentication',
-    'Logs',
-    'Users',
-  ];
-
-  const groups = GROUP_ORDER.map((title) => ({ title, fields: PERMISSION_META.filter((f) => f.group === title) })).filter(
-    (g) => g.fields.length > 0,
-  );
-
-  const PRESETS: { label: string; permissions: Permissions }[] = [
+  export const PRESETS: { label: string; permissions: Permissions }[] = [
     {
       label: 'Viewer',
       permissions: {
@@ -99,6 +78,31 @@
       },
     },
   ];
+</script>
+
+<script lang="ts">
+  import Switch from '../lib/components/ui/Switch.svelte';
+  import { normalizePermissions, PERMISSION_META, type PermissionGroup } from '../lib/session.svelte';
+  import { cn } from '../lib/utils';
+
+  interface Props {
+    value: Permissions;
+  }
+
+  let { value = $bindable() }: Props = $props();
+
+  const GROUP_ORDER: PermissionGroup[] = [
+    'Decryption',
+    'API Keys',
+    'Scheduler & Dispatch',
+    'Apple Authentication',
+    'Logs',
+    'Users',
+  ];
+
+  const groups = GROUP_ORDER.map((title) => ({ title, fields: PERMISSION_META.filter((f) => f.group === title) })).filter(
+    (g) => g.fields.length > 0,
+  );
 
   function applyPreset(p: Permissions): void {
     value = { ...p };

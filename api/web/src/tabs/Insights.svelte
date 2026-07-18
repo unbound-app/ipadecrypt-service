@@ -5,9 +5,10 @@
   import Sparkline from '../components/Sparkline.svelte';
   import { fetchInsights, type InsightsSummary } from '../lib/api';
   import Badge from '../lib/components/ui/Badge.svelte';
+  import Button from '../lib/components/ui/Button.svelte';
   import Card from '../lib/components/ui/Card.svelte';
   import Select from '../lib/components/ui/Select.svelte';
-  import { fmtBytesGB } from '../lib/format';
+  import { csvCell, downloadBlob, fmtBytesGB, trendDelta } from '../lib/format';
   import { liveState } from '../lib/live.svelte';
 
   const TREND_DAYS_OPTIONS = [
@@ -48,6 +49,7 @@
   }
 
   const trend = $derived(insights?.trend.map((d) => ({ label: fmtDayLabel(d.date), value: d.count })) ?? []);
+  const trendDeltaPct = $derived(trendDelta(trend.map((d) => d.value)));
   const maxFailureCount = $derived(Math.max(1, ...(insights?.failureBreakdown.map((f) => f.count) ?? [1])));
 
   let statsOpen = $state(false);
@@ -57,9 +59,31 @@
     statsBundleId = bundleId;
     statsOpen = true;
   }
+
+  function exportCsv(): void {
+    if (!insights) return;
+    const rows = ['bundleId,totalRuns,doneCount,failedCount,successRate,totalSizeBytes'];
+    for (const app of insights.topApps) {
+      rows.push([app.bundleId, app.totalRuns, app.doneCount, app.failedCount, app.successRate, app.totalSizeBytes].map(csvCell).join(','));
+    }
+    downloadBlob(rows.join('\n'), 'dkrypt-insights.csv', 'text/csv');
+  }
+
+  function exportJson(): void {
+    if (!insights) return;
+    downloadBlob(JSON.stringify(insights, null, 2), 'dkrypt-insights.json', 'application/json');
+  }
 </script>
 
 <Card title="Insights">
+  {#snippet headerExtra()}
+    {#if insights && insights.totalRuns > 0}
+      <div class="flex flex-wrap items-center gap-1.5">
+        <Button size="sm" variant="secondary" onclick={exportCsv}>Export CSV</Button>
+        <Button size="sm" variant="secondary" onclick={exportJson}>Export JSON</Button>
+      </div>
+    {/if}
+  {/snippet}
   {#if !insights}
     <div class="flex flex-col gap-1.5">
       {#each Array(4) as _, i (i)}
@@ -90,7 +114,14 @@
 
     <div class="border-border mb-4 border-t pt-3">
       <div class="mb-1.5 flex items-center justify-between gap-2">
-        <div class="text-xs text-muted">Decrypts · last {trendDays} days</div>
+        <div class="flex items-center gap-2 text-xs text-muted">
+          <span>Decrypts · last {trendDays} days</span>
+          {#if trendDeltaPct !== null}
+            <Badge variant={trendDeltaPct > 0 ? 'success' : trendDeltaPct < 0 ? 'destructive' : 'secondary'} title="Second half vs first half of this window">
+              {trendDeltaPct > 0 ? '+' : ''}{trendDeltaPct}%
+            </Badge>
+          {/if}
+        </div>
         <Select items={TREND_DAYS_OPTIONS} bind:value={trendDays} class="w-36" />
       </div>
       <div class="overflow-x-auto">

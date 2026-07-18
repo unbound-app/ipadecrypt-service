@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Plus, ScrollText, UserX } from 'lucide-svelte';
   import EmptyState from '../../components/EmptyState.svelte';
-  import PermissionEditor from '../../components/PermissionEditor.svelte';
+  import PermissionEditor, { PRESETS } from '../../components/PermissionEditor.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import SkeletonRows from '../../components/SkeletonRows.svelte';
   import { addUser, type AuditLogEntry, fetchAuditLog, fetchUsers, removeUser, updateUserPermissions, type AllowedUser } from '../../lib/api';
@@ -38,6 +38,35 @@
   const filteredUsers = $derived(
     (users ?? []).filter((u) => u.username.includes(userSearch.trim().toLowerCase())),
   );
+
+  let selectedUsers = $state<Set<string>>(new Set());
+  let bulkApplying = $state(false);
+
+  const selectableUsers = $derived(filteredUsers.filter((u) => u.username !== (sessionState.sub ?? '').toLowerCase()));
+
+  function toggleSelectUser(username: string): void {
+    const next = new Set(selectedUsers);
+    if (next.has(username)) next.delete(username);
+    else next.add(username);
+    selectedUsers = next;
+  }
+
+  function toggleSelectAllUsers(): void {
+    selectedUsers = selectedUsers.size === selectableUsers.length ? new Set() : new Set(selectableUsers.map((u) => u.username));
+  }
+
+  async function applyPresetToSelected(permissions: Permissions): Promise<void> {
+    if (selectedUsers.size === 0) return;
+    if (!(await confirmDialog(`Apply this preset to ${selectedUsers.size} selected user(s)?`, { variant: 'default', confirmLabel: 'Apply' }))) return;
+    bulkApplying = true;
+    try {
+      for (const username of selectedUsers) await updateUserPermissions(username, permissions);
+      selectedUsers = new Set();
+      void load();
+    } finally {
+      bulkApplying = false;
+    }
+  }
 
   const filteredAuditLog = $derived.by(() => {
     const needle = auditSearch.trim().toLowerCase();
@@ -88,23 +117,25 @@
   let manageOpen = $state(false);
   let manageUser = $state<AllowedUser | null>(null);
   let managePermissions = $state<Permissions>({ ...VIEWER_PERMISSIONS });
+  let managePriority = $state('0');
 
   function openManage(u: AllowedUser): void {
     manageUser = u;
     managePermissions = { ...u.permissions };
+    managePriority = String(u.priority ?? 0);
     manageOpen = true;
   }
 
   const permissionsUnchanged = $derived.by(() => {
     if (!manageUser) return true;
-    return PERMISSION_KEYS.every((k) => managePermissions[k] === manageUser?.permissions[k]);
+    return PERMISSION_KEYS.every((k) => managePermissions[k] === manageUser?.permissions[k]) && Number(managePriority) === (manageUser.priority ?? 0);
   });
 
   async function savePermissions(): Promise<void> {
     if (!manageUser || permissionsUnchanged) return;
     savingPermissions = true;
     try {
-      const { ok } = await updateUserPermissions(manageUser.username, managePermissions);
+      const { ok } = await updateUserPermissions(manageUser.username, managePermissions, Number(managePriority));
       if (ok) {
         manageOpen = false;
         void load();
@@ -143,10 +174,23 @@
     {#if (users?.length ?? 0) > 5}
       <Input placeholder="Search by username…" bind:value={userSearch} class="mb-3 max-w-xs" />
     {/if}
+    {#if canManage && selectedUsers.size > 0}
+      <div class="mb-3 flex flex-wrap items-center gap-1.5">
+        <span class="text-xs text-muted">Apply to {selectedUsers.size} selected:</span>
+        {#each PRESETS as preset (preset.label)}
+          <Button size="sm" variant="secondary" loading={bulkApplying} onclick={() => applyPresetToSelected(preset.permissions)}>
+            {preset.label}
+          </Button>
+        {/each}
+      </div>
+    {/if}
     <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
       <table class="min-w-[480px]">
         <thead>
           <tr>
+            {#if canManage}
+              <th><input type="checkbox" checked={selectableUsers.length > 0 && selectedUsers.size === selectableUsers.length} onchange={toggleSelectAllUsers} /></th>
+            {/if}
             <th>Username</th>
             <th>Permissions</th>
             <th>Added</th>
@@ -156,12 +200,19 @@
         </thead>
         <tbody>
           {#if users === null}
-            <SkeletonRows rows={3} colspan={canManage ? 5 : 4} />
+            <SkeletonRows rows={3} colspan={canManage ? 6 : 4} />
           {:else}
             {#each filteredUsers as u (u.username)}
               {@const isSelf = u.username === (sessionState.sub ?? '').toLowerCase()}
               {@const labels = activePermissionLabels(u.permissions)}
               <tr>
+                {#if canManage}
+                  <td>
+                    {#if !isSelf}
+                      <input type="checkbox" checked={selectedUsers.has(u.username)} onchange={() => toggleSelectUser(u.username)} />
+                    {/if}
+                  </td>
+                {/if}
                 <td>{u.username}{#if isSelf}<span class="ml-1.5 text-xs text-muted">(you)</span>{/if}</td>
                 <td>
                   <div class="flex flex-wrap gap-1">
@@ -258,6 +309,11 @@
       <div class="mb-3 text-sm font-medium">Manage {manageUser.username}</div>
       <div class="max-h-[50vh] overflow-y-auto pr-0.5">
         <PermissionEditor bind:value={managePermissions} />
+        <label for="user-priority" class="mt-3 mb-1 block text-xs text-muted">Queue priority (-5 to 5)</label>
+        <Input id="user-priority" type="number" min="-5" max="5" bind:value={managePriority} />
+        <div class="mt-1 text-xs text-muted">
+          Higher goes first among queued manual decrypts. 0 is the default - most people never need to touch this.
+        </div>
       </div>
       <Button class="mt-3.5 w-full" loading={savingPermissions} onclick={savePermissions} disabled={permissionsUnchanged}>
         Save permissions

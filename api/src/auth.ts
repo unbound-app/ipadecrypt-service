@@ -18,6 +18,7 @@ export function requireApiKey(req: Request, res: Response, next: NextFunction): 
 
   res.locals.apiKeyScope = result.allowedBundleIds;
   res.locals.apiKeyOwner = result.ownerId;
+  res.locals.apiKeyPriority = result.priority ?? 0;
   next();
 }
 
@@ -33,6 +34,7 @@ export function requireApiKeyOrSignedToken(req: Request, res: Response, next: Ne
     if (result) {
       res.locals.apiKeyScope = result.allowedBundleIds;
       res.locals.apiKeyOwner = result.ownerId;
+      res.locals.apiKeyPriority = result.priority ?? 0;
       next();
       return;
     }

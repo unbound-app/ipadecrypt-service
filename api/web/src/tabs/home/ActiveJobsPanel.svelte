@@ -53,7 +53,7 @@
 
   $effect(() => {
     for (const j of jobs) {
-      if (j.status === 'running' && !fetchedBundles.has(j.bundleId)) {
+      if (!fetchedBundles.has(j.bundleId)) {
         fetchedBundles.add(j.bundleId);
         fetchJobEta(j.bundleId)
           .then((r) => {
@@ -66,9 +66,32 @@
       }
     }
   });
+
+  // Rough "queue clears in ~X" estimate: sum each active job's own average duration. There's no
+  // per-job elapsed time available here to net out of a running job's remaining time, so this
+  // slightly overestimates while something is already partway through - good enough for a glance.
+  const queueEtaMs = $derived.by(() => {
+    let total = 0;
+    let known = false;
+    for (const j of jobs) {
+      const avg = etaByBundle[j.bundleId];
+      if (avg) {
+        total += avg;
+        known = true;
+      }
+    }
+    return known ? total : null;
+  });
 </script>
 
 <Card title="Active jobs">
+  {#snippet headerExtra()}
+    {#if jobs.length > 1 && queueEtaMs !== null}
+      <span class="text-xs text-muted" title="Sum of each queued/running job's own average duration">
+        Queue clears in {fmtDurationApprox(queueEtaMs)}
+      </span>
+    {/if}
+  {/snippet}
   <div class="scroll-fade-x overflow-x-auto" use:scrollFade>
     <table class="responsive-table sm:min-w-[640px]">
       <thead>
@@ -105,7 +128,12 @@
                 </div>
               </td>
               <td data-label="Source">{j.source}</td>
-              <td data-label="Queued by" class="text-muted">{j.queuedBy ?? '-'}</td>
+              <td data-label="Queued by" class="text-muted">
+                {j.queuedBy ?? '-'}
+                {#if j.priority}
+                  <Badge variant="secondary" class="ml-1" title="Queue priority">{j.priority > 0 ? '+' : ''}{j.priority}</Badge>
+                {/if}
+              </td>
               <td data-label="Status"><Badge variant={statusToBadgeVariant(j.status)}>{j.status}</Badge></td>
               <td data-label="Progress" class="max-w-52 text-muted">
                 {#if j.status === 'running'}

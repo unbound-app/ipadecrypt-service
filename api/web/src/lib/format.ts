@@ -69,6 +69,20 @@ export function csvCell(value: unknown): string {
   return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
 }
 
+// Splits a trend series in half and compares the second half's average to the first's - a rough
+// "vs prior period" delta without needing a second API call for the actual prior window.
+export function trendDelta(values: number[]): number | null {
+  if (values.length < 4) return null;
+  const mid = Math.floor(values.length / 2);
+  const first = values.slice(0, mid);
+  const second = values.slice(mid);
+  const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const firstAvg = avg(first);
+  const secondAvg = avg(second);
+  if (firstAvg === 0) return secondAvg > 0 ? null : 0;
+  return Math.round(((secondAvg - firstAvg) / firstAvg) * 100);
+}
+
 export function debounce<Args extends unknown[]>(fn: (...args: Args) => void, ms: number) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const debounced = (...args: Args) => {

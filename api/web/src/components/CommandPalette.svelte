@@ -1,9 +1,22 @@
 <script lang="ts">
-  import { fetchJobHistory, fetchMyKeys } from '../lib/api';
+  import { cancelJob, fetchJobHistory, fetchMyKeys, jobHistoryExportUrl, triggerDispatch } from '../lib/api';
   import { logout, sessionState } from '../lib/session.svelte';
-  import { closePalette, jumpToHistoryBundleId, jumpToKeyUsage, openHelp, paletteState, setActiveTab, setTheme, themePrefState } from '../lib/ui.svelte';
+  import {
+    closePalette,
+    confirmDialog,
+    jumpToHistoryBundleId,
+    jumpToKeyUsage,
+    openHelp,
+    paletteState,
+    requestOpenBatch,
+    setActiveTab,
+    setTheme,
+    showToast,
+    themePrefState,
+  } from '../lib/ui.svelte';
   import Dialog from '../lib/components/ui/Dialog.svelte';
   import Input from '../lib/components/ui/Input.svelte';
+  import { liveState } from '../lib/live.svelte';
   import { cn } from '../lib/utils';
 
   interface Command {
@@ -28,6 +41,19 @@
       myKeys = r.keys.map((k) => ({ id: k.id, name: k.name }));
     });
   });
+
+  async function cancelAllJobs(): Promise<void> {
+    const jobs = liveState.overview?.activeJobs ?? [];
+    if (jobs.length === 0) return;
+    if (!(await confirmDialog(`Cancel all ${jobs.length} active job(s)?`, { confirmLabel: 'Cancel all' }))) return;
+    await Promise.all(jobs.map((j) => cancelJob(j.id)));
+  }
+
+  async function runTriggerDispatch(): Promise<void> {
+    const { ok, data } = await triggerDispatch();
+    if (ok) showToast('Dispatch check triggered - watch Active Jobs / Logs for progress', 'success');
+    else showToast(data.error ?? 'Failed to trigger', 'error');
+  }
 
   const commands = $derived.by((): Command[] => {
     const base: Command[] = [
@@ -55,6 +81,20 @@
       run: () => setTheme(THEME_CYCLE[(THEME_CYCLE.indexOf(themePrefState.value) + 1) % THEME_CYCLE.length]),
     });
     base.push({ id: 'shortcuts', label: 'Show keyboard shortcuts', run: () => openHelp() });
+
+    if (sessionState.permissions?.decrypt) {
+      base.push({ id: 'batch-decrypt', label: 'Open batch decrypt', run: () => requestOpenBatch() });
+      const activeCount = liveState.overview?.activeJobs.length ?? 0;
+      if (activeCount > 0) {
+        base.push({ id: 'cancel-all', label: `Cancel all ${activeCount} active job(s)`, run: () => void cancelAllJobs() });
+      }
+    }
+    if (sessionState.permissions?.triggerDispatch) {
+      base.push({ id: 'trigger-dispatch', label: 'Trigger scheduler dispatch now', run: () => void runTriggerDispatch() });
+    }
+    base.push({ id: 'export-history-csv', label: 'Export job history as CSV', run: () => window.open(jobHistoryExportUrl('csv'), '_blank') });
+    base.push({ id: 'export-history-json', label: 'Export job history as JSON', run: () => window.open(jobHistoryExportUrl('json'), '_blank') });
+
     base.push({ id: 'logout', label: 'Log out', run: () => void logout() });
 
     for (const bundleId of recentBundleIds) {

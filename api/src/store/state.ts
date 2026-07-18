@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { generateVAPIDKeys, type VapidKeys } from 'web-push';
 import { config } from '../config.js';
 import { emitHistoryAdded } from '../events.js';
 import type { TestFlightJobSource } from '../jobs/types.js';
@@ -140,6 +141,7 @@ export interface AllowedUser {
   addedAt: number;
   sessionVersion?: number;
   lastActiveAt?: number;
+  priority?: number;
 }
 
 export interface ApiKeyRecord {
@@ -156,6 +158,7 @@ export interface ApiKeyRecord {
   allowedBundleIds?: string[];
   dailyLimit?: number;
   expiryNotifiedAt?: number;
+  priority?: number;
 }
 
 export interface ApiKeyAuthResult {
@@ -163,6 +166,7 @@ export interface ApiKeyAuthResult {
   allowedBundleIds?: string[];
   // undefined for the root API_KEY, which isn't owned by any dashboard account.
   ownerId?: string;
+  priority?: number;
 }
 
 export interface SchedulerSettings {
@@ -250,6 +254,11 @@ export interface DeviceHealthCheck {
   batteryTemperatureC?: number;
 }
 
+export interface PushSubscriptionRecord {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
 interface PersistedState {
   version: 5;
   apiKeys: ApiKeyRecord[];
@@ -264,6 +273,8 @@ interface PersistedState {
   rootSessionVersion: number;
   apiKeyUsage: Record<string, ApiKeyUsageBucket[]>;
   deviceHealthHistory: DeviceHealthCheck[];
+  pushSubscriptions: Record<string, PushSubscriptionRecord[]>;
+  vapidKeys?: VapidKeys;
 }
 
 const MAX_HISTORY = 100;
@@ -287,6 +298,7 @@ function defaultState(): PersistedState {
     rootSessionVersion: 0,
     apiKeyUsage: {},
     deviceHealthHistory: [],
+    pushSubscriptions: {},
   };
 }
 
@@ -532,6 +544,7 @@ function redact(k: ApiKeyRecord) {
     hasUnrevealedSecret: !!k.pendingReveal,
     allowedBundleIds: k.allowedBundleIds,
     dailyLimit: k.dailyLimit,
+    priority: k.priority ?? 0,
   };
 }
 
@@ -708,7 +721,41 @@ export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined | 
   record.lastUsedAt = Date.now();
   recordApiKeyUsage(record.id);
   dirty = true;
-  return { allowedBundleIds: record.allowedBundleIds, ownerId: record.ownerId };
+  return { allowedBundleIds: record.allowedBundleIds, ownerId: record.ownerId, priority: record.priority ?? 0 };
+}
+
+// Priority for jobs queued from the dashboard itself (session-authenticated, not via an API key) -
+// root always sits at the neutral default since it isn't a row in allowedUsers.
+export function getUserPriority(username: string): number {
+  if (username === 'root') return 0;
+  return state.allowedUsers.find((u) => u.username === username.toLowerCase())?.priority ?? 0;
+}
+
+const MIN_PRIORITY = -5;
+const MAX_PRIORITY = 5;
+
+export function clampPriority(value: number): number {
+  return Math.min(Math.max(Math.round(value), MIN_PRIORITY), MAX_PRIORITY);
+}
+
+export function setUserPriority(username: string, priority: number, actor: string): AllowedUser | undefined {
+  const user = state.allowedUsers.find((u) => u.username === username.toLowerCase());
+  if (!user) return undefined;
+  const clamped = clampPriority(priority);
+  if (user.priority === clamped) return user;
+  const before = user.priority ?? 0;
+  user.priority = clamped;
+  persistNow();
+  recordAudit(actor, 'user.update', user.username, `priority: ${before} -> ${clamped}`);
+  return user;
+}
+
+export function setApiKeyPriority(id: string, priority: number): ApiKeyRecord | undefined {
+  const record = state.apiKeys.find((k) => k.id === id);
+  if (!record) return undefined;
+  record.priority = clampPriority(priority);
+  persistNow();
+  return record;
 }
 
 const KEY_EXPIRY_WARNING_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1056,6 +1103,36 @@ export function clearAppleAuthAlert(): void {
   if (!state.appleAuthAlert.suspected) return;
   state.appleAuthAlert = { suspected: false };
   persistNow();
+}
+
+// Generated once and persisted, same idea as the download signing secret - every subscribed
+// browser is registered against this keypair, so rotating it would silently break them all.
+export function getOrCreateVapidKeys(): VapidKeys {
+  if (!state.vapidKeys) {
+    state.vapidKeys = generateVAPIDKeys();
+    persistNow();
+  }
+  return state.vapidKeys;
+}
+
+export function addPushSubscription(username: string, sub: PushSubscriptionRecord): void {
+  const lower = username.toLowerCase();
+  const existing = state.pushSubscriptions[lower] ?? [];
+  if (existing.some((s) => s.endpoint === sub.endpoint)) return;
+  state.pushSubscriptions[lower] = [...existing, sub];
+  persistNow();
+}
+
+export function removePushSubscription(username: string, endpoint: string): void {
+  const lower = username.toLowerCase();
+  const existing = state.pushSubscriptions[lower];
+  if (!existing) return;
+  state.pushSubscriptions[lower] = existing.filter((s) => s.endpoint !== endpoint);
+  persistNow();
+}
+
+export function getPushSubscriptions(username: string): PushSubscriptionRecord[] {
+  return state.pushSubscriptions[username.toLowerCase()] ?? [];
 }
 
 export function getUserPrefs(username: string): UserPrefs {

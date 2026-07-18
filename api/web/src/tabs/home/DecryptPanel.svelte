@@ -196,6 +196,10 @@
   }
 
   let batchOpen = $state(false);
+
+  export function openBatch(): void {
+    if (canDecrypt) batchOpen = true;
+  }
 </script>
 
 <Card title="Decrypt an app">

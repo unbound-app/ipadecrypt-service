@@ -17,7 +17,7 @@
   import Badge from '../../lib/components/ui/Badge.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import Popover from '../../lib/components/ui/Popover.svelte';
-  import { fmtBytesGB, fmtUntil } from '../../lib/format';
+  import { fmtBytesGB, fmtUntil, trendDelta } from '../../lib/format';
   import { liveState } from '../../lib/live.svelte';
 
   const overview = $derived(liveState.overview);
@@ -178,6 +178,43 @@
   const hasTemperatureHistory = $derived(temperatureHistory?.some((b) => b.batteryTemperatureC !== null) ?? false);
 
   const total = $derived(volume?.reduce((a, d) => a + d.value, 0) ?? 0);
+  const volumeDeltaPct = $derived(volume ? trendDelta(volume.map((d) => d.value)) : null);
+
+  type HealthLevel = 'ok' | 'warn' | 'err' | 'unknown';
+
+  const overallHealth = $derived.by((): { level: HealthLevel; reasons: string[] } => {
+    if (!health) return { level: 'unknown', reasons: [] };
+    const reasons: string[] = [];
+    let level: HealthLevel = 'ok';
+    const worsen = (next: HealthLevel, reason: string) => {
+      reasons.push(reason);
+      if (next === 'err' || level === 'ok') level = next;
+    };
+
+    if (!health.reachable) worsen('err', 'iDevice unreachable');
+    if (overview?.disk && overview.disk.usedPercent >= 0.9) worsen('err', 'Staging disk nearly full');
+    else if (overview?.disk && overview.disk.usedPercent >= 0.75) worsen('warn', 'Staging disk filling up');
+    if (health.batteryTemperatureC !== undefined && health.batteryTemperatureC >= 42) worsen('err', 'Battery hot');
+    else if (health.batteryTemperatureC !== undefined && health.batteryTemperatureC >= 37) worsen('warn', 'Battery warm');
+    if (health.batteryPercent !== undefined && health.batteryPercent <= 20 && !health.batteryCharging) worsen('err', 'Battery critically low');
+    else if (health.batteryPercent !== undefined && health.batteryPercent <= 40 && !health.batteryCharging) worsen('warn', 'Battery low');
+
+    return { level, reasons };
+  });
+
+  const HEALTH_DOT_CLASS: Record<HealthLevel, string> = {
+    ok: 'bg-ok',
+    warn: 'bg-warn',
+    err: 'bg-err',
+    unknown: 'bg-panel-muted',
+  };
+
+  const HEALTH_LABEL: Record<HealthLevel, string> = {
+    ok: 'All good',
+    warn: 'Needs attention',
+    err: 'Needs attention now',
+    unknown: 'Checking…',
+  };
   const activeJobs = $derived(overview?.activeJobs.length ?? 0);
 </script>
 
@@ -185,6 +222,13 @@
   {#snippet headerExtra()}
     {#if health}
       <div class="flex items-center gap-1.5 text-xs text-muted">
+        <span
+          class="inline-flex items-center gap-1.5"
+          title={overallHealth.reasons.length > 0 ? overallHealth.reasons.join(', ') : HEALTH_LABEL[overallHealth.level]}
+        >
+          <span class="h-2 w-2 shrink-0 rounded-full {HEALTH_DOT_CLASS[overallHealth.level]}"></span>
+          {HEALTH_LABEL[overallHealth.level]}
+        </span>
         <span>Checked <RelativeTime ms={health.checkedAt} /></span>
         <button
           type="button"
@@ -327,7 +371,14 @@
   {/if}
   {#if volume}
     <div class="border-border mt-1 border-t pt-3">
-      <div class="mb-1.5 text-xs text-muted">{total} decrypt{total === 1 ? '' : 's'} · last 14 days</div>
+      <div class="mb-1.5 flex items-center gap-2 text-xs text-muted">
+        <span>{total} decrypt{total === 1 ? '' : 's'} · last 14 days</span>
+        {#if volumeDeltaPct !== null}
+          <Badge variant={volumeDeltaPct > 0 ? 'success' : volumeDeltaPct < 0 ? 'destructive' : 'secondary'} title="Second half vs first half of this window">
+            {volumeDeltaPct > 0 ? '+' : ''}{volumeDeltaPct}%
+          </Badge>
+        {/if}
+      </div>
       <Sparkline data={volume} width={280} ariaLabel="{total} decrypts over the last 14 days" />
     </div>
   {/if}

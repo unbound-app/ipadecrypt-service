@@ -9,7 +9,15 @@
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
   import { buttonVariants } from '../../lib/components/ui/variants';
-  import { addDecrypt, dismissDecrypt, myDecryptsState, pushRecentBundleId, updateDecrypt, type TrackedDecrypt } from '../../lib/decrypts.svelte';
+  import {
+    addDecrypt,
+    dismissDecrypt,
+    highlightJobIdState,
+    myDecryptsState,
+    pushRecentBundleId,
+    updateDecrypt,
+    type TrackedDecrypt,
+  } from '../../lib/decrypts.svelte';
   import { notifyJobFinished } from '../../lib/notifications';
   import { confirmDialog, showToast } from '../../lib/ui.svelte';
 
@@ -117,6 +125,21 @@
     dismissDecrypt(d.id);
   }
 
+  let highlightedId = $state<string | null>(null);
+
+  $effect(() => {
+    const id = highlightJobIdState.id;
+    if (!id || !myDecryptsState.items.some((d) => d.id === id)) return;
+    highlightedId = id;
+    const row = document.querySelector(`[data-job-id="${CSS.escape(id)}"]`);
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timer = setTimeout(() => {
+      highlightedId = null;
+      if (highlightJobIdState.id === id) highlightJobIdState.id = null;
+    }, 2000);
+    return () => clearTimeout(timer);
+  });
+
   const finishedCount = $derived(myDecryptsState.items.filter((d) => d.status === 'done' || d.status === 'failed').length);
 
   function clearFinished(): void {
@@ -147,7 +170,7 @@
       </thead>
       <tbody>
         {#each myDecryptsState.items as d (d.id)}
-          <tr>
+          <tr data-job-id={d.id} class={d.id === highlightedId ? 'bg-accent/15 transition-colors duration-1000' : 'transition-colors duration-1000'}>
             <td data-label="App">
               {d.trackName}
               {#if d.versionLabel}
