@@ -43,19 +43,24 @@ primary device, even in a multi-device pool - see **Multiple devices**.
    them blank to disable it), and `GITHUB_OAUTH_*` if you want other people
    to log into the dashboard without sharing `ADMIN_PASSWORD`.
 3. Build the image:
+
    ```sh
    docker compose build
    ```
+
 4. **Bootstrap ipadecrypt once, interactively** (App Store login + device
    SSH details - persisted under `IPADECRYPT_ROOT_DIR`, default
    `/root/.ipadecrypt`, itself inside the `appstore-config` volume). The
    `api` service has a fixed `container_name`, so if it's already running,
    `docker compose run` needs an explicit different name to avoid clashing
    with it:
+
    ```sh
    docker compose run --rm -it --name dkrypt-bootstrap api ipadecrypt bootstrap
    ```
+
 5. Start the service:
+
    ```sh
    docker compose up -d
    ```
@@ -90,6 +95,7 @@ All routes require `Authorization: Bearer <API_KEY>` - there is no
 unauthenticated path, including health checks.
 
 ### `GET /v1/decrypt?bundleId=<id>&externalVersionId=<id>`
+
 Starts (or joins an in-flight) decrypt job and blocks until it's done,
 then streams the `.ipa` directly. Falls back to `202` with a status/file
 URL if it's still running after `JOB_MAX_WAIT_SECONDS`. `externalVersionId`
@@ -98,16 +104,19 @@ release instead of the current one - see **Decrypting a specific
 version** below for where that id comes from.
 
 ### `GET /v1/jobs/:id`
+
 Job status: `queued | running | done | failed`, plus the last progress
 line reported by the `ipadecrypt` CLI.
 
 ### `GET /v1/jobs/:id/file`
+
 Streams the finished IPA. Accepts either the master `API_KEY` or a signed
 `?token=` (used internally for the GitHub Actions payload). The file is
 deleted from disk immediately after a successful download, or after
 `FILE_TTL_MINUTES` if nobody ever downloads it.
 
 ### `GET /v1/health`
+
 Liveness + whether the scheduler is enabled. Still requires the API key.
 
 ## Dashboard
