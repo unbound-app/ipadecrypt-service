@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { describeHttpError } from '../util/httpError.js';
 import { normalizeVersion } from '../util/version.js';
 
 const GITHUB_API = 'https://api.github.com';
@@ -18,7 +19,7 @@ interface Release {
 
 async function listReleases(repo: string): Promise<Release[]> {
   const res = await fetch(`${GITHUB_API}/repos/${repo}/releases?per_page=100`, { headers: headers() });
-  if (!res.ok) throw new Error(`list releases failed for ${repo}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(describeHttpError(`list releases failed for ${repo}`, res));
   return (await res.json()) as Release[];
 }
 
@@ -66,7 +67,7 @@ export async function findDispatchedRun(
 ): Promise<WorkflowRun | undefined> {
   const url = `${GITHUB_API}/repos/${dispatchRepo}/actions/workflows/${workflowFile}/runs?event=repository_dispatch&per_page=10`;
   const res = await fetch(url, { headers: headers() });
-  if (!res.ok) throw new Error(`list workflow runs failed: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(describeHttpError('list workflow runs failed', res));
 
   const body = (await res.json()) as WorkflowRunsResponse;
   const candidates = body.workflow_runs
@@ -80,6 +81,6 @@ export async function getRun(dispatchRepo: string, runId: number): Promise<Workf
   const res = await fetch(`${GITHUB_API}/repos/${dispatchRepo}/actions/runs/${runId}`, {
     headers: headers(),
   });
-  if (!res.ok) throw new Error(`get run failed: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(describeHttpError('get run failed', res));
   return (await res.json()) as WorkflowRun;
 }

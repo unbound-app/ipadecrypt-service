@@ -26,6 +26,7 @@ import { validateDeviceRootDir } from '../idevice.js';
 import { listBuilds, listTrains } from '../testflight.js';
 import { nextCronRunAt } from '../util/cron.js';
 import { getDiskUsage } from '../util/diskUsage.js';
+import { rateLimitPerUser } from '../util/rateLimit.js';
 import { buildSignedFileUrlWithToken } from '../util/signedUrl.js';
 import { listAppVersions } from '../versions.js';
 import {
@@ -156,6 +157,12 @@ dashboardRouter.use((_req, res, next) => {
   recordUserActivity(res.locals.session.sub);
   next();
 });
+
+// Cheap to call, expensive to serve: each hit drives the shared physical device over SSH or
+// calls out to iTunes/GitHub live, and session-cookie auth has no equivalent to an API key's
+// daily request limit.
+const deviceOrExternalRateLimit = rateLimitPerUser(10, 60_000);
+const jobDiffRateLimit = rateLimitPerUser(30, 60_000);
 
 function buildOverview() {
   const watches = getEffectiveWatches().map((w) => ({
@@ -329,7 +336,7 @@ dashboardRouter.get('/v1/dashboard/jobs/volume', (req, res) => {
 
 // Shallow key-by-key diff of two historical decrypts of the same bundle - built from the
 // Info.plist fields captured at decrypt time (Part 7), so no re-download/re-parse needed here.
-dashboardRouter.get('/v1/dashboard/jobs/diff', (req, res) => {
+dashboardRouter.get('/v1/dashboard/jobs/diff', jobDiffRateLimit, (req, res) => {
   const bundleId = typeof req.query.bundleId === 'string' ? req.query.bundleId : '';
   const aId = typeof req.query.a === 'string' ? req.query.a : '';
   const bId = typeof req.query.b === 'string' ? req.query.b : '';
@@ -644,7 +651,7 @@ dashboardRouter.delete('/v1/dashboard/watches/:id', canManageWatches, (req, res)
   res.json({ ok: true });
 });
 
-dashboardRouter.get('/v1/dashboard/watches/:id/preview-dispatch', canTriggerDispatch, async (req, res) => {
+dashboardRouter.get('/v1/dashboard/watches/:id/preview-dispatch', canTriggerDispatch, deviceOrExternalRateLimit, async (req, res) => {
   const watch = getWatch(req.params.id);
   if (!watch) {
     res.status(404).json({ error: 'watch not found' });
@@ -659,7 +666,7 @@ dashboardRouter.post('/v1/dashboard/watches/:id/trigger-dispatch', canTriggerDis
   res.status(result.ok ? 202 : 409).json(result);
 });
 
-dashboardRouter.get('/v1/dashboard/testflight/:appId/trains', async (req, res) => {
+dashboardRouter.get('/v1/dashboard/testflight/:appId/trains', deviceOrExternalRateLimit, async (req, res) => {
   const appId = Number.parseInt(req.params.appId, 10);
   if (!Number.isInteger(appId) || appId <= 0) {
     res.status(400).json({ error: 'appId must be a positive integer' });
@@ -674,7 +681,7 @@ dashboardRouter.get('/v1/dashboard/testflight/:appId/trains', async (req, res) =
   }
 });
 
-dashboardRouter.get('/v1/dashboard/testflight/:appId/builds', async (req, res) => {
+dashboardRouter.get('/v1/dashboard/testflight/:appId/builds', deviceOrExternalRateLimit, async (req, res) => {
   const appId = Number.parseInt(req.params.appId, 10);
   const trainVersion = typeof req.query.trainVersion === 'string' ? req.query.trainVersion : '';
   if (!Number.isInteger(appId) || appId <= 0 || !trainVersion) {

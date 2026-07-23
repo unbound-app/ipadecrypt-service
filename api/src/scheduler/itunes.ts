@@ -1,3 +1,5 @@
+import { describeHttpError } from '../util/httpError.js';
+
 interface ItunesLookupResult {
   version: string;
   bundleId: string;
@@ -12,7 +14,7 @@ interface ItunesLookupResponse {
 export async function lookupCurrentVersion(bundleId: string): Promise<ItunesLookupResult> {
   const url = `https://itunes.apple.com/lookup?bundleId=${encodeURIComponent(bundleId)}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`itunes lookup failed: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(describeHttpError('itunes lookup failed', res));
 
   const body = (await res.json()) as ItunesLookupResponse;
   const result = body.results[0];
@@ -47,7 +49,7 @@ interface ItunesSearchResponse {
 export async function searchApps(term: string, limit = 10): Promise<ItunesSearchResult[]> {
   const url = `https://itunes.apple.com/search?entity=software&limit=${limit}&term=${encodeURIComponent(term)}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`itunes search failed: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(describeHttpError('itunes search failed', res));
 
   const body = (await res.json()) as ItunesSearchResponse;
   return body.results.map((r) => ({

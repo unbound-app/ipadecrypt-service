@@ -30,14 +30,30 @@
   let buildsError = $state('');
 
   let refreshingTrains = $state(false);
+  let newBuildIds = $state<Set<number>>(new Set());
 
+  async function refreshExpandedTrainBuilds(trainVersion: string): Promise<void> {
+    const oldIds = new Set((buildsCache[trainVersion] ?? []).map((b) => b.id));
+    const data = await fetchTestFlightBuilds(appId, trainVersion);
+    if ('error' in data) return;
+    buildsCache = { ...buildsCache, [trainVersion]: data.builds };
+    newBuildIds = new Set(data.builds.filter((b) => !oldIds.has(b.id)).map((b) => b.id));
+  }
+
+  // A plain refresh keeps whatever train you had open and its cached builds instead of wiping
+  // everything - only re-fetches that train's builds (to compute what's new) if its build count
+  // actually changed, rather than re-hitting the device's slow SSH bridge on every refresh.
   function load(id: number, force = false): void {
     loadedFor = id;
     error = '';
-    expandedTrain = '';
-    buildsCache = {};
+    if (!force) {
+      expandedTrain = '';
+      buildsCache = {};
+    }
     loadingTrain = '';
     buildsError = '';
+    newBuildIds = new Set();
+    const prevCount = force && expandedTrain ? trains?.find((t) => t.trainVersion === expandedTrain)?.buildCount : undefined;
     if (force) refreshingTrains = true;
     else trains = null;
     fetchTestFlightTrains(id)
@@ -45,8 +61,12 @@
         if ('error' in data) {
           error = data.error;
           if (!force) trains = [];
-        } else {
-          trains = data.trains;
+          return;
+        }
+        trains = data.trains;
+        if (force && expandedTrain) {
+          const updated = data.trains.find((t) => t.trainVersion === expandedTrain);
+          if (updated && updated.buildCount !== prevCount) void refreshExpandedTrainBuilds(expandedTrain);
         }
       })
       .catch(() => {
@@ -95,6 +115,7 @@
     }
     expandedTrain = trainVersion;
     buildsError = '';
+    newBuildIds = new Set();
     if (!buildsCache[trainVersion]) void loadBuilds(trainVersion);
   }
 
@@ -167,7 +188,10 @@
                 {#each buildsCache[t.trainVersion] ?? [] as b (b.id)}
                   <div class="flex items-center justify-between gap-3 py-1.5">
                     <div class="min-w-0">
-                      <div class="text-[13px]">{label(b)}</div>
+                      <div class="flex items-center gap-1.5 text-[13px]">
+                        {label(b)}
+                        {#if newBuildIds.has(b.id)}<Badge variant="success">New</Badge>{/if}
+                      </div>
                       {#if b.releaseDate}
                         <div class="text-muted text-xs">{fmtTime(new Date(b.releaseDate).getTime())}</div>
                       {/if}

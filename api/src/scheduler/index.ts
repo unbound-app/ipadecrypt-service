@@ -323,6 +323,14 @@ async function tickTestFlight(watch: AppWatch): Promise<DispatchResult> {
 
 const RETRY_BASE_DELAY_MS = 30_000;
 
+// Rate-limit errors carry a "retry after Ns" hint (from describeHttpError) - honor it instead of
+// the fixed exponential schedule when it asks for longer, since retrying a rate limit before the
+// window resets just burns another attempt for nothing.
+function retryAfterMsFromReason(reason: string): number | undefined {
+  const match = /retry after (\d+)s/.exec(reason);
+  return match ? Number(match[1]) * 1000 : undefined;
+}
+
 async function tickWithRetry(
   fn: (watch: AppWatch) => Promise<DispatchResult>,
   watch: AppWatch,
@@ -331,8 +339,18 @@ async function tickWithRetry(
 ): Promise<DispatchResult> {
   let result = await fn(watch);
   for (let attempt = 1; attempt <= retryCount && !result.outcome.ok; attempt++) {
-    const delayMs = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
-    log.warn('scheduler check failed, retrying', { source: label, watchId: watch.id, attempt, maxRetries: retryCount, delayMs, reason: result.outcome.reason });
+    const backoffMs = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+    const rateLimitedMs = retryAfterMsFromReason(result.outcome.reason);
+    const delayMs = rateLimitedMs ? Math.max(backoffMs, rateLimitedMs) : backoffMs;
+    log.warn('scheduler check failed, retrying', {
+      source: label,
+      watchId: watch.id,
+      attempt,
+      maxRetries: retryCount,
+      delayMs,
+      rateLimited: rateLimitedMs !== undefined,
+      reason: result.outcome.reason,
+    });
     await sleep(delayMs);
     result = await fn(watch);
   }
