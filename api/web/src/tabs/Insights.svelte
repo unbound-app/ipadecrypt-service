@@ -1,15 +1,18 @@
 <script lang="ts">
-  import { BarChart3 } from 'lucide-svelte';
+  import { BarChart3, TriangleAlert } from 'lucide-svelte';
   import BundleStatsDialog from '../components/BundleStatsDialog.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import Sparkline from '../components/Sparkline.svelte';
-  import { fetchInsights, type InsightsSummary } from '../lib/api';
+  import { fetchInsights, fetchWatchHealth, type InsightsSummary, type WatchHealthSummary } from '../lib/api';
   import Badge from '../lib/components/ui/Badge.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Card from '../lib/components/ui/Card.svelte';
   import Select from '../lib/components/ui/Select.svelte';
   import { csvCell, downloadBlob, fmtBytesGB, trendDelta } from '../lib/format';
   import { liveState } from '../lib/live.svelte';
+  import { PermissionFlag } from '../lib/permissions';
+  import { sessionHasAnyPermission } from '../lib/session.svelte';
+  import RelativeTime from '../components/RelativeTime.svelte';
 
   const TREND_DAYS_OPTIONS = [
     { value: '7', label: 'Last 7 days' },
@@ -29,6 +32,20 @@
   let insights = $state<InsightsSummary | null>(null);
   let trendDays = $state('14');
   let topAppsLimit = $state('5');
+
+  const canViewScheduler = $derived(
+    sessionHasAnyPermission([PermissionFlag.manageWatches, PermissionFlag.manageDevices, PermissionFlag.manageSchedulerSettings, PermissionFlag.triggerDispatch]),
+  );
+  let watchHealth = $state<WatchHealthSummary[] | null>(null);
+
+  $effect(() => {
+    if (!canViewScheduler) return;
+    void fetchWatchHealth().then((r) => (watchHealth = r.watches));
+  });
+
+  const flaggedWatches = $derived(
+    (watchHealth ?? []).filter((w) => w.schedulable && (w.consecutiveFailures >= 3 || (w.historyCount > 0 && !w.everTriggeredInHistory))),
+  );
 
   function load(): void {
     void fetchInsights(Number(trendDays), Number(topAppsLimit)).then((r) => (insights = r));
@@ -186,5 +203,30 @@
     </div>
   {/if}
 </Card>
+
+{#if canViewScheduler && watchHealth !== null && watchHealth.some((w) => w.schedulable)}
+  <Card title="Watch health" class="mt-4">
+    {#if flaggedWatches.length === 0}
+      <EmptyState message="All watches are checking in fine - no repeated failures, all have found a match before." />
+    {:else}
+      <div class="flex flex-col gap-1.5">
+        {#each flaggedWatches as w (w.watchId)}
+          <div class="border-border flex items-center gap-2.5 rounded-md border px-2.5 py-2 text-xs">
+            <TriangleAlert class="text-warn h-3.5 w-3.5 shrink-0" />
+            <span class="min-w-0 flex-1 truncate font-mono" title={w.bundleId}>{w.name || w.bundleId}</span>
+            {#if w.consecutiveFailures >= 3}
+              <Badge variant="destructive">{w.consecutiveFailures} checks failed in a row</Badge>
+            {:else}
+              <Badge variant="secondary">no match in visible history ({w.historyCount} checks)</Badge>
+            {/if}
+            {#if w.lastCheckAt}
+              <span class="text-muted"><RelativeTime ms={w.lastCheckAt} /></span>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </Card>
+{/if}
 
 <BundleStatsDialog open={statsOpen} bundleId={statsBundleId} onOpenChange={(v) => (statsOpen = v)} />

@@ -242,7 +242,9 @@ export interface ApiKeyRecord {
   hasUnrevealedSecret: boolean;
   allowedBundleIds?: string[];
   dailyLimit?: number;
+  maxConcurrent?: number;
   priority?: number;
+  previousKeyValidUntil?: number;
 }
 
 export interface AllowedUser {
@@ -570,6 +572,22 @@ export function fetchInsights(trendDays = 14, topApps = 5): Promise<InsightsSumm
   return apiJson(`/v1/dashboard/insights?trendDays=${trendDays}&topApps=${topApps}`);
 }
 
+export interface WatchHealthSummary {
+  watchId: string;
+  name?: string;
+  bundleId: string;
+  schedulable: boolean;
+  lastCheckAt?: number;
+  lastCheckOk?: boolean;
+  consecutiveFailures: number;
+  everTriggeredInHistory: boolean;
+  historyCount: number;
+}
+
+export function fetchWatchHealth(): Promise<{ watches: WatchHealthSummary[] }> {
+  return apiJson('/v1/dashboard/watches/health');
+}
+
 export function searchApps(term: string): Promise<{ results: AppStoreSearchResult[] } | { error: string }> {
   return apiJson(`/v1/dashboard/search?q=${encodeURIComponent(term)}`);
 }
@@ -676,8 +694,12 @@ export function revealKey(id: string): Promise<{ ok: boolean; data: { key: strin
   return apiAction(`/v1/dashboard/keys/${id}/reveal`, { method: 'POST' });
 }
 
-export function regenerateKey(id: string): Promise<{ ok: boolean }> {
-  return apiAction(`/v1/dashboard/keys/${id}/regenerate`, { method: 'POST' }, 'Key regenerated - reveal it to get the new value');
+export function regenerateKey(id: string, graceMinutes = 0): Promise<{ ok: boolean; data: { key?: ApiKeyRecord } }> {
+  return apiAction(
+    `/v1/dashboard/keys/${id}/regenerate`,
+    { method: 'POST', body: JSON.stringify({ graceMinutes }) },
+    graceMinutes > 0 ? `Key regenerated - old secret still works for ${graceMinutes}m` : 'Key regenerated - reveal it to get the new value',
+  );
 }
 
 export function revokeKey(id: string): Promise<{ ok: boolean }> {
@@ -710,6 +732,10 @@ export function denyKey(id: string): Promise<{ ok: boolean }> {
 
 export function updateKeyPriority(id: string, priority: number): Promise<{ ok: boolean; data: { priority?: number } }> {
   return apiAction(`/v1/dashboard/keys/${id}/priority`, { method: 'PATCH', body: JSON.stringify({ priority }) }, 'Priority updated');
+}
+
+export function updateKeyMaxConcurrent(id: string, maxConcurrent: number | null): Promise<{ ok: boolean; data: { maxConcurrent?: number } }> {
+  return apiAction(`/v1/dashboard/keys/${id}/max-concurrent`, { method: 'PATCH', body: JSON.stringify({ maxConcurrent }) }, 'Concurrency cap updated');
 }
 
 export function fetchSettings(): Promise<SchedulerSettings> {

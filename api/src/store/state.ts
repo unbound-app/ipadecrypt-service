@@ -68,12 +68,15 @@ export interface ApiKeyRecord {
   status: ApiKeyStatus;
   hash?: string;
   pendingReveal?: string;
+  previousHash?: string;
+  previousHashExpiresAt?: number;
   createdAt: number;
   approvedAt?: number;
   lastUsedAt?: number;
   expiresAt?: number;
   allowedBundleIds?: string[];
   dailyLimit?: number;
+  maxConcurrent?: number;
   expiryNotifiedAt?: number;
   priority?: number;
 }
@@ -898,7 +901,9 @@ function redact(k: ApiKeyRecord) {
     hasUnrevealedSecret: !!k.pendingReveal,
     allowedBundleIds: k.allowedBundleIds,
     dailyLimit: k.dailyLimit,
+    maxConcurrent: k.maxConcurrent,
     priority: k.priority ?? 0,
+    previousKeyValidUntil: k.previousHash && k.previousHashExpiresAt && k.previousHashExpiresAt > Date.now() ? k.previousHashExpiresAt : undefined,
   };
 }
 
@@ -976,14 +981,28 @@ export function denyApiKey(id: string): boolean {
   return true;
 }
 
-export function regenerateApiKey(id: string, requesterId: string): boolean {
+// Keeps the outgoing secret valid for `graceMinutes` more so an in-flight deploy that still has
+// the old key baked in doesn't hard-fail the moment someone rotates it - 0 falls back to the old
+// instant-cutover behavior.
+export function regenerateApiKey(id: string, requesterId: string, graceMinutes = 0): boolean {
   const record = state.apiKeys.find((k) => k.id === id);
   if (!record || record.status !== 'approved' || record.ownerId !== requesterId) return false;
+  if (record.hash && graceMinutes > 0) {
+    record.previousHash = record.hash;
+    record.previousHashExpiresAt = Date.now() + graceMinutesToMs(graceMinutes);
+  } else {
+    record.previousHash = undefined;
+    record.previousHashExpiresAt = undefined;
+  }
   const key = randomBytes(32).toString('hex');
   record.hash = hashKey(key);
   record.pendingReveal = key;
   persistNow();
   return true;
+}
+
+function graceMinutesToMs(graceMinutes: number): number {
+  return Math.min(graceMinutes, 24 * 60) * 60_000;
 }
 
 export function revealApiKeySecret(id: string, requesterId: string): string | undefined {
@@ -1096,7 +1115,11 @@ export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined | 
   if (safeEqualStr(candidate, config.apiKey)) return {};
 
   const hash = hashKey(candidate);
-  const record = state.apiKeys.find((k) => k.status === 'approved' && k.hash === hash);
+  const record = state.apiKeys.find((k) => {
+    if (k.status !== 'approved') return false;
+    if (k.hash === hash) return true;
+    return k.previousHash === hash && !!k.previousHashExpiresAt && Date.now() < k.previousHashExpiresAt;
+  });
   if (!record) return undefined;
   if (record.expiresAt && Date.now() > record.expiresAt) return undefined;
   if (record.dailyLimit && todayUsageCount(record.id) >= record.dailyLimit) return 'rate-limited';
@@ -1162,6 +1185,14 @@ export function setApiKeyPriority(id: string, priority: number): ApiKeyRecord | 
   const record = state.apiKeys.find((k) => k.id === id);
   if (!record) return undefined;
   record.priority = clampPriority(priority);
+  persistNow();
+  return record;
+}
+
+export function setApiKeyMaxConcurrent(id: string, maxConcurrent: number | undefined): ApiKeyRecord | undefined {
+  const record = state.apiKeys.find((k) => k.id === id);
+  if (!record) return undefined;
+  record.maxConcurrent = maxConcurrent && maxConcurrent > 0 ? Math.floor(maxConcurrent) : undefined;
   persistNow();
   return record;
 }
@@ -1690,6 +1721,44 @@ export function getSchedulerRunHistory(limit = 10, watchId?: string): SchedulerR
   );
   const filtered = watchId ? filled.filter((e) => e.watchId === watchId) : filled;
   return filtered.slice(0, limit);
+}
+
+export interface WatchHealthSummary {
+  watchId: string;
+  name?: string;
+  bundleId: string;
+  schedulable: boolean;
+  lastCheckAt?: number;
+  lastCheckOk?: boolean;
+  consecutiveFailures: number;
+  everTriggeredInHistory: boolean;
+  historyCount: number;
+}
+
+// Only reflects what's still in the (shared, size-capped) scheduler run history - "no matches"
+// means none in that visible window, not literally never, and "repeated failures" is about the
+// most recent consecutive runs rather than a fixed lookback period.
+export function getWatchHealthRollup(): WatchHealthSummary[] {
+  return getEffectiveWatches().map((watch) => {
+    const entries = getSchedulerRunHistory(MAX_SCHEDULER_RUNS, watch.id);
+    let consecutiveFailures = 0;
+    for (const e of entries) {
+      if (e.appStore.ok && e.testflight.ok) break;
+      consecutiveFailures += 1;
+    }
+    const last = entries[0];
+    return {
+      watchId: watch.id,
+      name: watch.name,
+      bundleId: watch.bundleId,
+      schedulable: isWatchSchedulable(watch),
+      lastCheckAt: last?.ts,
+      lastCheckOk: last ? last.appStore.ok && last.testflight.ok : undefined,
+      consecutiveFailures,
+      everTriggeredInHistory: entries.some((e) => e.appStore.triggered || e.testflight.triggered),
+      historyCount: entries.length,
+    };
+  });
 }
 
 export function recordDeviceHealthCheck(

@@ -19,6 +19,7 @@
     requestKey,
     revealKey,
     revokeKey,
+    updateKeyMaxConcurrent,
     updateKeyPriority,
     type ApiKeyRecord,
   } from '../lib/api';
@@ -199,11 +200,18 @@
     }
   }
 
+  const REGENERATE_GRACE_MINUTES = 15;
+
   async function doRegenerate(id: string): Promise<void> {
-    if (!(await confirmDialog('Regenerate this key? The old secret stops working immediately.'))) return;
+    if (
+      !(await confirmDialog(`Regenerate this key? The old secret keeps working for ${REGENERATE_GRACE_MINUTES} more minutes so in-flight deploys don't break.`, {
+        confirmLabel: 'Regenerate',
+      }))
+    )
+      return;
     setBusy('regenerate', id, true);
     try {
-      const { ok } = await regenerateKey(id);
+      const { ok } = await regenerateKey(id, REGENERATE_GRACE_MINUTES);
       if (ok) void loadAll();
     } finally {
       setBusy('regenerate', id, false);
@@ -238,6 +246,19 @@
       void loadAll();
     } finally {
       setBusy('priority', id, false);
+    }
+  }
+
+  async function saveMaxConcurrent(id: string, raw: string): Promise<void> {
+    const trimmed = raw.trim();
+    const maxConcurrent = trimmed ? Number(trimmed) : null;
+    if (maxConcurrent !== null && (!Number.isFinite(maxConcurrent) || maxConcurrent <= 0)) return;
+    setBusy('maxConcurrent', id, true);
+    try {
+      await updateKeyMaxConcurrent(id, maxConcurrent);
+      void loadAll();
+    } finally {
+      setBusy('maxConcurrent', id, false);
     }
   }
 
@@ -508,6 +529,7 @@
               <th>Status</th>
               <th>Scope</th>
               {#if canApprove}<th>Priority</th>{/if}
+              {#if canApprove}<th>Max concurrent</th>{/if}
               <th>Created</th>
               <th>Last used</th>
               <th></th>
@@ -516,7 +538,7 @@
           </thead>
           <tbody>
             {#if all === null}
-              <SkeletonRows rows={3} colspan={8 + (canRevokeAny ? 2 : 0) + (canApprove ? 1 : 0)} />
+              <SkeletonRows rows={3} colspan={8 + (canRevokeAny ? 2 : 0) + (canApprove ? 2 : 0)} />
             {:else}
               {#each filteredAll as k (k.id)}
                 <tr>
@@ -543,6 +565,12 @@
                       {#if k.dailyLimit}
                         <Badge variant="secondary" title="{k.dailyLimit} requests/day">{k.dailyLimit}/day</Badge>
                       {/if}
+                      {#if k.maxConcurrent}
+                        <Badge variant="secondary" title="Up to {k.maxConcurrent} concurrent job(s)">{k.maxConcurrent}× concurrent</Badge>
+                      {/if}
+                      {#if k.previousKeyValidUntil}
+                        <Badge variant="secondary" title="The pre-rotation secret still works until then">old secret valid {fmtUntil(k.previousKeyValidUntil)}</Badge>
+                      {/if}
                     </div>
                   </td>
                   <td data-label="Scope" class="max-w-32 truncate text-muted" title={k.allowedBundleIds?.join(', ') ?? ''}>
@@ -563,6 +591,20 @@
                         onchange={(e) => savePriority(k.id, Number((e.target as HTMLInputElement).value))}
                         class="border-border bg-panel-muted w-14 rounded-md border px-1.5 py-1 text-xs disabled:opacity-60"
                         title="Higher goes first among queued manual decrypts"
+                      />
+                    </td>
+                  {/if}
+                  {#if canApprove}
+                    <td data-label="Max concurrent">
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="∞"
+                        value={k.maxConcurrent ?? ''}
+                        disabled={isBusy('maxConcurrent', k.id)}
+                        onchange={(e) => saveMaxConcurrent(k.id, (e.target as HTMLInputElement).value)}
+                        class="border-border bg-panel-muted w-14 rounded-md border px-1.5 py-1 text-xs disabled:opacity-60"
+                        title="Max jobs from this key running at once - blank means unlimited"
                       />
                     </td>
                   {/if}

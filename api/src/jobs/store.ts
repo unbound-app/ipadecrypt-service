@@ -7,7 +7,7 @@ import { scopedLogger } from '../logger.js';
 const log = scopedLogger('jobs');
 import { EMBED_COLOR, notify } from '../notify.js';
 import { sendPushToUser } from '../push.js';
-import { clearAppleAuthAlert, getEffectiveDevices, getUserPrefs, recordJobHistory, setAppleAuthAlert, type DeviceRecord } from '../store/state.js';
+import { clearAppleAuthAlert, getApiKeyById, getEffectiveDevices, getUserPrefs, recordJobHistory, setAppleAuthAlert, type DeviceRecord } from '../store/state.js';
 import { looksLikeAppleAuthFailure } from '../util/appleAuth.js';
 import { runDecrypt } from './runner.js';
 import type { Job, JobSource, TestFlightJobSource } from './types.js';
@@ -52,6 +52,7 @@ export function enqueueDecryptJob(
   queuedBy?: string,
   priority = 0,
   preferredDeviceId?: string,
+  apiKeyId?: string,
 ): Job {
   const existing = findActiveJobForBundle(bundleId, externalVersionId, testflight?.build.id);
   if (existing) return existing;
@@ -66,6 +67,7 @@ export function enqueueDecryptJob(
     versionLabel: resolvedLabel,
     source,
     queuedBy,
+    apiKeyId,
     preferredDeviceId,
     priority,
     status: 'queued',
@@ -179,6 +181,26 @@ export function cancelJob(id: string, cancelledBy: string): boolean {
   return cancelQueuedJob(id, cancelledBy) || cancelRunningJob(id, cancelledBy);
 }
 
+// Called when a device goes unreachable so its pinned-but-not-yet-dispatched jobs don't sit
+// stalled waiting for a specific device that may be down for a while. TestFlight jobs stay
+// pinned - they can only ever run against the primary device, there's nowhere else to send them.
+export function releasePinnedJobsForDevice(deviceId: string): number {
+  let released = 0;
+  for (const id of queue) {
+    const job = jobs.get(id);
+    if (job && job.preferredDeviceId === deviceId && !job.testflight) {
+      job.preferredDeviceId = undefined;
+      released += 1;
+    }
+  }
+  if (released > 0) {
+    log.info('released device-pinned queued jobs after device went unreachable', { deviceId, released });
+    emitJobsChanged();
+    pumpWorkers();
+  }
+  return released;
+}
+
 export function prioritizeQueuedJob(id: string): boolean {
   const job = jobs.get(id);
   if (!job || job.status !== 'queued') return false;
@@ -212,16 +234,26 @@ function queuedByActiveCount(username: string): number {
   return count;
 }
 
+function apiKeyActiveCount(apiKeyId: string): number {
+  let count = 0;
+  for (const job of jobs.values()) {
+    if (job.status === 'running' && job.apiKeyId === apiKeyId) count += 1;
+  }
+  return count;
+}
+
 function takeNextDispatchableJobId(device: DeviceRecord, primary: DeviceRecord): string | undefined {
   const cap = config.userConcurrencyCap;
   for (let i = 0; i < queue.length; i++) {
     const job = jobs.get(queue[i]);
     if (!job || !isDispatchable(job, device, primary)) continue;
     if (cap > 0 && job.queuedBy && queuedByActiveCount(job.queuedBy) >= cap) continue;
-    if (job) {
-      queue.splice(i, 1);
-      return job.id;
+    if (job.apiKeyId) {
+      const keyMaxConcurrent = getApiKeyById(job.apiKeyId)?.maxConcurrent;
+      if (keyMaxConcurrent && apiKeyActiveCount(job.apiKeyId) >= keyMaxConcurrent) continue;
     }
+    queue.splice(i, 1);
+    return job.id;
   }
   return undefined;
 }

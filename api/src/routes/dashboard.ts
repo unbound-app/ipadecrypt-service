@@ -71,6 +71,7 @@ import {
   getLastSchedulerRunAt,
   getPrimaryDevice,
   getSchedulerRunHistory,
+  getWatchHealthRollup,
   getUserPrefs,
   getUserPriority,
   getWatch,
@@ -97,6 +98,7 @@ import {
   revokeApiKey,
   revokeShareLink,
   type SchedulerSettings,
+  setApiKeyMaxConcurrent,
   setApiKeyPriority,
   setUserPriority,
   updateAllowedUserRoles,
@@ -544,6 +546,10 @@ dashboardRouter.get('/v1/dashboard/watches', canViewScheduler, (_req, res) => {
   res.json({ watches: getEffectiveWatches().map(serializeWatch) });
 });
 
+dashboardRouter.get('/v1/dashboard/watches/health', canViewScheduler, (_req, res) => {
+  res.json({ watches: getWatchHealthRollup() });
+});
+
 interface WatchInput {
   name?: string;
   bundleId: string;
@@ -878,12 +884,14 @@ dashboardRouter.post('/v1/dashboard/keys/:id/reveal', (req, res) => {
 
 dashboardRouter.post('/v1/dashboard/keys/:id/regenerate', (req, res) => {
   const { sub } = res.locals.session;
-  const ok = regenerateApiKey(req.params.id, sub);
+  const graceMinutesRaw = req.body?.graceMinutes;
+  const graceMinutes = typeof graceMinutesRaw === 'number' && Number.isFinite(graceMinutesRaw) && graceMinutesRaw > 0 ? graceMinutesRaw : 0;
+  const ok = regenerateApiKey(req.params.id, sub, graceMinutes);
   if (!ok) {
     res.status(404).json({ error: 'key not found, not yours, or not yet approved' });
     return;
   }
-  res.json({ ok: true });
+  res.json({ ok: true, key: getApiKeyById(req.params.id) });
 });
 
 dashboardRouter.delete('/v1/dashboard/keys/:id', (req, res) => {
@@ -999,6 +1007,21 @@ dashboardRouter.patch('/v1/dashboard/keys/:id/priority', canManageApiKeyLimits, 
     return;
   }
   res.json({ ok: true, priority: updated.priority });
+});
+
+dashboardRouter.patch('/v1/dashboard/keys/:id/max-concurrent', canManageApiKeyLimits, (req, res) => {
+  const raw = req.body?.maxConcurrent;
+  const maxConcurrent = raw === null || raw === undefined ? undefined : Number(raw);
+  if (maxConcurrent !== undefined && (!Number.isFinite(maxConcurrent) || maxConcurrent <= 0)) {
+    res.status(400).json({ error: 'maxConcurrent must be a positive number, or null to clear it' });
+    return;
+  }
+  const updated = setApiKeyMaxConcurrent(req.params.id, maxConcurrent);
+  if (!updated) {
+    res.status(404).json({ error: 'key not found' });
+    return;
+  }
+  res.json({ ok: true, maxConcurrent: updated.maxConcurrent });
 });
 
 dashboardRouter.post('/v1/dashboard/keys/:id/deny', canApproveApiKeys, (req, res) => {

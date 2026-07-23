@@ -21,6 +21,51 @@
 
   let cancelling = $state<Set<string>>(new Set());
   let prioritizing = $state<Set<string>>(new Set());
+  let selected = $state<Set<string>>(new Set());
+  let bulkCancelling = $state(false);
+  let bulkPrioritizing = $state(false);
+
+  $effect(() => {
+    const liveIds = new Set(jobs.map((j) => j.id));
+    if ([...selected].some((id) => !liveIds.has(id))) {
+      selected = new Set([...selected].filter((id) => liveIds.has(id)));
+    }
+  });
+
+  function toggleSelect(id: string): void {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selected = next;
+  }
+
+  function toggleSelectAll(): void {
+    selected = selected.size === jobs.length ? new Set() : new Set(jobs.map((j) => j.id));
+  }
+
+  async function bulkCancel(): Promise<void> {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (!(await confirmDialog(`Cancel ${ids.length} selected job(s)?`, { confirmLabel: 'Cancel jobs' }))) return;
+    bulkCancelling = true;
+    try {
+      await Promise.all(ids.map((id) => cancelJob(id)));
+      selected = new Set();
+    } finally {
+      bulkCancelling = false;
+    }
+  }
+
+  async function bulkPrioritize(): Promise<void> {
+    const ids = [...selected].filter((id) => jobs.find((j) => j.id === id)?.status === 'queued');
+    if (ids.length === 0) return;
+    bulkPrioritizing = true;
+    try {
+      await Promise.all(ids.map((id) => prioritizeJob(id)));
+    } finally {
+      bulkPrioritizing = false;
+    }
+  }
 
   async function cancel(id: string, status: 'queued' | 'running'): Promise<void> {
     if (status === 'running' && !(await confirmDialog("Cancel this decrypt? It's already running on the device.", { confirmLabel: 'Cancel job' }))) {
@@ -87,7 +132,12 @@
 
 <Card title="Active jobs">
   {#snippet headerExtra()}
-    {#if jobs.length > 1 && queueEtaMs !== null}
+    {#if canCancel && selected.size > 0}
+      <div class="flex flex-wrap items-center gap-1.5">
+        <Button size="sm" variant="secondary" loading={bulkPrioritizing} onclick={bulkPrioritize}>Bump queued to front</Button>
+        <Button size="sm" variant="destructive" loading={bulkCancelling} onclick={bulkCancel}>Cancel {selected.size} selected</Button>
+      </div>
+    {:else if jobs.length > 1 && queueEtaMs !== null}
       <span class="text-xs text-muted" title="Sum of each queued/running job's own average duration">
         Queue clears in {fmtDurationApprox(queueEtaMs)}
       </span>
@@ -97,6 +147,9 @@
     <table class="responsive-table sm:min-w-[640px]">
       <thead>
         <tr>
+          {#if canCancel}
+            <th><input type="checkbox" checked={jobs.length > 0 && selected.size === jobs.length} onchange={toggleSelectAll} aria-label="Select all active jobs" /></th>
+          {/if}
           <th>Bundle ID</th>
           <th>Version</th>
           <th>Source</th>
@@ -109,10 +162,13 @@
       </thead>
       <tbody>
         {#if !loaded}
-          <SkeletonRows rows={2} colspan={8} />
+          <SkeletonRows rows={2} colspan={canCancel ? 9 : 8} />
         {:else}
           {#each jobs as j (j.id)}
             <tr>
+              {#if canCancel}
+                <td data-label="Select"><input type="checkbox" checked={selected.has(j.id)} onchange={() => toggleSelect(j.id)} /></td>
+              {/if}
               <td data-label="Bundle ID" class="max-w-40 truncate font-mono text-[11px]" title={j.bundleId}>{j.bundleId}</td>
               <td data-label="Version" class="max-w-32">
                 <div class="flex min-w-0 items-center gap-1" title={j.versionLabel}>

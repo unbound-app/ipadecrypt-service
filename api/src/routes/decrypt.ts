@@ -44,6 +44,8 @@ decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
     undefined,
     res.locals.apiKeyOwner as string | undefined,
     (res.locals.apiKeyPriority as number | undefined) ?? 0,
+    undefined,
+    res.locals.apiKeyId as string | undefined,
   );
   const finished = await waitForJob(job, config.jobMaxWaitSeconds * 1000);
 
@@ -152,6 +154,8 @@ decryptRouter.post('/v1/testflight/decrypt', requireApiKey, (req, res) => {
     undefined,
     res.locals.apiKeyOwner as string | undefined,
     (res.locals.apiKeyPriority as number | undefined) ?? 0,
+    undefined,
+    res.locals.apiKeyId as string | undefined,
   );
   res.status(202).json(jobSummary(job));
 });

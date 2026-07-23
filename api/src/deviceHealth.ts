@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { execCommand, isTestFlightRunning, sendSpringBoardBridgeRequest, tryIoregCandidates, withSSH } from './idevice.js';
 import { scopedLogger } from './logger.js';
 import { EMBED_COLOR, notify } from './notify.js';
+import { releasePinnedJobsForDevice } from './jobs/store.js';
 import { getEffectiveDevices, getEffectiveSettings, recordDeviceHealthCheck, type DeviceRecord } from './store/state.js';
 import { getDiskUsage } from './util/diskUsage.js';
 
@@ -233,7 +234,10 @@ async function checkOfflineAlert(device: DeviceRecord, reachable: boolean): Prom
     return;
   }
 
-  if (s.unreachableSince === undefined) s.unreachableSince = Date.now();
+  if (s.unreachableSince === undefined) {
+    s.unreachableSince = Date.now();
+    releasePinnedJobsForDevice(device.id);
+  }
   if (s.offlineAlertSentAt !== undefined) return;
 
   const settings = getEffectiveSettings();
