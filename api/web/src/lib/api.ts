@@ -499,6 +499,7 @@ export interface ShareLinkRecord {
   issuedAt: number;
   expiresAt: number;
   revoked: boolean;
+  usedAt?: number;
 }
 
 export function fetchShareLinks(jobId: string): Promise<{ links: ShareLinkRecord[] }> {
@@ -507,6 +508,10 @@ export function fetchShareLinks(jobId: string): Promise<{ links: ShareLinkRecord
 
 export function revokeShareLink(linkId: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/jobs/share/${linkId}/revoke`, { method: 'POST' }, 'Link revoked').then((r) => ({ ok: r.ok }));
+}
+
+export function revokeAllShareLinks(jobId: string): Promise<{ ok: boolean; data: { revoked: number } }> {
+  return apiAction(`/v1/dashboard/jobs/${jobId}/share/revoke-all`, { method: 'POST' }, 'Active links revoked');
 }
 
 export function cancelJob(id: string): Promise<{ ok: boolean }> {

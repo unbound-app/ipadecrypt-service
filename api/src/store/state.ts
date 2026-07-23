@@ -296,6 +296,7 @@ export interface ShareLinkRecord {
   issuedAt: number;
   expiresAt: number;
   revoked: boolean;
+  usedAt?: number;
 }
 
 interface PersistedState {
@@ -2179,7 +2180,16 @@ export function recordShareLink(jobId: string, bundleId: string, token: string, 
 // Never includes the raw token - it's a live bearer credential for the file download, not
 // something to hand back out over an endpoint that's just meant to list/audit issued links.
 function redactShareLink(l: ShareLinkRecord) {
-  return { id: l.id, jobId: l.jobId, bundleId: l.bundleId, issuedBy: l.issuedBy, issuedAt: l.issuedAt, expiresAt: l.expiresAt, revoked: l.revoked };
+  return {
+    id: l.id,
+    jobId: l.jobId,
+    bundleId: l.bundleId,
+    issuedBy: l.issuedBy,
+    issuedAt: l.issuedAt,
+    expiresAt: l.expiresAt,
+    revoked: l.revoked,
+    usedAt: l.usedAt,
+  };
 }
 
 export function listShareLinksForJob(jobId: string): ReturnType<typeof redactShareLink>[] {
@@ -2197,8 +2207,34 @@ export function revokeShareLink(id: string): boolean {
   return true;
 }
 
+// Used by "revoke all active links" on the share dialog - only touches links that are actually
+// still active, so it's safe to call repeatedly without re-recording an audit-log-worthy change
+// for links that were already revoked or expired.
+export function revokeAllShareLinksForJob(jobId: string): number {
+  const now = Date.now();
+  let revoked = 0;
+  for (const l of state.shareLinks) {
+    if (l.jobId === jobId && !l.revoked && l.expiresAt > now) {
+      l.revoked = true;
+      revoked += 1;
+    }
+  }
+  if (revoked > 0) persistNow();
+  return revoked;
+}
+
 export function isShareLinkRevoked(jobId: string, token: string): boolean {
   return state.shareLinks.some((l) => l.jobId === jobId && l.token === token && l.revoked);
+}
+
+// Best-effort "someone downloaded this" signal for the issuer - recorded the moment a share-token
+// request passes auth, not after the stream finishes, so a client that aborts mid-download still
+// counts (closer to what an issuer actually wants to know: "was this link used").
+export function markShareLinkUsed(jobId: string, token: string): void {
+  const record = state.shareLinks.find((l) => l.jobId === jobId && l.token === token);
+  if (!record || record.usedAt) return;
+  record.usedAt = Date.now();
+  persistNow();
 }
 
 export function getUserPrefs(username: string): UserPrefs {

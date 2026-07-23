@@ -102,6 +102,7 @@ import {
   requestApiKey,
   revealApiKeySecret,
   revokeApiKey,
+  revokeAllShareLinksForJob,
   revokeShareLink,
   type SchedulerSettings,
   setApiKeyAllowTestFlight,
@@ -830,6 +831,11 @@ dashboardRouter.post('/v1/dashboard/jobs/share/:linkId/revoke', (req, res) => {
     return;
   }
   res.json({ ok: true });
+});
+
+dashboardRouter.post('/v1/dashboard/jobs/:id/share/revoke-all', (req, res) => {
+  const revoked = revokeAllShareLinksForJob(req.params.id);
+  res.json({ ok: true, revoked });
 });
 
 dashboardRouter.get('/v1/dashboard/keys/mine', canAccessApi, (_req, res) => {

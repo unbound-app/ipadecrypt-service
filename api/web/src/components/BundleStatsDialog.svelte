@@ -8,20 +8,44 @@
 
   let { open = $bindable(), bundleId, onOpenChange }: { open: boolean; bundleId: string; onOpenChange: (open: boolean) => void } = $props();
 
+  const VERSIONS_PAGE_SIZE = 20;
+
   let stats = $state<BundleStats | null>(null);
   let versions = $state<JobHistoryEntry[] | null>(null);
+  let versionsOffset = $state(0);
+  let versionsHasMore = $state(false);
+  let loadingMoreVersions = $state(false);
   let selected = $state<Set<string>>(new Set());
   let diff = $state<JobDiffResult | null>(null);
   let diffing = $state(false);
+
+  async function loadVersionsPage(offset: number): Promise<void> {
+    const r = await fetchJobHistory(offset, VERSIONS_PAGE_SIZE, bundleId, undefined, 'done');
+    const matched = r.history.filter((h) => h.bundleId === bundleId);
+    versions = offset === 0 ? matched : [...(versions ?? []), ...matched];
+    versionsOffset = offset + r.history.length;
+    versionsHasMore = r.history.length === VERSIONS_PAGE_SIZE;
+  }
+
+  async function loadMoreVersions(): Promise<void> {
+    loadingMoreVersions = true;
+    try {
+      await loadVersionsPage(versionsOffset);
+    } finally {
+      loadingMoreVersions = false;
+    }
+  }
 
   $effect(() => {
     if (open && bundleId) {
       stats = null;
       versions = null;
+      versionsOffset = 0;
+      versionsHasMore = false;
       selected = new Set();
       diff = null;
       void fetchBundleStats(bundleId).then((s) => (stats = s));
-      void fetchJobHistory(0, 20, bundleId, undefined, 'done').then((r) => (versions = r.history.filter((h) => h.bundleId === bundleId)));
+      void loadVersionsPage(0);
     }
   });
 
@@ -110,6 +134,11 @@
             </label>
           {/each}
         </div>
+        {#if versionsHasMore}
+          <Button size="sm" variant="secondary" class="mt-1.5 w-full" loading={loadingMoreVersions} onclick={loadMoreVersions}>
+            Load more versions
+          </Button>
+        {/if}
       </div>
     {/if}
     {#if diff}

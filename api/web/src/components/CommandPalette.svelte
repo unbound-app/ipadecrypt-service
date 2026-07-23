@@ -11,6 +11,7 @@
     paletteState,
     requestOpenBatch,
     setActiveTab,
+    setSettingsSubtab,
     setTheme,
     showToast,
     themePrefState,
@@ -78,6 +79,7 @@
   const commands = $derived.by((): Command[] => {
     const base: Command[] = [
       { id: 'home', label: 'Go to Home', category: 'Navigation', run: () => setActiveTab('home') },
+      { id: 'billing', label: 'Go to Plans', category: 'Navigation', run: () => setActiveTab('billing') },
       { id: 'keys', label: 'Go to API Keys', category: 'Navigation', run: () => setActiveTab('keys') },
     ];
     if (sessionHasPermission(PermissionFlag.viewLogs)) {
@@ -87,6 +89,18 @@
     base.push({ id: 'docs', label: 'Go to Docs', category: 'Navigation', run: () => setActiveTab('docs') });
     if (sessionCanSeeSettings()) {
       base.push({ id: 'settings', label: 'Go to Settings', category: 'Navigation', run: () => setActiveTab('settings') });
+    }
+    if (sessionHasPermission(PermissionFlag.manageRoles)) {
+      base.push({
+        id: 'settings-roles',
+        label: 'Go to role management (Discord perks)',
+        category: 'Navigation',
+        keywords: 'discord perks roles',
+        run: () => {
+          setActiveTab('settings');
+          setSettingsSubtab('roles');
+        },
+      });
     }
     const THEME_CYCLE = ['dark', 'light', 'auto'] as const;
     base.push({

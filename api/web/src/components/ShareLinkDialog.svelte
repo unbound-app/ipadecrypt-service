@@ -1,7 +1,7 @@
 <script lang="ts">
   import CopyButton from './CopyButton.svelte';
   import RelativeTime from './RelativeTime.svelte';
-  import { fetchShareLinks, revokeShareLink, shareJobFile, type ShareLinkRecord } from '../lib/api';
+  import { fetchShareLinks, revokeAllShareLinks, revokeShareLink, shareJobFile, type ShareLinkRecord } from '../lib/api';
   import Badge from '../lib/components/ui/Badge.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Dialog from '../lib/components/ui/Dialog.svelte';
@@ -17,13 +17,15 @@
     { value: '360', label: '6 hours' },
     { value: '1440', label: '24 hours' },
   ];
+  const LAST_TTL_KEY = 'shareLinkLastTtlMinutes';
 
-  let ttlMinutes = $state('30');
+  let ttlMinutes = $state(localStorage.getItem(LAST_TTL_KEY) ?? '30');
   let url = $state('');
   let expiresAt = $state(0);
   let loading = $state(false);
   let links = $state<ShareLinkRecord[] | null>(null);
   let revoking = $state<Set<string>>(new Set());
+  let revokingAll = $state(false);
 
   async function loadLinks(): Promise<void> {
     links = (await fetchShareLinks(jobId)).links;
@@ -32,6 +34,7 @@
   async function generate(): Promise<void> {
     loading = true;
     try {
+      localStorage.setItem(LAST_TTL_KEY, ttlMinutes);
       const { ok, data } = await shareJobFile(jobId, Number(ttlMinutes));
       if (!ok) return;
       url = data.url;
@@ -39,6 +42,16 @@
       void loadLinks();
     } finally {
       loading = false;
+    }
+  }
+
+  async function revokeAll(): Promise<void> {
+    revokingAll = true;
+    try {
+      const { ok } = await revokeAllShareLinks(jobId);
+      if (ok) void loadLinks();
+    } finally {
+      revokingAll = false;
     }
   }
 
@@ -68,6 +81,8 @@
     if (l.expiresAt <= Date.now()) return 'expired';
     return 'active';
   }
+
+  const activeCount = $derived((links ?? []).filter((l) => linkStatus(l) === 'active').length);
 </script>
 
 <Dialog {open} {onOpenChange} class="max-w-sm">
@@ -92,7 +107,12 @@
 
   {#if links && links.length > 0}
     <div class="border-border mt-4 border-t pt-3">
-      <div class="mb-2 text-xs text-muted">Issued links for this job</div>
+      <div class="mb-2 flex items-center justify-between gap-2">
+        <span class="text-xs text-muted">Issued links for this job</span>
+        {#if activeCount > 0}
+          <Button size="sm" variant="destructive" loading={revokingAll} onclick={revokeAll}>Revoke {activeCount} active</Button>
+        {/if}
+      </div>
       <div class="flex flex-col gap-1.5">
         {#each links as l (l.id)}
           {@const status = linkStatus(l)}
@@ -101,8 +121,16 @@
               <div class="flex items-center gap-1.5">
                 <Badge variant={status === 'active' ? 'success' : status === 'revoked' ? 'destructive' : 'secondary'}>{status}</Badge>
                 <span class="text-muted">by {l.issuedBy}</span>
+                {#if l.usedAt}
+                  <Badge variant="secondary" title="A download was attempted with this link">downloaded</Badge>
+                {/if}
               </div>
-              <div class="text-muted mt-0.5"><RelativeTime ms={l.issuedAt} /> · expires {fmtUntil(l.expiresAt)}</div>
+              <div class="text-muted mt-0.5">
+                <RelativeTime ms={l.issuedAt} /> · expires {fmtUntil(l.expiresAt)}
+                {#if l.usedAt}
+                  · downloaded <RelativeTime ms={l.usedAt} />
+                {/if}
+              </div>
             </div>
             {#if status === 'active'}
               <Button size="sm" variant="destructive" loading={revoking.has(l.id)} onclick={() => revoke(l.id)}>Revoke</Button>
