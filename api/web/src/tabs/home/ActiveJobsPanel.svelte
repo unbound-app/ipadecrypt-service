@@ -13,7 +13,7 @@
   import { scrollFade } from '../../lib/scrollFade';
   import { PermissionFlag } from '../../lib/permissions';
   import { sessionHasPermission } from '../../lib/session.svelte';
-  import { confirmDialog } from '../../lib/ui.svelte';
+  import { confirmDialog, densityState } from '../../lib/ui.svelte';
 
   const jobs = $derived(liveState.overview?.activeJobs ?? []);
   const loaded = $derived(liveState.overview !== null);
@@ -24,6 +24,14 @@
   let selected = $state<Set<string>>(new Set());
   let bulkCancelling = $state(false);
   let bulkPrioritizing = $state(false);
+  let revealedJobIds = $state<Set<string>>(new Set());
+
+  function toggleReveal(id: string): void {
+    const next = new Set(revealedJobIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    revealedJobIds = next;
+  }
 
   $effect(() => {
     const liveIds = new Set(jobs.map((j) => j.id));
@@ -206,10 +214,19 @@
                 {/if}
               </td>
               <td data-label="Job ID">
-                <div class="flex items-center gap-1.5">
-                  <code title={j.id}>{j.id.slice(0, 8)}</code>
-                  <CopyButton text={j.id} />
-                </div>
+                {#if densityState.value === 'compact' && !revealedJobIds.has(j.id)}
+                  <button
+                    class="text-muted hover:text-text cursor-pointer text-xs underline-offset-2 hover:underline"
+                    onclick={() => toggleReveal(j.id)}
+                  >
+                    show
+                  </button>
+                {:else}
+                  <div class="flex items-center gap-1.5">
+                    <code title={j.id}>{j.id.slice(0, 8)}</code>
+                    <CopyButton text={j.id} />
+                  </div>
+                {/if}
               </td>
               <td>
                 {#if canCancel && (j.status === 'queued' || j.status === 'running')}

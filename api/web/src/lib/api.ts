@@ -78,6 +78,7 @@ export interface JobSummary {
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;
+  fileExpiresAt?: string;
   queue?: { position: number; total: number };
   statusUrl: string;
   fileUrl: string;
@@ -130,6 +131,7 @@ export interface AppWatch {
   ghWorkflowFile: string;
   pollCron: string;
   enabled: boolean;
+  webhookUrl?: string;
   createdAt: number;
   updatedAt: number;
   nextRunAt?: number;
@@ -238,11 +240,13 @@ export interface ApiKeyRecord {
   createdAt: number;
   approvedAt?: number;
   lastUsedAt?: number;
+  lastUsedIp?: string;
   expiresAt?: number;
   hasUnrevealedSecret: boolean;
   allowedBundleIds?: string[];
   dailyLimit?: number;
   maxConcurrent?: number;
+  allowTestFlight?: boolean;
   priority?: number;
   previousKeyValidUntil?: number;
 }
@@ -389,6 +393,7 @@ export interface WatchInput {
   ghWorkflowFile: string;
   pollCron: string;
   enabled?: boolean;
+  webhookUrl?: string;
 }
 
 export function createWatch(input: WatchInput): Promise<{ ok: boolean; data: AppWatch }> {
@@ -566,6 +571,19 @@ export interface InsightsSummary {
   topApps: InsightsAppStats[];
   trend: { date: string; count: number }[];
   failureBreakdown: { category: string; count: number }[];
+  byDevice: DeviceThroughputStats[];
+}
+
+export interface DeviceThroughputStats {
+  deviceId: string;
+  deviceName: string;
+  removed: boolean;
+  totalRuns: number;
+  doneCount: number;
+  failedCount: number;
+  successRate: number;
+  totalSizeBytes: number;
+  avgDurationMs?: number;
 }
 
 export function fetchInsights(trendDays = 14, topApps = 5): Promise<InsightsSummary> {
@@ -736,6 +754,14 @@ export function updateKeyPriority(id: string, priority: number): Promise<{ ok: b
 
 export function updateKeyMaxConcurrent(id: string, maxConcurrent: number | null): Promise<{ ok: boolean; data: { maxConcurrent?: number } }> {
   return apiAction(`/v1/dashboard/keys/${id}/max-concurrent`, { method: 'PATCH', body: JSON.stringify({ maxConcurrent }) }, 'Concurrency cap updated');
+}
+
+export function updateKeyAllowTestFlight(id: string, allowTestFlight: boolean): Promise<{ ok: boolean; data: { allowTestFlight?: boolean } }> {
+  return apiAction(
+    `/v1/dashboard/keys/${id}/allow-testflight`,
+    { method: 'PATCH', body: JSON.stringify({ allowTestFlight }) },
+    allowTestFlight ? 'TestFlight access enabled for this key' : 'TestFlight access disabled for this key',
+  );
 }
 
 export function fetchSettings(): Promise<SchedulerSettings> {

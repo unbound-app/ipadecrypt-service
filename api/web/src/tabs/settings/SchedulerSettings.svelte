@@ -136,6 +136,7 @@
     ghWorkflowFile: 'remote-ipa-update.yml',
     pollCron: '0 * * * *',
     enabled: true,
+    webhookUrl: '',
   };
 
   let watchDialogOpen = $state(false);
@@ -165,6 +166,7 @@
 
   const watchRepoErrors = $derived({
     repo: watchForm.repo && !REPO_RE.test(watchForm.repo) ? 'Expected owner/repo' : '',
+    webhookUrl: watchForm.webhookUrl && !WEBHOOK_URL_RE.test(watchForm.webhookUrl) ? 'Expected a full http(s):// URL' : '',
   });
 
   function openAddWatch(): void {
@@ -175,7 +177,15 @@
 
   function openEditWatch(w: AppWatch): void {
     editingWatchId = w.id;
-    watchForm = { name: w.name ?? '', bundleId: w.bundleId, repo: w.repo, ghWorkflowFile: w.ghWorkflowFile, pollCron: w.pollCron, enabled: w.enabled };
+    watchForm = {
+      name: w.name ?? '',
+      bundleId: w.bundleId,
+      repo: w.repo,
+      ghWorkflowFile: w.ghWorkflowFile,
+      pollCron: w.pollCron,
+      enabled: w.enabled,
+      webhookUrl: w.webhookUrl ?? '',
+    };
     watchDialogOpen = true;
   }
 
@@ -188,7 +198,7 @@
       showToast('Poll cron is not a valid cron expression', 'error');
       return;
     }
-    if (watchRepoErrors.repo) {
+    if (watchRepoErrors.repo || watchRepoErrors.webhookUrl) {
       showToast('Fix the invalid fields before saving', 'error');
       return;
     }
@@ -500,6 +510,13 @@
           </button>
         {/each}
       </div>
+
+      <label for="w-webhookUrl" class="mt-3 mb-1 block text-xs text-muted">Webhook override (optional)</label>
+      <Input id="w-webhookUrl" placeholder="blank = use the global webhook above" bind:value={watchForm.webhookUrl} />
+      {#if watchRepoErrors.webhookUrl}
+        <div class="mt-1 text-xs text-err">{watchRepoErrors.webhookUrl}</div>
+      {/if}
+      <div class="mt-1 text-[11px] text-muted">Send this watch's dispatch notifications to a different Discord/Slack channel.</div>
     </div>
     <Button class="mt-3.5 w-full" loading={savingWatch} onclick={saveWatch}>{editingWatchId ? 'Save' : 'Add'}</Button>
   </Dialog>

@@ -19,6 +19,7 @@
     requestKey,
     revealKey,
     revokeKey,
+    updateKeyAllowTestFlight,
     updateKeyMaxConcurrent,
     updateKeyPriority,
     type ApiKeyRecord,
@@ -28,6 +29,7 @@
   import Card from '../lib/components/ui/Card.svelte';
   import Input from '../lib/components/ui/Input.svelte';
   import Select from '../lib/components/ui/Select.svelte';
+  import Switch from '../lib/components/ui/Switch.svelte';
   import { statusToBadgeVariant } from '../lib/components/ui/variants';
   import { debounce, fmtUntil } from '../lib/format';
   import { scrollFade } from '../lib/scrollFade';
@@ -80,11 +82,13 @@
   let usageKeyId = $state('');
   let usageKeyName = $state('');
   let usageKeyDailyLimit = $state<number | undefined>(undefined);
+  let usageKeyLastIp = $state<string | undefined>(undefined);
 
   function openUsage(k: ApiKeyRecord): void {
     usageKeyId = k.id;
     usageKeyName = k.name;
     usageKeyDailyLimit = k.dailyLimit;
+    usageKeyLastIp = k.lastUsedIp;
     usageOpen = true;
   }
 
@@ -259,6 +263,16 @@
       void loadAll();
     } finally {
       setBusy('maxConcurrent', id, false);
+    }
+  }
+
+  async function saveAllowTestFlight(id: string, allowTestFlight: boolean): Promise<void> {
+    setBusy('allowTestFlight', id, true);
+    try {
+      await updateKeyAllowTestFlight(id, allowTestFlight);
+      void loadAll();
+    } finally {
+      setBusy('allowTestFlight', id, false);
     }
   }
 
@@ -530,6 +544,7 @@
               <th>Scope</th>
               {#if canApprove}<th>Priority</th>{/if}
               {#if canApprove}<th>Max concurrent</th>{/if}
+              {#if canApprove}<th>TestFlight</th>{/if}
               <th>Created</th>
               <th>Last used</th>
               <th></th>
@@ -538,7 +553,7 @@
           </thead>
           <tbody>
             {#if all === null}
-              <SkeletonRows rows={3} colspan={8 + (canRevokeAny ? 2 : 0) + (canApprove ? 2 : 0)} />
+              <SkeletonRows rows={3} colspan={8 + (canRevokeAny ? 2 : 0) + (canApprove ? 3 : 0)} />
             {:else}
               {#each filteredAll as k (k.id)}
                 <tr>
@@ -570,6 +585,9 @@
                       {/if}
                       {#if k.previousKeyValidUntil}
                         <Badge variant="secondary" title="The pre-rotation secret still works until then">old secret valid {fmtUntil(k.previousKeyValidUntil)}</Badge>
+                      {/if}
+                      {#if k.allowTestFlight === false}
+                        <Badge variant="secondary" title="This key can't call the TestFlight endpoints">no TestFlight</Badge>
                       {/if}
                     </div>
                   </td>
@@ -608,6 +626,16 @@
                       />
                     </td>
                   {/if}
+                  {#if canApprove}
+                    <td data-label="TestFlight">
+                      <Switch
+                        checked={k.allowTestFlight ?? true}
+                        disabled={isBusy('allowTestFlight', k.id)}
+                        onCheckedChange={(v) => saveAllowTestFlight(k.id, v)}
+                        aria-label="Allow TestFlight for {k.name}"
+                      />
+                    </td>
+                  {/if}
                   <td data-label="Created" class="text-muted"><RelativeTime ms={k.createdAt} /></td>
                   <td data-label="Last used" class="text-muted"><RelativeTime ms={k.lastUsedAt} /></td>
                   <td>
@@ -643,5 +671,6 @@
   keyId={usageKeyId}
   keyName={usageKeyName}
   dailyLimit={usageKeyDailyLimit}
+  lastUsedIp={usageKeyLastIp}
   onOpenChange={(v) => (usageOpen = v)}
 />

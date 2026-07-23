@@ -29,6 +29,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const CRON_JITTER_MAX_MS = 20_000;
+
 const SCHEDULER_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 export interface UpdateCheck {
@@ -211,16 +213,20 @@ function trackRunCompletion(
       }
 
       const succeeded = run.conclusion === 'success';
-      await notify(succeeded ? 'dispatchSuccess' : 'dispatchFailure', {
-        title: succeeded ? 'Decrypted & dispatched' : 'Dispatched, but the workflow failed',
-        color: succeeded ? EMBED_COLOR.ok : EMBED_COLOR.err,
-        fields: [
-          { name: 'App', value: watch.bundleId, inline: true },
-          { name: 'Version', value: versionLabel, inline: true },
-          { name: 'Source', value: source, inline: true },
-          { name: 'Run', value: run.html_url },
-        ],
-      });
+      await notify(
+        succeeded ? 'dispatchSuccess' : 'dispatchFailure',
+        {
+          title: succeeded ? 'Decrypted & dispatched' : 'Dispatched, but the workflow failed',
+          color: succeeded ? EMBED_COLOR.ok : EMBED_COLOR.err,
+          fields: [
+            { name: 'App', value: watch.bundleId, inline: true },
+            { name: 'Version', value: versionLabel, inline: true },
+            { name: 'Source', value: source, inline: true },
+            { name: 'Run', value: run.html_url },
+          ],
+        },
+        watch.webhookUrl,
+      );
       return {
         runStatus: succeeded ? 'succeeded' : 'failed',
         runUrl: run.html_url,
@@ -254,15 +260,19 @@ async function decryptAndDispatch(job: Job, watch: AppWatch, isTestflight: boole
     log.info('dispatched ipa-update', { dispatchRepo: watch.repo, bundleId: watch.bundleId, isTestflight });
   } catch (err) {
     log.error('dispatch failed', { error: String(err), isTestflight });
-    await notify('dispatchFailure', {
-      title: 'Dispatch failed',
-      color: EMBED_COLOR.err,
-      fields: [
-        { name: 'App', value: watch.bundleId, inline: true },
-        { name: 'Version', value: versionLabel, inline: true },
-        { name: 'Error', value: `\`\`\`${String(err)}\`\`\`` },
-      ],
-    });
+    await notify(
+      'dispatchFailure',
+      {
+        title: 'Dispatch failed',
+        color: EMBED_COLOR.err,
+        fields: [
+          { name: 'App', value: watch.bundleId, inline: true },
+          { name: 'Version', value: versionLabel, inline: true },
+          { name: 'Error', value: `\`\`\`${String(err)}\`\`\`` },
+        ],
+      },
+      watch.webhookUrl,
+    );
     await reclaimJobFile(finished);
     return { outcome: { ok: false, triggered: true, reason: `Failed to dispatch ${versionLabel}: ${String(err)}` } };
   }
@@ -422,7 +432,12 @@ export function applyWatchSchedules(): void {
 
     if (existing) existing.task.stop();
     const task = cron.schedule(watch.pollCron, () => {
-      void tick(watch).catch((err) => log.error('scheduler tick threw', { watchId: watch.id, error: String(err) }));
+      // Jittered so watches sharing a cron expression (or two expressions that just happen to
+      // land on the same second) don't all hit the App Store/GitHub API in the same instant.
+      const jitterMs = Math.random() * CRON_JITTER_MAX_MS;
+      setTimeout(() => {
+        void tick(watch).catch((err) => log.error('scheduler tick threw', { watchId: watch.id, error: String(err) }));
+      }, jitterMs);
     });
     scheduledTasks.set(watch.id, { task, cronExpr: watch.pollCron });
     log.info('watch (re)scheduled', { watchId: watch.id, cron: watch.pollCron, bundleId: watch.bundleId, repo: watch.repo });

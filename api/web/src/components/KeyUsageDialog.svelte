@@ -8,8 +8,9 @@
     keyId,
     keyName,
     dailyLimit,
+    lastUsedIp,
     onOpenChange,
-  }: { open: boolean; keyId: string; keyName: string; dailyLimit?: number; onOpenChange: (open: boolean) => void } = $props();
+  }: { open: boolean; keyId: string; keyName: string; dailyLimit?: number; lastUsedIp?: string; onOpenChange: (open: boolean) => void } = $props();
 
   let usage = $state<ApiKeyUsageBucket[] | null>(null);
   let bundleUsage = $state<ApiKeyBundleUsage[] | null>(null);
@@ -35,7 +36,10 @@
 </script>
 
 <Dialog {open} {onOpenChange} class="max-w-sm">
-  <div class="mb-3 truncate text-sm font-medium" title={keyName}>{keyName} - usage</div>
+  <div class="mb-1 truncate text-sm font-medium" title={keyName}>{keyName} - usage</div>
+  {#if lastUsedIp}
+    <div class="mb-3 text-xs text-muted">Last seen from <span class="font-mono">{lastUsedIp}</span></div>
+  {/if}
   {#if !usage}
     <div class="text-sm text-muted">Loading…</div>
   {:else}

@@ -17,6 +17,12 @@ const jobs = new Map<string, Job>();
 const queue: string[] = [];
 const busyDeviceIds = new Set<string>();
 
+const RETRY_BACKOFF_MS = 5_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function findActiveJobForBundle(
   bundleId: string,
   externalVersionId: string | undefined,
@@ -306,10 +312,31 @@ async function runOneJob(device: DeviceRecord, job: Job): Promise<void> {
     log.info('job done', { jobId: job.id, bundleId: job.bundleId, deviceId: device.id, sizeBytes: job.fileSizeBytes });
     clearAppleAuthAlert();
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const canRetry = !job.cancelledBy && (job.retryCount ?? 0) === 0 && !looksLikeAppleAuthFailure(message);
+    if (canRetry) {
+      job.retryCount = (job.retryCount ?? 0) + 1;
+      job.progress = 'retrying after a transient failure…';
+      log.warn('job failed, retrying once after backoff', { jobId: job.id, bundleId: job.bundleId, deviceId: device.id, error: message });
+      emitJobsChanged();
+      await sleep(RETRY_BACKOFF_MS);
+      if (job.cancelledBy) {
+        job.status = 'failed';
+        job.finishedAt = Date.now();
+        job.error = `cancelled by ${job.cancelledBy}`;
+        log.info('job cancelled during retry backoff', { jobId: job.id, bundleId: job.bundleId, cancelledBy: job.cancelledBy });
+        recordJobHistory(toHistoryEntry(job));
+        emitJobsChanged();
+        settle(job);
+        return;
+      }
+      return runOneJob(device, job);
+    }
+
     job.status = 'failed';
     job.finishedAt = Date.now();
-    job.error = err instanceof Error ? err.message : String(err);
-    log.error('job failed', { jobId: job.id, bundleId: job.bundleId, deviceId: device.id, error: job.error });
+    job.error = message;
+    log.error('job failed', { jobId: job.id, bundleId: job.bundleId, deviceId: device.id, error: job.error, retried: (job.retryCount ?? 0) > 0 });
 
     if (looksLikeAppleAuthFailure(job.error)) {
       setAppleAuthAlert(job.error);

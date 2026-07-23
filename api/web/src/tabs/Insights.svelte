@@ -8,7 +8,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import Card from '../lib/components/ui/Card.svelte';
   import Select from '../lib/components/ui/Select.svelte';
-  import { csvCell, downloadBlob, fmtBytesGB, trendDelta } from '../lib/format';
+  import { csvCell, downloadBlob, fmtBytesGB, fmtDurationApprox, trendDelta } from '../lib/format';
   import { liveState } from '../lib/live.svelte';
   import { PermissionFlag } from '../lib/permissions';
   import { sessionHasAnyPermission } from '../lib/session.svelte';
@@ -201,6 +201,41 @@
         </tbody>
       </table>
     </div>
+
+    {#if insights.byDevice.length > 1}
+      <div class="border-border mt-4 border-t pt-3">
+        <div class="mb-2 text-xs text-muted">By device</div>
+        <table class="responsive-table">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Runs</th>
+              <th>Success rate</th>
+              <th>Avg duration</th>
+              <th>Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each insights.byDevice as d (d.deviceId)}
+              <tr>
+                <td data-label="Device" class="max-w-40 truncate" title={d.deviceId}>
+                  {d.deviceName}
+                  {#if d.removed}<span class="text-muted"> (removed)</span>{/if}
+                </td>
+                <td data-label="Runs">{d.totalRuns}</td>
+                <td data-label="Success rate">
+                  <Badge variant={d.successRate >= 0.9 ? 'success' : d.successRate >= 0.5 ? 'secondary' : 'destructive'}>
+                    {Math.round(d.successRate * 100)}%
+                  </Badge>
+                </td>
+                <td data-label="Avg duration" class="text-muted">{d.avgDurationMs ? fmtDurationApprox(d.avgDurationMs) : '-'}</td>
+                <td data-label="Size" class="text-muted">{fmtBytesGB(d.totalSizeBytes)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   {/if}
 </Card>
 

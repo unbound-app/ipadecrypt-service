@@ -98,6 +98,7 @@ import {
   revokeApiKey,
   revokeShareLink,
   type SchedulerSettings,
+  setApiKeyAllowTestFlight,
   setApiKeyMaxConcurrent,
   setApiKeyPriority,
   setUserPriority,
@@ -559,6 +560,7 @@ interface WatchInput {
   ghWorkflowFile: string;
   pollCron: string;
   enabled?: boolean;
+  webhookUrl?: string;
 }
 
 function parseWatchInput(body: unknown): WatchInput | undefined {
@@ -573,6 +575,7 @@ function parseWatchInput(body: unknown): WatchInput | undefined {
     ghWorkflowFile: typeof b.ghWorkflowFile === 'string' ? b.ghWorkflowFile.trim() : 'remote-ipa-update.yml',
     pollCron: typeof b.pollCron === 'string' ? b.pollCron.trim() : '0 * * * *',
     enabled: typeof b.enabled === 'boolean' ? b.enabled : undefined,
+    webhookUrl: typeof b.webhookUrl === 'string' ? b.webhookUrl.trim() || undefined : undefined,
   };
 }
 
@@ -605,6 +608,7 @@ dashboardRouter.patch('/v1/dashboard/watches/:id', canManageWatches, (req, res) 
   if (typeof body.ghWorkflowFile === 'string') patch.ghWorkflowFile = body.ghWorkflowFile.trim();
   if (typeof body.pollCron === 'string') patch.pollCron = body.pollCron.trim();
   if (typeof body.enabled === 'boolean') patch.enabled = body.enabled;
+  if (typeof body.webhookUrl === 'string') patch.webhookUrl = body.webhookUrl.trim() || undefined;
 
   if (patch.pollCron && !validateCronExpr(patch.pollCron)) {
     res.status(400).json({ error: 'pollCron is not a valid cron expression' });
@@ -859,13 +863,14 @@ dashboardRouter.post('/v1/dashboard/keys/request', canAccessApi, (req, res) => {
     : undefined;
   const allowedBundleIds = parseAllowedBundleIds(req.body?.allowedBundleIds);
   const dailyLimit = parseDailyLimit(req.body?.dailyLimit);
+  const allowTestFlight = typeof req.body?.allowTestFlight === 'boolean' ? req.body.allowTestFlight : undefined;
 
   if (hasPermission(permissions, PermissionFlag.approveApiKeys)) {
-    res.status(201).json(createApiKey(name, sub, expiresInDays, allowedBundleIds, dailyLimit));
+    res.status(201).json(createApiKey(name, sub, expiresInDays, allowedBundleIds, dailyLimit, allowTestFlight));
     return;
   }
 
-  const record = requestApiKey(name, sub, expiresInDays, allowedBundleIds, dailyLimit);
+  const record = requestApiKey(name, sub, expiresInDays, allowedBundleIds, dailyLimit, allowTestFlight);
   void notify('keyRequest', {
     title: 'New API key request',
     description: `**${sub}** requested a new key ("${name}") - approve it on the API Keys tab.`,
@@ -1024,6 +1029,20 @@ dashboardRouter.patch('/v1/dashboard/keys/:id/max-concurrent', canManageApiKeyLi
     return;
   }
   res.json({ ok: true, maxConcurrent: updated.maxConcurrent });
+});
+
+dashboardRouter.patch('/v1/dashboard/keys/:id/allow-testflight', canManageApiKeyLimits, (req, res) => {
+  const allowTestFlight = req.body?.allowTestFlight;
+  if (typeof allowTestFlight !== 'boolean') {
+    res.status(400).json({ error: 'allowTestFlight (boolean) is required' });
+    return;
+  }
+  const updated = setApiKeyAllowTestFlight(req.params.id, allowTestFlight);
+  if (!updated) {
+    res.status(404).json({ error: 'key not found' });
+    return;
+  }
+  res.json({ ok: true, allowTestFlight: updated.allowTestFlight ?? true });
 });
 
 dashboardRouter.post('/v1/dashboard/keys/:id/deny', canApproveApiKeys, (req, res) => {

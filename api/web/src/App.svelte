@@ -6,7 +6,7 @@
   import CommandPalette from './components/CommandPalette.svelte';
   import ConfirmModal from './components/ConfirmModal.svelte';
   import ConnectionBanner from './components/ConnectionBanner.svelte';
-  import HeaderDeviceStatus from './components/HeaderDeviceStatus.svelte';
+  import HeaderOnlineUsers from './components/HeaderOnlineUsers.svelte';
   import Login from './components/Login.svelte';
   import LegalPage from './components/LegalPage.svelte';
   import NotificationBell from './components/NotificationBell.svelte';
@@ -351,7 +351,7 @@
         <h1 class="text-[15px] font-semibold">dkrypt</h1>
       </div>
       <div class="flex items-center gap-2.5">
-        <HeaderDeviceStatus />
+        <HeaderOnlineUsers />
         <a
           href={KOFI_URL}
           target="_blank"

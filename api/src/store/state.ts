@@ -86,10 +86,12 @@ export interface ApiKeyRecord {
   createdAt: number;
   approvedAt?: number;
   lastUsedAt?: number;
+  lastUsedIp?: string;
   expiresAt?: number;
   allowedBundleIds?: string[];
   dailyLimit?: number;
   maxConcurrent?: number;
+  allowTestFlight?: boolean;
   expiryNotifiedAt?: number;
   priority?: number;
 }
@@ -102,6 +104,8 @@ export interface ApiKeyAuthResult {
   priority?: number;
   // undefined for the root API_KEY, which has no stored record to attribute bundle usage to.
   keyId?: string;
+  // false only when a key was explicitly scoped away from TestFlight - undefined/true means allowed.
+  allowTestFlight?: boolean;
 }
 
 export interface SchedulerSettings {
@@ -137,6 +141,7 @@ export interface AppWatch {
   ghWorkflowFile: string;
   pollCron: string;
   enabled: boolean;
+  webhookUrl?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -981,9 +986,11 @@ function redact(k: ApiKeyRecord) {
     lastUsedAt: k.lastUsedAt,
     expiresAt: k.expiresAt,
     hasUnrevealedSecret: !!k.pendingReveal,
+    lastUsedIp: k.lastUsedIp,
     allowedBundleIds: k.allowedBundleIds,
     dailyLimit: k.dailyLimit,
     maxConcurrent: k.maxConcurrent,
+    allowTestFlight: k.allowTestFlight ?? true,
     priority: k.priority ?? 0,
     previousKeyValidUntil: k.previousHash && k.previousHashExpiresAt && k.previousHashExpiresAt > Date.now() ? k.previousHashExpiresAt : undefined,
   };
@@ -1003,6 +1010,7 @@ export function createApiKey(
   expiresInDays?: number,
   allowedBundleIds?: string[],
   dailyLimit?: number,
+  allowTestFlight?: boolean,
 ): { id: string; name: string; key: string; createdAt: number; expiresAt?: number } {
   const key = randomBytes(32).toString('hex');
   const record: ApiKeyRecord = {
@@ -1017,13 +1025,21 @@ export function createApiKey(
     expiresAt: expiresAtFromDays(expiresInDays),
     allowedBundleIds: sanitizeBundleIds(allowedBundleIds),
     dailyLimit,
+    allowTestFlight,
   };
   state.apiKeys.push(record);
   persistNow();
   return { id: record.id, name: record.name, key, createdAt: record.createdAt, expiresAt: record.expiresAt };
 }
 
-export function requestApiKey(name: string, ownerId: string, expiresInDays?: number, allowedBundleIds?: string[], dailyLimit?: number) {
+export function requestApiKey(
+  name: string,
+  ownerId: string,
+  expiresInDays?: number,
+  allowedBundleIds?: string[],
+  dailyLimit?: number,
+  allowTestFlight?: boolean,
+) {
   const record: ApiKeyRecord = {
     id: randomUUID(),
     name,
@@ -1033,6 +1049,7 @@ export function requestApiKey(name: string, ownerId: string, expiresInDays?: num
     expiresAt: expiresAtFromDays(expiresInDays),
     allowedBundleIds: sanitizeBundleIds(allowedBundleIds),
     dailyLimit,
+    allowTestFlight,
   };
   state.apiKeys.push(record);
   persistNow();
@@ -1193,7 +1210,7 @@ export function getApiKeyUsage(id: string, days: number): ApiKeyUsageBucket[] {
   return out;
 }
 
-export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined | 'rate-limited' {
+export function verifyApiKey(candidate: string, ip?: string): ApiKeyAuthResult | undefined | 'rate-limited' {
   if (safeEqualStr(candidate, config.apiKey)) return {};
 
   const hash = hashKey(candidate);
@@ -1211,6 +1228,7 @@ export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined | 
   if (record.dailyLimit && todayUsageCount(record.id) >= record.dailyLimit) return 'rate-limited';
 
   record.lastUsedAt = Date.now();
+  if (ip) record.lastUsedIp = ip;
   recordApiKeyUsage(record.id);
   dirty = true;
   const billingPriority = record.ownerId === 'root' ? 0 : getBillingEntitlements(record.ownerId).priority;
@@ -1219,6 +1237,7 @@ export function verifyApiKey(candidate: string): ApiKeyAuthResult | undefined | 
     ownerId: record.ownerId,
     priority: billingPriority > 0 ? Math.max(record.priority ?? 0, billingPriority) : (record.priority ?? 0),
     keyId: record.id,
+    allowTestFlight: record.allowTestFlight ?? true,
   };
 }
 
@@ -1287,6 +1306,14 @@ export function setApiKeyMaxConcurrent(id: string, maxConcurrent: number | undef
   const record = state.apiKeys.find((k) => k.id === id);
   if (!record) return undefined;
   record.maxConcurrent = maxConcurrent && maxConcurrent > 0 ? Math.floor(maxConcurrent) : undefined;
+  persistNow();
+  return record;
+}
+
+export function setApiKeyAllowTestFlight(id: string, allowTestFlight: boolean): ApiKeyRecord | undefined {
+  const record = state.apiKeys.find((k) => k.id === id);
+  if (!record) return undefined;
+  record.allowTestFlight = allowTestFlight;
   persistNow();
   return record;
 }
@@ -1419,6 +1446,7 @@ export interface CreateWatchInput {
   ghWorkflowFile: string;
   pollCron: string;
   enabled?: boolean;
+  webhookUrl?: string;
 }
 
 export function createWatch(input: CreateWatchInput, actor: string): { ok: boolean; watch?: AppWatch; error?: string } {
@@ -1435,6 +1463,7 @@ export function createWatch(input: CreateWatchInput, actor: string): { ok: boole
     ghWorkflowFile: input.ghWorkflowFile,
     pollCron: input.pollCron,
     enabled: input.enabled ?? true,
+    webhookUrl: input.webhookUrl,
     createdAt: now,
     updatedAt: now,
   };
@@ -1726,6 +1755,7 @@ export interface InsightsSummary {
   topApps: InsightsAppStats[];
   trend: { date: string; count: number }[];
   failureBreakdown: { category: string; count: number }[];
+  byDevice: DeviceThroughputStats[];
 }
 
 function getFailureBreakdown(runs: JobHistoryEntry[]): { category: string; count: number }[] {
@@ -1776,7 +1806,50 @@ export function getInsightsSummary(topAppsLimit = 5, trendDays = 14): InsightsSu
     topApps,
     trend: getDailyVolume(trendDays),
     failureBreakdown: getFailureBreakdown(runs),
+    byDevice: getDeviceThroughput(),
   };
+}
+
+export interface DeviceThroughputStats {
+  deviceId: string;
+  deviceName: string;
+  removed: boolean;
+  totalRuns: number;
+  doneCount: number;
+  failedCount: number;
+  successRate: number;
+  totalSizeBytes: number;
+  avgDurationMs?: number;
+}
+
+export function getDeviceThroughput(): DeviceThroughputStats[] {
+  const devicesById = new Map(getEffectiveDevices().map((d) => [d.id, d]));
+  const byDevice = new Map<string, JobHistoryEntry[]>();
+  for (const j of state.jobHistory) {
+    if (!j.deviceId) continue;
+    const list = byDevice.get(j.deviceId) ?? [];
+    list.push(j);
+    byDevice.set(j.deviceId, list);
+  }
+
+  return [...byDevice.entries()]
+    .map(([deviceId, runs]) => {
+      const doneCount = runs.filter((j) => j.status === 'done').length;
+      const failedCount = runs.filter((j) => j.status === 'failed').length;
+      const durations = runs.filter((j) => j.status === 'done' && j.startedAt).map((j) => j.finishedAt - (j.startedAt as number));
+      return {
+        deviceId,
+        deviceName: devicesById.get(deviceId)?.name ?? deviceId,
+        removed: !devicesById.has(deviceId),
+        totalRuns: runs.length,
+        doneCount,
+        failedCount,
+        successRate: runs.length > 0 ? doneCount / runs.length : 0,
+        totalSizeBytes: runs.reduce((sum, j) => sum + (j.sizeBytes ?? 0), 0),
+        avgDurationMs: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : undefined,
+      };
+    })
+    .sort((a, b) => b.totalRuns - a.totalRuns);
 }
 
 export function recordSchedulerRun(): void {

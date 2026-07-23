@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, Gauge, KeyRound, Zap } from 'lucide-svelte';
+  import { Check, Gauge, KeyRound, X, Zap } from 'lucide-svelte';
   import Card from '../lib/components/ui/Card.svelte';
   import PublicPageFooter from './PublicPageFooter.svelte';
   import PublicPageHeader from './PublicPageHeader.svelte';
@@ -72,14 +72,16 @@
 
             <div class="mb-6 flex flex-1 flex-col gap-2 text-sm">
               <div class="flex items-center gap-2"><Check class="h-4 w-4 text-ok" /> Dashboard decrypts</div>
-              <div class="flex items-center gap-2">
-                <Check class="h-4 w-4 text-ok" />
-                {plan.api ? 'API key access' : 'No API key access'}
-              </div>
-              <div class="flex items-center gap-2">
-                <Check class="h-4 w-4 text-ok" />
-                {plan.priority ? 'High queue priority' : 'Standard queue priority'}
-              </div>
+              {#if plan.api}
+                <div class="flex items-center gap-2"><Check class="h-4 w-4 text-ok" /> API key access</div>
+              {:else}
+                <div class="flex items-center gap-2 text-muted"><X class="h-4 w-4" /> API key access</div>
+              {/if}
+              {#if plan.priority}
+                <div class="flex items-center gap-2"><Check class="h-4 w-4 text-ok" /> High queue priority</div>
+              {:else}
+                <div class="flex items-center gap-2 text-muted"><X class="h-4 w-4" /> High queue priority</div>
+              {/if}
             </div>
 
             <a

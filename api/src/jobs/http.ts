@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { createReadStream } from 'node:fs';
+import { config } from '../config.js';
 import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('jobs');
@@ -7,6 +8,11 @@ import { getQueueInfo, reclaimJobFile } from './store.js';
 import type { Job } from './types.js';
 
 export function jobSummary(job: Job) {
+  const fileExpiresAt =
+    job.status === 'done' && job.finishedAt && !job.downloadedAt
+      ? new Date(job.finishedAt + config.fileTtlMinutes * 60_000).toISOString()
+      : undefined;
+
   return {
     id: job.id,
     bundleId: job.bundleId,
@@ -25,6 +31,7 @@ export function jobSummary(job: Job) {
     createdAt: new Date(job.createdAt).toISOString(),
     startedAt: job.startedAt ? new Date(job.startedAt).toISOString() : undefined,
     finishedAt: job.finishedAt ? new Date(job.finishedAt).toISOString() : undefined,
+    fileExpiresAt,
     queue: getQueueInfo(job.id),
     statusUrl: `/v1/jobs/${job.id}`,
     fileUrl: `/v1/jobs/${job.id}/file`,

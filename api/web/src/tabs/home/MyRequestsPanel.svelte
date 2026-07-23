@@ -1,6 +1,6 @@
 <script lang="ts">
   import { PackageSearch } from 'lucide-svelte';
-  import { cancelJob, fetchJobStatus, queueDecrypt, queueTestFlightDecrypt } from '../../lib/api';
+  import { cancelJob, fetchJobStatus, queueDecrypt, queueTestFlightDecrypt, shareJobFile } from '../../lib/api';
   import CopyButton from '../../components/CopyButton.svelte';
   import EmptyState from '../../components/EmptyState.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
@@ -18,12 +18,19 @@
     updateDecrypt,
     type TrackedDecrypt,
   } from '../../lib/decrypts.svelte';
+  import { fmtUntil } from '../../lib/format';
   import { notifyJobFinished } from '../../lib/notifications';
   import { playChime } from '../../lib/sound';
-  import { showToast, soundEnabledState } from '../../lib/ui.svelte';
+  import { densityState, showToast, soundEnabledState } from '../../lib/ui.svelte';
 
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let retrying = $state<Set<string>>(new Set());
+
+  let now = $state(Date.now());
+  $effect(() => {
+    const interval = setInterval(() => (now = Date.now()), 15_000);
+    return () => clearInterval(interval);
+  });
 
   async function poll(): Promise<void> {
     clearTimeout(pollTimer);
@@ -42,7 +49,7 @@
           );
           if (soundEnabledState.value) playChime();
         }
-        updateDecrypt(d.id, { status: data.status, progress: data.progress, queue: data.queue, error: data.error });
+        updateDecrypt(d.id, { status: data.status, progress: data.progress, queue: data.queue, error: data.error, fileExpiresAt: data.fileExpiresAt });
       } catch {}
     }
 
@@ -99,6 +106,32 @@
   }
 
   let cancelling = $state<Set<string>>(new Set());
+  let copyingCurl = $state<Set<string>>(new Set());
+  let revealedJobIds = $state<Set<string>>(new Set());
+
+  function toggleReveal(id: string): void {
+    const next = new Set(revealedJobIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    revealedJobIds = next;
+  }
+
+  async function copyCurl(d: TrackedDecrypt): Promise<void> {
+    copyingCurl = new Set(copyingCurl).add(d.id);
+    try {
+      const { ok, data } = await shareJobFile(d.id, 30);
+      if (!ok) return;
+      const filename = `${d.bundleId}.ipa`;
+      await navigator.clipboard.writeText(`curl -o "${filename}" "${data.url}"`);
+      showToast('Copied curl command - link works for 30 minutes', 'success');
+    } catch {
+      showToast("Couldn't copy - your browser blocked clipboard access", 'error');
+    } finally {
+      const next = new Set(copyingCurl);
+      next.delete(d.id);
+      copyingCurl = next;
+    }
+  }
 
   async function cancel(d: TrackedDecrypt): Promise<void> {
     cancelling = new Set(cancelling).add(d.id);
@@ -134,6 +167,12 @@
     }, 2000);
     return () => clearTimeout(timer);
   });
+
+  function expiresInMs(d: TrackedDecrypt): number | undefined {
+    if (!d.fileExpiresAt) return undefined;
+    void now;
+    return new Date(d.fileExpiresAt).getTime() - Date.now();
+  }
 
   const finishedCount = $derived(myDecryptsState.items.filter((d) => d.status === 'done' || d.status === 'failed').length);
 
@@ -186,16 +225,29 @@
             </td>
             <td data-label="Queued" class="text-muted"><RelativeTime ms={d.createdAt} /></td>
             <td data-label="Job ID">
-              <div class="flex items-center gap-1.5">
-                <code title={d.id}>{d.id.slice(0, 8)}</code>
-                <CopyButton text={d.id} />
-              </div>
+              {#if densityState.value === 'compact' && !revealedJobIds.has(d.id)}
+                <button class="text-muted hover:text-text cursor-pointer text-xs underline-offset-2 hover:underline" onclick={() => toggleReveal(d.id)}>
+                  show
+                </button>
+              {:else}
+                <div class="flex items-center gap-1.5">
+                  <code title={d.id}>{d.id.slice(0, 8)}</code>
+                  <CopyButton text={d.id} />
+                </div>
+              {/if}
             </td>
             <td>
               <div class="flex flex-wrap justify-end gap-1.5">
                 {#if d.status === 'done'}
+                  {@const expiresIn = expiresInMs(d)}
+                  {#if expiresIn !== undefined && expiresIn > 0}
+                    <Badge variant={expiresIn < 5 * 60_000 ? 'destructive' : 'secondary'} title="File is reclaimed from disk if not downloaded in time">
+                      expires in {fmtUntil(Date.now() + expiresIn)}
+                    </Badge>
+                  {/if}
                   <a class={buttonVariants('default', 'sm')} href="/v1/dashboard/jobs/{d.id}/file">Download</a>
                   <Button size="sm" variant="secondary" onclick={() => openShare(d.id)}>Share</Button>
+                  <Button size="sm" variant="secondary" loading={copyingCurl.has(d.id)} onclick={() => copyCurl(d)}>Copy curl</Button>
                   <Button size="sm" variant="secondary" onclick={() => dismiss(d)}>Dismiss</Button>
                 {:else if d.status === 'failed'}
                   <Button size="sm" loading={retrying.has(d.id)} onclick={() => retry(d)}>Retry</Button>

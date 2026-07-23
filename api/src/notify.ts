@@ -129,11 +129,12 @@ async function postWebhook(
   return result;
 }
 
-export async function notify(event: NotifyEvent, embed: NotifyEmbed): Promise<void> {
+export async function notify(event: NotifyEvent, embed: NotifyEmbed, webhookUrlOverride?: string): Promise<void> {
   const settings = getEffectiveSettings();
-  if (!settings.notifyWebhookUrl || !settings[EVENT_SETTING_KEY[event]]) return;
+  const url = webhookUrlOverride || settings.notifyWebhookUrl;
+  if (!url || !settings[EVENT_SETTING_KEY[event]]) return;
 
-  const result = await postWebhook(settings.notifyWebhookUrl, embed, settings.notifyFormat, event);
+  const result = await postWebhook(url, embed, settings.notifyFormat, event);
   if (!result.ok) log.warn('notify webhook failed', { event, status: result.status, error: result.error });
 }
 

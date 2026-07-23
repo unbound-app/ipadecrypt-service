@@ -1,6 +1,6 @@
 <script lang="ts">
   import { initializePaddle, type Environments, type Paddle } from '@paddle/paddle-js';
-  import { Check, Gauge, KeyRound, LoaderCircle, LockKeyhole, Zap } from 'lucide-svelte';
+  import { Check, Gauge, KeyRound, LoaderCircle, LockKeyhole, X, Zap } from 'lucide-svelte';
   import { onMount } from 'svelte';
   import Badge from '../lib/components/ui/Badge.svelte';
   import Button from '../lib/components/ui/Button.svelte';
@@ -238,14 +238,16 @@
 
             <div class="mb-6 flex flex-1 flex-col gap-2 text-sm">
               <div class="flex items-center gap-2"><Check class="h-4 w-4 text-ok" /> Dashboard decrypts</div>
-              <div class="flex items-center gap-2">
-                <Check class="h-4 w-4 text-ok" />
-                {plan.id === 'api' || plan.id === 'priority_api' ? 'API key access' : 'No API key access'}
-              </div>
-              <div class="flex items-center gap-2">
-                <Check class="h-4 w-4 text-ok" />
-                {plan.id === 'priority' || plan.id === 'priority_api' ? 'High queue priority' : 'Standard queue priority'}
-              </div>
+              {#if plan.id === 'api' || plan.id === 'priority_api'}
+                <div class="flex items-center gap-2"><Check class="h-4 w-4 text-ok" /> API key access</div>
+              {:else}
+                <div class="flex items-center gap-2 text-muted"><X class="h-4 w-4" /> API key access</div>
+              {/if}
+              {#if plan.id === 'priority' || plan.id === 'priority_api'}
+                <div class="flex items-center gap-2"><Check class="h-4 w-4 text-ok" /> High queue priority</div>
+              {:else}
+                <div class="flex items-center gap-2 text-muted"><X class="h-4 w-4" /> High queue priority</div>
+              {/if}
             </div>
 
             <Button

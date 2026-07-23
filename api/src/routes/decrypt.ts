@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import { Router } from 'express';
 import { config } from '../config.js';
-import { requireApiKey, requireApiKeyOrSignedToken } from '../auth.js';
+import { requireApiKey, requireApiKeyOrSignedToken, requireTestFlightScope } from '../auth.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
 import { enqueueDecryptJob, getJob, waitForJob } from '../jobs/store.js';
 import { recordApiKeyBundleUsage } from '../store/state.js';
@@ -94,7 +94,7 @@ decryptRouter.get('/v1/jobs/:id/file', requireApiKeyOrSignedToken, async (req, r
   await streamJobFile(job, req, res);
 });
 
-decryptRouter.get('/v1/testflight/:appId/trains', requireApiKey, async (req, res) => {
+decryptRouter.get('/v1/testflight/:appId/trains', requireApiKey, requireTestFlightScope, async (req, res) => {
   const appId = Number.parseInt(req.params.appId, 10);
   if (!Number.isInteger(appId) || appId <= 0) {
     res.status(400).json({ error: 'appId must be a positive integer' });
@@ -109,7 +109,7 @@ decryptRouter.get('/v1/testflight/:appId/trains', requireApiKey, async (req, res
   }
 });
 
-decryptRouter.get('/v1/testflight/:appId/builds', requireApiKey, async (req, res) => {
+decryptRouter.get('/v1/testflight/:appId/builds', requireApiKey, requireTestFlightScope, async (req, res) => {
   const appId = Number.parseInt(req.params.appId, 10);
   const trainVersion = typeof req.query.trainVersion === 'string' ? req.query.trainVersion : '';
   if (!Number.isInteger(appId) || appId <= 0 || !trainVersion) {
@@ -125,7 +125,7 @@ decryptRouter.get('/v1/testflight/:appId/builds', requireApiKey, async (req, res
   }
 });
 
-decryptRouter.post('/v1/testflight/decrypt', requireApiKey, (req, res) => {
+decryptRouter.post('/v1/testflight/decrypt', requireApiKey, requireTestFlightScope, (req, res) => {
   const bundleId = typeof req.body?.bundleId === 'string' ? req.body.bundleId.trim() : '';
   const appId = Number.parseInt(req.body?.appId, 10);
   const build = req.body?.build;

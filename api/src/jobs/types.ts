@@ -24,6 +24,7 @@ export interface Job {
   status: JobStatus;
   progress: string;
   error?: string;
+  retryCount?: number;
   cancelledBy?: string;
   childProcess?: ChildProcess;
   filePath?: string;
