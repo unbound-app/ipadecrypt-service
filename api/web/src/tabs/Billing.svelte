@@ -182,7 +182,7 @@
           {/if}
         </div>
         <p class="max-w-2xl text-sm text-muted">
-          Every account starts as a viewer. Paid access is activated from verified billing events after checkout.
+          Every account starts as a viewer. Subscribe to enable decrypts, priority, and API access.
         </p>
       </div>
       {#if billing}
