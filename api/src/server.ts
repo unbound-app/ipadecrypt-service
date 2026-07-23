@@ -16,6 +16,7 @@ import { healthRouter } from './routes/health.js';
 import { startScheduler } from './scheduler/index.js';
 import { startApiKeySweeper, startStateFlusher } from './store/state.js';
 import { startDeviceHealthPoller } from './deviceHealth.js';
+import { renderPublicPage } from './publicPages.js';
 
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -37,7 +38,9 @@ const ogImageVersion = createHash('sha256').update(readFileSync(path.join(public
 const indexHtml = readFileSync(path.join(publicDir, 'index.html'), 'utf8')
   .replaceAll('__PUBLIC_BASE_URL__', config.publicBaseUrl)
   .replaceAll('__OG_IMAGE_VERSION__', ogImageVersion);
-app.get(['/', '/pricing', '/terms', '/privacy', '/refund-policy', '/contact'], (_req, res) => res.type('html').send(indexHtml));
+app.get(['/', '/pricing', '/terms', '/privacy', '/refund-policy', '/contact'], (req, res) =>
+  res.type('html').send(renderPublicPage(indexHtml, req.path)),
+);
 app.get('/favicon.svg', (_req, res) =>
   res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'favicon.svg')),
 );
