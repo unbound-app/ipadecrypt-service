@@ -23,6 +23,7 @@ export interface SessionInfo {
   sub?: string;
   displayName?: string;
   avatarUrl?: string;
+  linkedProviders?: ('github' | 'discord')[];
   // Decimal-string-serialized bigint bitfield, as returned by the API - parse with sessionBits().
   permissions?: string;
   expiresAt?: number;
@@ -71,6 +72,20 @@ export async function refreshSession(): Promise<SessionInfo> {
   Object.assign(sessionState, data);
   if (data.loggedIn) void syncThemeFromServer();
   return data;
+}
+
+export async function updateProfileDisplayName(displayName: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch('/v1/auth/profile', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: data.error ?? 'Could not update profile name.' };
+  }
+  await refreshSession();
+  return { ok: true };
 }
 
 async function syncThemeFromServer(): Promise<void> {

@@ -1,11 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
+import { resolveOauthAccount } from '../account.js';
 import { config, discordOauthEnabled, githubOauthEnabled } from '../config.js';
-import { getAuthProfile, upsertAuthProfile } from '../identity.js';
+import {
+  type AuthIdentity,
+  getAuthProfile,
+  getLinkedAuthProviders,
+  setAuthDisplayName,
+} from '../identity.js';
 import { log } from '../logger.js';
 import { PermissionFlag, serializeBits } from '../permissions.js';
 import { checkRootPassword, clearSessionCookie, getSession, requireSession, setSessionCookie } from '../session.js';
-import { addAllowedUser, bumpSessionVersion, getUserEffectivePermissions, listAllowedUsers } from '../store/state.js';
+import { bumpSessionVersion, getUserEffectivePermissions, listAllowedUsers } from '../store/state.js';
 
 export const authRouter = Router();
 
@@ -56,12 +62,32 @@ authRouter.get('/v1/auth/session', (req, res) => {
     sub: session?.sub,
     displayName: profile?.displayName,
     avatarUrl: profile?.avatarUrl,
+    linkedProviders: session ? getLinkedAuthProviders(session.sub) : [],
     permissions: session ? serializeBits(session.permissions) : undefined,
     expiresAt: session?.exp,
     githubOauthEnabled,
     discordOauthEnabled,
     publicBaseUrl: config.publicBaseUrl,
   });
+});
+
+authRouter.patch('/v1/auth/profile', requireSession, (req, res) => {
+  const userId = res.locals.session.sub;
+  if (userId === 'root') {
+    res.status(400).json({ error: 'the root account does not have an OAuth profile' });
+    return;
+  }
+  const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : '';
+  if (!displayName || displayName.length > 64 || /[\u0000-\u001f\u007f]/.test(displayName)) {
+    res.status(400).json({ error: 'displayName must be between 1 and 64 characters' });
+    return;
+  }
+  const profile = setAuthDisplayName(userId, displayName);
+  if (!profile) {
+    res.status(404).json({ error: 'profile not found' });
+    return;
+  }
+  res.json({ displayName: profile.displayName, linkedProviders: getLinkedAuthProviders(userId) });
 });
 
 authRouter.post('/v1/auth/refresh', requireSession, (req, res) => {
@@ -222,18 +248,21 @@ authRouter.get('/v1/auth/github/callback', async (req, res) => {
       }
     }
 
-    const userId = oauthUserId('github', String(user.id), user.login);
-    if (getUserEffectivePermissions(userId) === undefined) addAllowedUser(userId, [], 'oauth:github');
-    upsertAuthProfile({
-      userId,
-      provider: 'github',
-      providerId: String(user.id),
-      username: user.login,
-      displayName: user.name || user.login,
-      email,
-      avatarUrl: user.avatar_url,
-      updatedAt: new Date().toISOString(),
+    const updatedAt = new Date().toISOString();
+    const profile = resolveOauthAccount({
+      fallbackUserId: oauthUserId('github', String(user.id), user.login),
+      identity: {
+        provider: 'github',
+        providerId: String(user.id),
+        username: user.login,
+        displayName: user.name || user.login,
+        email,
+        avatarUrl: user.avatar_url,
+        source: 'oauth',
+        updatedAt,
+      },
     });
+    const userId = profile.userId;
     const permissions = getUserEffectivePermissions(userId) ?? 0n;
     setSessionCookie(res, { sub: userId, permissions });
     log.info('github oauth login succeeded', { login: user.login, permissions: serializeBits(permissions) });
@@ -258,7 +287,7 @@ authRouter.get('/v1/auth/discord/login', (_req, res) => {
   url.searchParams.set('client_id', config.discordOauthClientId);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', 'identify email');
+  url.searchParams.set('scope', 'identify email connections');
   url.searchParams.set('state', state);
   res.redirect(url.toString());
 });
@@ -289,7 +318,7 @@ authRouter.get('/v1/auth/discord/callback', async (req, res) => {
       code,
       redirect_uri: redirectUri,
     });
-    const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+    const tokenRes = await fetch('https://discord.com/api/v10/oauth2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: tokenBody,
@@ -297,7 +326,7 @@ authRouter.get('/v1/auth/discord/callback', async (req, res) => {
     const token = (await tokenRes.json()) as { access_token?: string; error?: string };
     if (!token.access_token) throw new Error(token.error ?? 'no access_token in response');
 
-    const userRes = await fetch('https://discord.com/api/users/@me', {
+    const userRes = await fetch('https://discord.com/api/v10/users/@me', {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
     if (!userRes.ok) throw new Error(`GET /users/@me failed: HTTP ${userRes.status}`);
@@ -309,18 +338,51 @@ authRouter.get('/v1/auth/discord/callback', async (req, res) => {
       avatar?: string | null;
     };
 
-    const userId = oauthUserId('discord', user.id, `discord:${user.username}`);
-    if (getUserEffectivePermissions(userId) === undefined) addAllowedUser(userId, [], 'oauth:discord');
-    upsertAuthProfile({
-      userId,
-      provider: 'discord',
-      providerId: user.id,
-      username: user.username,
-      displayName: user.global_name || user.username,
-      email: user.email,
-      avatarUrl: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : undefined,
-      updatedAt: new Date().toISOString(),
+    const connectionsRes = await fetch('https://discord.com/api/v10/users/@me/connections', {
+      headers: { Authorization: `Bearer ${token.access_token}` },
     });
+    const connections = connectionsRes.ok
+      ? ((await connectionsRes.json()) as {
+          id: string;
+          name: string;
+          type: string;
+          verified?: boolean;
+        }[])
+      : [];
+    if (!connectionsRes.ok) log.warn('discord connections lookup failed', { status: connectionsRes.status });
+
+    const updatedAt = new Date().toISOString();
+    const discoveredIdentities: AuthIdentity[] = connections
+      .filter(
+        (connection) =>
+          connection.type === 'github' &&
+          connection.verified === true &&
+          connection.id.length > 0 &&
+          connection.name.length > 0,
+      )
+      .map((connection) => ({
+        provider: 'github',
+        providerId: connection.id,
+        username: connection.name,
+        displayName: connection.name,
+        source: 'discord_connection',
+        updatedAt,
+      }));
+    const profile = resolveOauthAccount({
+      fallbackUserId: oauthUserId('discord', user.id, `discord:${user.username}`),
+      identity: {
+        provider: 'discord',
+        providerId: user.id,
+        username: user.username,
+        displayName: user.global_name || user.username,
+        email: user.email,
+        avatarUrl: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : undefined,
+        source: 'oauth',
+        updatedAt,
+      },
+      discoveredIdentities,
+    });
+    const userId = profile.userId;
     const permissions = getUserEffectivePermissions(userId) ?? 0n;
     setSessionCookie(res, { sub: userId, permissions });
     log.info('discord oauth login succeeded', { username: user.username, permissions: serializeBits(permissions) });

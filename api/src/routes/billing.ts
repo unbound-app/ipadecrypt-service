@@ -22,7 +22,7 @@ import {
   upsertBillingSubscription,
 } from '../billing.js';
 import { config, paddleEnabled } from '../config.js';
-import { getAuthProfile } from '../identity.js';
+import { getAuthProfile, resolveAuthUserId } from '../identity.js';
 import { log } from '../logger.js';
 import { getPaddle } from '../paddle.js';
 import { requireSession } from '../session.js';
@@ -33,7 +33,7 @@ type CustomerEvent = CustomerCreatedEvent | CustomerUpdatedEvent;
 function customDataUserId(customData: unknown): string | undefined {
   if (typeof customData !== 'object' || customData === null) return undefined;
   const value = (customData as Record<string, unknown>).dkrypt_user_id;
-  return typeof value === 'string' && value.length <= 160 ? value : undefined;
+  return typeof value === 'string' && value.length <= 160 ? resolveAuthUserId(value) : undefined;
 }
 
 function processSubscription(event: SubscriptionEvent): void {

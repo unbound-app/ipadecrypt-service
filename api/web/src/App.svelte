@@ -1,6 +1,6 @@
 <script lang="ts">
   import { DropdownMenu } from 'bits-ui';
-  import { LogOut, Monitor, Moon, Rows2, Rows3, Sun, Volume2, VolumeX } from 'lucide-svelte';
+  import { LogOut, Monitor, Moon, Pencil, Rows2, Rows3, Sun, Volume2, VolumeX } from 'lucide-svelte';
   import { Toaster } from 'svelte-sonner';
   import AlertBanner from './components/AlertBanner.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
@@ -17,6 +17,7 @@
   import ShortcutsHelp from './components/ShortcutsHelp.svelte';
   import Badge from './lib/components/ui/Badge.svelte';
   import Button from './lib/components/ui/Button.svelte';
+  import Input from './lib/components/ui/Input.svelte';
   import Tabs from './lib/components/ui/Tabs.svelte';
   import { buttonVariants } from './lib/components/ui/variants';
   import { KOFI_URL, REPO_URL } from './lib/constants';
@@ -40,6 +41,7 @@
     sessionHasPermission,
     sessionPermissionLabels,
     sessionState,
+    updateProfileDisplayName,
   } from './lib/session.svelte';
   import { testPush } from './lib/api';
   import {
@@ -92,6 +94,9 @@
   let loggingOut = $state(false);
   let loggingOutEverywhere = $state(false);
   let accountMenuOpen = $state(false);
+  let editingProfileName = $state(false);
+  let profileNameDraft = $state('');
+  let savingProfileName = $state(false);
 
   const otherOnlineUsers = $derived(liveState.onlineUsers.filter((u) => u !== sessionState.sub));
 
@@ -200,6 +205,26 @@
       await logoutEverywhere();
     } finally {
       loggingOutEverywhere = false;
+    }
+  }
+
+  function startEditingProfileName(): void {
+    profileNameDraft = sessionState.displayName ?? '';
+    editingProfileName = true;
+  }
+
+  async function saveProfileName(): Promise<void> {
+    savingProfileName = true;
+    try {
+      const result = await updateProfileDisplayName(profileNameDraft);
+      if (!result.ok) {
+        showToast(result.error ?? 'Could not update profile name.', 'error');
+        return;
+      }
+      editingProfileName = false;
+      showToast('Profile name updated.', 'success');
+    } finally {
+      savingProfileName = false;
     }
   }
 
@@ -407,9 +432,37 @@
               sideOffset={8}
               align="end"
             >
-              <div class="mb-1 truncate text-sm font-medium">{sessionState.displayName ?? sessionState.sub}</div>
-              {#if sessionState.displayName && sessionState.displayName !== sessionState.sub}
-                <div class="mb-1 truncate text-xs text-muted">{sessionState.sub}</div>
+              {#if editingProfileName}
+                <form class="mb-3 flex items-center gap-1.5" onsubmit={(event) => { event.preventDefault(); void saveProfileName(); }}>
+                  <Input
+                    aria-label="Profile name"
+                    maxlength={64}
+                    bind:value={profileNameDraft}
+                    class="h-8"
+                    autofocus
+                  />
+                  <Button size="sm" type="submit" loading={savingProfileName}>Save</Button>
+                  <Button size="sm" type="button" variant="secondary" onclick={() => (editingProfileName = false)}>Cancel</Button>
+                </form>
+              {:else}
+                <div class="mb-1 flex items-center gap-1.5">
+                  <div class="min-w-0 flex-1 truncate text-sm font-medium">{sessionState.displayName ?? sessionState.sub}</div>
+                  {#if sessionState.sub !== 'root'}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-7 w-7"
+                      onclick={startEditingProfileName}
+                      aria-label="Edit profile name"
+                      title="Edit profile name"
+                    >
+                      <Pencil class="h-3.5 w-3.5" />
+                    </Button>
+                  {/if}
+                </div>
+                {#if sessionState.displayName && sessionState.displayName !== sessionState.sub}
+                  <div class="mb-1 truncate text-xs text-muted">{sessionState.sub}</div>
+                {/if}
               {/if}
               <div class="mb-3 text-xs text-muted">{permissionsSummary(sessionBits())}</div>
               {#if myGrantedPermissions.length > 0}

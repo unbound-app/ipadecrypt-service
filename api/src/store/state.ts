@@ -821,6 +821,55 @@ export function addAllowedUser(username: string, roleIds: string[], actor: strin
   return record;
 }
 
+export function mergeUserAccounts(targetUsername: string, sourceUsername: string, actor: string): boolean {
+  const targetId = targetUsername.toLowerCase();
+  const sourceId = sourceUsername.toLowerCase();
+  if (targetId === sourceId) return false;
+
+  const source = state.allowedUsers.find((user) => user.username === sourceId);
+  if (!source) return false;
+  const target = state.allowedUsers.find((user) => user.username === targetId);
+
+  if (target) {
+    target.roleIds = sanitizeRoleIds([...target.roleIds, ...source.roleIds]);
+    target.addedAt = Math.min(target.addedAt, source.addedAt);
+    target.lastActiveAt = Math.max(target.lastActiveAt ?? 0, source.lastActiveAt ?? 0) || undefined;
+    target.priority = Math.max(target.priority ?? 0, source.priority ?? 0);
+    target.sessionVersion = Math.max(target.sessionVersion ?? 0, source.sessionVersion ?? 0) + 1;
+    state.allowedUsers = state.allowedUsers.filter((user) => user !== source);
+  } else {
+    source.username = targetId;
+    source.sessionVersion = (source.sessionVersion ?? 0) + 1;
+  }
+
+  for (const key of state.apiKeys) {
+    if (key.ownerId === sourceId) key.ownerId = targetId;
+  }
+  for (const entry of state.jobHistory) {
+    if (entry.queuedBy === sourceId) entry.queuedBy = targetId;
+  }
+  for (const link of state.shareLinks) {
+    if (link.issuedBy === sourceId) link.issuedBy = targetId;
+  }
+
+  const sourcePrefs = state.userPrefs[sourceId];
+  const targetPrefs = state.userPrefs[targetId];
+  if (sourcePrefs || targetPrefs) state.userPrefs[targetId] = { ...(sourcePrefs ?? {}), ...(targetPrefs ?? {}) };
+  delete state.userPrefs[sourceId];
+
+  const subscriptions = [...(state.pushSubscriptions[targetId] ?? []), ...(state.pushSubscriptions[sourceId] ?? [])];
+  if (subscriptions.length > 0) {
+    state.pushSubscriptions[targetId] = subscriptions.filter(
+      (subscription, index, all) => all.findIndex((candidate) => candidate.endpoint === subscription.endpoint) === index,
+    );
+  }
+  delete state.pushSubscriptions[sourceId];
+
+  persistNow();
+  recordAudit(actor, 'user.update', targetId, `merged account ${sourceId}`);
+  return true;
+}
+
 export function updateAllowedUserRoles(username: string, roleIds: string[], actor: string): AllowedUser | undefined {
   const existing = state.allowedUsers.find((u) => u.username === username.toLowerCase());
   if (!existing) return undefined;

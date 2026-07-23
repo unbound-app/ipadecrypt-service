@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { config } from './config.js';
+import { resolveAuthUserId } from './identity.js';
 import { hasAnyPermission, parseBits, serializeBits } from './permissions.js';
 import { getSessionVersion, getUserEffectivePermissions } from './store/state.js';
 
@@ -81,23 +82,26 @@ export function checkRootPassword(candidate: string): boolean {
 export function setSessionCookie(res: Response, session: Omit<Session, 'exp' | 'ver'>): number {
   const expiresAtMs = Date.now() + SESSION_TTL_MS;
   const withVer: Omit<Session, 'exp'> = { ...session, ver: getSessionVersion(session.sub) };
+  const secure = config.publicBaseUrl.startsWith('https://') ? '; Secure' : '';
   res.setHeader(
     'Set-Cookie',
-    `${COOKIE_NAME}=${serialize(withVer, expiresAtMs)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`,
+    `${COOKIE_NAME}=${serialize(withVer, expiresAtMs)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_MS / 1000}${secure}`,
   );
   return expiresAtMs;
 }
 
 export function clearSessionCookie(res: Response): void {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+  const secure = config.publicBaseUrl.startsWith('https://') ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`);
 }
 
 export function getSession(req: Request): Session | undefined {
   const value = parseCookies(req)[COOKIE_NAME];
   const session = value ? deserialize(value) : undefined;
   if (!session || session.sub === 'root') return session;
-  const permissions = getUserEffectivePermissions(session.sub);
-  return permissions === undefined ? undefined : { ...session, permissions };
+  const sub = resolveAuthUserId(session.sub);
+  const permissions = getUserEffectivePermissions(sub);
+  return permissions === undefined ? undefined : { ...session, sub, permissions };
 }
 
 export function requireSession(req: Request, res: Response, next: NextFunction): void {

@@ -97,6 +97,17 @@ export function getActiveJobs(): Job[] {
   return [...jobs.values()].filter((j) => j.status === 'queued' || j.status === 'running');
 }
 
+export function mergeActiveJobOwner(targetUserId: string, sourceUserId: string): void {
+  let changed = false;
+  for (const job of jobs.values()) {
+    if (job.queuedBy === sourceUserId) {
+      job.queuedBy = targetUserId;
+      changed = true;
+    }
+  }
+  if (changed) emitJobsChanged();
+}
+
 export function getQueueInfo(jobId: string): { position: number; total: number } | undefined {
   const job = jobs.get(jobId);
   if (!job || job.status === 'done' || job.status === 'failed') return undefined;

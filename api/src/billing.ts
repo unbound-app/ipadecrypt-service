@@ -179,6 +179,24 @@ export function getBillingEntitlements(userId: string): BillingEntitlements {
   return resolveBillingEntitlements(state.subscriptions.filter((subscription) => subscription.userId === userId));
 }
 
+export function mergeBillingAccounts(targetUserId: string, sourceUserId: string): void {
+  if (targetUserId === sourceUserId) return;
+  let changed = false;
+  for (const customer of state.customers) {
+    if (customer.userId === sourceUserId) {
+      customer.userId = targetUserId;
+      changed = true;
+    }
+  }
+  for (const subscription of state.subscriptions) {
+    if (subscription.userId === sourceUserId) {
+      subscription.userId = targetUserId;
+      changed = true;
+    }
+  }
+  if (changed) persist();
+}
+
 export function resolveBillingEntitlements(subscriptions: BillingSubscription[]): BillingEntitlements {
   const activeSubscriptions = subscriptions.filter((subscription) => activeStatuses.has(subscription.status));
   if (activeSubscriptions.length === 0) return { planId: 'viewer', decrypt: false, api: false, priority: 0 };
