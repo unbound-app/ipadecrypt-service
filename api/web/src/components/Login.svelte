@@ -63,23 +63,7 @@
 >
   <h1 class="mb-8 text-3xl font-semibold tracking-tight sm:text-4xl">dkrypt</h1>
 
-  <div class="grid w-full max-w-[800px] items-stretch gap-4 md:grid-cols-[1fr_380px]">
-    <Card class="flex flex-col justify-between px-7 py-8 text-left">
-      <div>
-        <div class="flex flex-col gap-3 text-sm leading-6 text-muted">
-          <p>Submit iOS app decrypt requests, follow their status, and retrieve completed results.</p>
-          <p>Every new account starts in viewer mode. Monthly plans add decrypt processing, priority, and optional API access.</p>
-          <p>Plans start at €5 per month and renew monthly until canceled.</p>
-        </div>
-      </div>
-      <a
-        href="/pricing"
-        class="border-border bg-panel-muted mt-7 rounded-md border px-4 py-2.5 text-center text-sm font-medium text-text no-underline hover:border-accent"
-      >
-        View plans and pricing
-      </a>
-    </Card>
-
+  <div class="w-full max-w-[380px]">
     <Card id="sign-in" class="w-full px-8 py-9 text-center shadow-2xl">
     <div class="bg-accent shadow-accent/35 mx-auto mb-5 flex h-[60px] w-[60px] items-center justify-center rounded-2xl shadow-xl">
       <Lock class="h-7 w-7 text-white" />
