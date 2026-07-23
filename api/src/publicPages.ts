@@ -1,3 +1,5 @@
+const contactAddress = 'contact<span>@</span>dylib.dev';
+
 const navigation = `
   <nav aria-label="Public pages">
     <a href="/pricing">Pricing</a>
@@ -11,7 +13,7 @@ const navigation = `
 const footer = `
   <footer>
     ${navigation}
-    <p><a href="mailto:contact@dylib.dev">contact@dylib.dev</a></p>
+    <p>${contactAddress}</p>
   </footer>
 `;
 
@@ -58,7 +60,7 @@ const pageContent: Record<string, string> = {
         <h2>Service availability and liability</h2>
         <p>The service is provided on an as-available basis and may change or experience interruptions. To the fullest extent permitted by law, implied warranties are disclaimed and aggregate liability will not exceed the amount paid for dkrypt during the six months before the event giving rise to the claim.</p>
         <h2>Contact</h2>
-        <p>Questions about these terms may be sent to <a href="mailto:contact@dylib.dev">contact@dylib.dev</a>.</p>
+        <p>Questions about these terms may be sent to ${contactAddress}.</p>
       </article>
     </main>
   `,
@@ -67,7 +69,7 @@ const pageContent: Record<string, string> = {
       <article>
         <h1>Privacy notice</h1>
         <p>Last updated: 23 July 2026</p>
-        <p>This notice explains how dkrypt handles personal data. Privacy requests may be sent to <a href="mailto:contact@dylib.dev">contact@dylib.dev</a>.</p>
+        <p>This notice explains how dkrypt handles personal data. Privacy requests may be sent to ${contactAddress}.</p>
         <h2>Data collected</h2>
         <p>dkrypt processes identity-provider account details, billing and subscription identifiers, service requests and results, API-key metadata, preferences, support communications, session identifiers, timestamps, request records, and security audit data. Paddle processes payment details and dkrypt does not store full card details.</p>
         <h2>How data is used</h2>
@@ -77,7 +79,7 @@ const pageContent: Record<string, string> = {
         <h2>Cookies, retention, and security</h2>
         <p>dkrypt uses an essential session cookie and browser storage for interface preferences. Data is retained only as long as needed for service, legal, accounting, dispute, security, and backup obligations. Technical and organizational safeguards include access controls, signed sessions, restricted secrets, and encrypted transport.</p>
         <h2>Your rights</h2>
-        <p>Depending on location, users may have rights to access, correct, delete, restrict, object to, or obtain a portable copy of personal data, withdraw consent, and complain to a supervisory authority. Requests may be sent to <a href="mailto:contact@dylib.dev">contact@dylib.dev</a>.</p>
+        <p>Depending on location, users may have rights to access, correct, delete, restrict, object to, or obtain a portable copy of personal data, withdraw consent, and complain to a supervisory authority. Requests may be sent to ${contactAddress}.</p>
       </article>
     </main>
   `,
@@ -92,7 +94,7 @@ const pageContent: Record<string, string> = {
         <h2>How to request a refund</h2>
         <p>Use the manage-subscription or support link in your purchase receipt, open the dkrypt billing portal, or visit <a href="https://paddle.net">Paddle Buyer Support</a>. Include the purchase email and enough transaction information to locate the payment.</p>
         <h2>Technical problems and cancellations</h2>
-        <p>For persistent technical defects, contact <a href="mailto:contact@dylib.dev">contact@dylib.dev</a>. Subscriptions can be canceled at any time through the billing portal or receipt link. Cancellation prevents future renewals but does not automatically refund a completed payment.</p>
+        <p>For persistent technical defects, contact ${contactAddress}. Subscriptions can be canceled at any time through the billing portal or receipt link. Cancellation prevents future renewals but does not automatically refund a completed payment.</p>
         <h2>Processing</h2>
         <p>Approved refunds are generally returned to the original payment method. Processing times vary, and paid access may end when a transaction is refunded.</p>
       </article>
@@ -101,7 +103,7 @@ const pageContent: Record<string, string> = {
   '/contact': `
     <main>
       <h1>Contact dkrypt</h1>
-      <p>For product, account, service, security, or privacy questions, email <a href="mailto:contact@dylib.dev">contact@dylib.dev</a>.</p>
+      <p>For product, account, service, security, or privacy questions, email ${contactAddress}.</p>
       <p>For billing and refund questions, use the manage-subscription link in your purchase receipt or visit <a href="https://paddle.net">Paddle Buyer Support</a>.</p>
     </main>
   `,
