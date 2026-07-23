@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { generateVAPIDKeys, type VapidKeys } from 'web-push';
 import { config } from '../config.js';
@@ -83,6 +83,20 @@ export interface DiscordRolePerk {
   discordRoleName?: string;
   appRoleId: string;
   createdAt: number;
+}
+
+export interface BackupScheduleSettings {
+  enabled: boolean;
+  cron: string;
+  retentionCount: number;
+}
+
+export interface BackupHistoryEntry {
+  id: string;
+  createdAt: number;
+  sizeBytes: number;
+  filename: string;
+  trigger: 'scheduled' | 'manual';
 }
 
 export interface ApiKeyRecord {
@@ -236,7 +250,10 @@ export type AuditAction =
   | 'device.remove'
   | 'role.add'
   | 'role.update'
-  | 'role.remove';
+  | 'role.remove'
+  | 'backup.schedule-update'
+  | 'backup.create'
+  | 'backup.delete';
 
 export interface AuditLogEntry {
   id: string;
@@ -323,6 +340,8 @@ interface PersistedState {
   webhookDeliveryLog: WebhookDeliveryEntry[];
   discordRolePerks: DiscordRolePerk[];
   discordGuildId?: string;
+  backupSchedule: BackupScheduleSettings;
+  backupHistory: BackupHistoryEntry[];
 }
 
 const MAX_HISTORY = 100;
@@ -333,6 +352,7 @@ const MAX_USAGE_DAYS = 30;
 const MAX_DEVICE_HEALTH_CHECKS = 288; // 24h at a 5-minute poll interval, per device
 const MAX_WEBHOOK_LOG = 200;
 const statePath = path.join(config.stateDir, 'state.json');
+const backupsDir = path.join(config.stateDir, 'backups');
 
 function defaultState(): PersistedState {
   return {
@@ -356,6 +376,8 @@ function defaultState(): PersistedState {
     shareLinks: [],
     webhookDeliveryLog: [],
     discordRolePerks: [],
+    backupSchedule: { enabled: false, cron: '0 3 * * *', retentionCount: 14 },
+    backupHistory: [],
   };
 }
 
@@ -2298,6 +2320,62 @@ export function exportBackup(): BackupPayload {
     billing: exportBillingSnapshot(),
     identities: exportIdentitySnapshot(),
   };
+}
+
+export function getBackupSchedule(): BackupScheduleSettings {
+  return { ...state.backupSchedule };
+}
+
+export function setBackupSchedule(patch: Partial<BackupScheduleSettings>, actor: string): BackupScheduleSettings {
+  state.backupSchedule = { ...state.backupSchedule, ...patch };
+  persistNow();
+  recordAudit(actor, 'backup.schedule-update', 'backup-schedule', JSON.stringify(patch));
+  return { ...state.backupSchedule };
+}
+
+export function getBackupHistory(): BackupHistoryEntry[] {
+  return [...state.backupHistory].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+// Writes a full exportBackup() snapshot to disk under backupsDir and records it in history,
+// pruning the oldest snapshots (files + entries) once history exceeds retentionCount.
+export function createBackupSnapshot(trigger: 'scheduled' | 'manual'): BackupHistoryEntry {
+  mkdirSync(backupsDir, { recursive: true });
+  const payload = exportBackup();
+  const json = JSON.stringify(payload, null, 2);
+  const id = randomUUID();
+  const filename = `backup-${payload.exportedAt}-${id.slice(0, 8)}.json`;
+  writeFileSync(path.join(backupsDir, filename), json);
+
+  const entry: BackupHistoryEntry = { id, createdAt: payload.exportedAt, sizeBytes: Buffer.byteLength(json), filename, trigger };
+  state.backupHistory = [entry, ...state.backupHistory];
+  const retention = Math.max(1, state.backupSchedule.retentionCount);
+  while (state.backupHistory.length > retention) {
+    const removed = state.backupHistory.pop();
+    if (!removed) break;
+    const filePath = path.join(backupsDir, removed.filename);
+    if (existsSync(filePath)) rmSync(filePath);
+  }
+  persistNow();
+  return entry;
+}
+
+export function getBackupSnapshotPath(id: string): string | undefined {
+  const entry = state.backupHistory.find((e) => e.id === id);
+  if (!entry) return undefined;
+  const filePath = path.join(backupsDir, entry.filename);
+  return existsSync(filePath) ? filePath : undefined;
+}
+
+export function deleteBackupSnapshot(id: string, actor: string): boolean {
+  const idx = state.backupHistory.findIndex((e) => e.id === id);
+  if (idx === -1) return false;
+  const [removed] = state.backupHistory.splice(idx, 1);
+  const filePath = path.join(backupsDir, removed.filename);
+  if (existsSync(filePath)) rmSync(filePath);
+  persistNow();
+  recordAudit(actor, 'backup.delete', removed.filename, '');
+  return true;
 }
 
 function isAllowedUserShape(value: unknown): value is AllowedUser {

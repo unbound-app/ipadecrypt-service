@@ -919,6 +919,44 @@ export function previewBackup(payload: unknown): Promise<{ ok: boolean; data: Ba
   return apiAction('/v1/dashboard/backup/preview', { method: 'POST', body: JSON.stringify(payload) });
 }
 
+export interface BackupScheduleSettings {
+  enabled: boolean;
+  cron: string;
+  retentionCount: number;
+}
+
+export interface BackupHistoryEntry {
+  id: string;
+  createdAt: number;
+  sizeBytes: number;
+  filename: string;
+  trigger: 'scheduled' | 'manual';
+}
+
+export function fetchBackupSchedule(): Promise<BackupScheduleSettings> {
+  return apiJson('/v1/dashboard/backup/schedule');
+}
+
+export function updateBackupSchedule(patch: Partial<BackupScheduleSettings>): Promise<{ ok: boolean; data: BackupScheduleSettings }> {
+  return apiAction('/v1/dashboard/backup/schedule', { method: 'POST', body: JSON.stringify(patch) }, 'Backup schedule updated');
+}
+
+export function fetchBackupHistory(): Promise<BackupHistoryEntry[]> {
+  return apiJson('/v1/dashboard/backup/history');
+}
+
+export function createBackupSnapshot(): Promise<{ ok: boolean; data: BackupHistoryEntry }> {
+  return apiAction('/v1/dashboard/backup/history', { method: 'POST' }, 'Backup snapshot created');
+}
+
+export function deleteBackupSnapshot(id: string): Promise<{ ok: boolean }> {
+  return apiAction(`/v1/dashboard/backup/history/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Backup snapshot deleted');
+}
+
+export function backupSnapshotDownloadUrl(id: string): string {
+  return `/v1/dashboard/backup/history/${encodeURIComponent(id)}/download`;
+}
+
 export interface AppleAuthStatus {
   running: boolean;
   waitingForInput?: boolean;

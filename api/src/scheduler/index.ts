@@ -9,6 +9,8 @@ const log = scopedLogger('scheduler');
 import { EMBED_COLOR, notify } from '../notify.js';
 import {
   type AppWatch,
+  createBackupSnapshot,
+  getBackupSchedule,
   getEffectiveSettings,
   getEffectiveWatches,
   isWatchSchedulable,
@@ -466,6 +468,37 @@ export function applyWatchSchedules(): void {
   }
 }
 
+let backupTask: cron.ScheduledTask | undefined;
+let backupTaskCron: string | undefined;
+
+// Re-reads the persisted backup schedule and (re)starts its own independent cron task, entirely
+// separate from watch scheduling - called on boot and again whenever the schedule settings change.
+export function applyBackupSchedule(): void {
+  const schedule = getBackupSchedule();
+
+  if (!schedule.enabled || !cron.validate(schedule.cron)) {
+    backupTask?.stop();
+    backupTask = undefined;
+    backupTaskCron = undefined;
+    return;
+  }
+
+  if (backupTask && backupTaskCron === schedule.cron) return;
+
+  backupTask?.stop();
+  backupTask = cron.schedule(schedule.cron, () => {
+    try {
+      createBackupSnapshot('scheduled');
+      log.info('scheduled backup snapshot created');
+    } catch (err) {
+      log.error('scheduled backup snapshot failed', { error: String(err) });
+    }
+  });
+  backupTaskCron = schedule.cron;
+  log.info('backup schedule (re)applied', { cron: schedule.cron });
+}
+
 export function startScheduler(): void {
   applyWatchSchedules();
+  applyBackupSchedule();
 }

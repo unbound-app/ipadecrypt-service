@@ -18,7 +18,7 @@ import { getRecentLogs } from '../logger.js';
 import { EMBED_COLOR, notify, sendTestNotification } from '../notify.js';
 import { getVapidPublicKey, sendPushToUser } from '../push.js';
 import { hasPermission, isSubsetPermission, parseBits, PermissionFlag } from '../permissions.js';
-import { applyWatchSchedules, checkForTestFlightUpdate, checkForUpdate, triggerTickNow } from '../scheduler/index.js';
+import { applyBackupSchedule, applyWatchSchedules, checkForTestFlightUpdate, checkForUpdate, triggerTickNow } from '../scheduler/index.js';
 import { searchApps } from '../scheduler/itunes.js';
 import { requirePermission, requireSession } from '../session.js';
 import { getDeviceHealth } from '../deviceHealth.js';
@@ -39,11 +39,13 @@ import {
   bulkSetApiKeyDailyLimit,
   clearAppleAuthAlert,
   createApiKey,
+  createBackupSnapshot,
   createDevice,
   createDiscordRolePerk,
   createRole,
   createWatch,
   DEFAULT_ROLE_ID,
+  deleteBackupSnapshot,
   deleteDevice,
   deleteDiscordRolePerk,
   deleteRole,
@@ -59,6 +61,9 @@ import {
   getAppleAuthAlert,
   getAuditLog,
   getAverageJobDurationMs,
+  getBackupHistory,
+  getBackupSchedule,
+  getBackupSnapshotPath,
   getBundleStats,
   getDailyVolume,
   getDevice,
@@ -94,6 +99,7 @@ import {
   listRoles,
   listShareLinksForJob,
   previewBackup,
+  recordAudit,
   recordShareLink,
   recordUserActivity,
   regenerateApiKey,
@@ -107,6 +113,7 @@ import {
   revokeShareLink,
   type SchedulerSettings,
   setApiKeyAllowTestFlight,
+  setBackupSchedule,
   setDiscordGuildId,
   setApiKeyMaxConcurrent,
   setApiKeyPriority,
@@ -1412,6 +1419,57 @@ dashboardRouter.post('/v1/dashboard/backup/preview', canManageBackup, (req, res)
     return;
   }
   res.json(result.summary);
+});
+
+dashboardRouter.get('/v1/dashboard/backup/schedule', canManageBackup, (_req, res) => {
+  res.json(getBackupSchedule());
+});
+
+dashboardRouter.post('/v1/dashboard/backup/schedule', canManageBackup, (req, res) => {
+  const { enabled, cron: cronExpr, retentionCount } = req.body as { enabled?: boolean; cron?: string; retentionCount?: number };
+  if (cronExpr !== undefined && !validateCronExpr(cronExpr)) {
+    res.status(400).json({ error: 'invalid cron expression' });
+    return;
+  }
+  if (retentionCount !== undefined && (!Number.isInteger(retentionCount) || retentionCount < 1 || retentionCount > 90)) {
+    res.status(400).json({ error: 'retentionCount must be an integer between 1 and 90' });
+    return;
+  }
+  const patch: Partial<{ enabled: boolean; cron: string; retentionCount: number }> = {};
+  if (enabled !== undefined) patch.enabled = enabled;
+  if (cronExpr !== undefined) patch.cron = cronExpr;
+  if (retentionCount !== undefined) patch.retentionCount = retentionCount;
+  const schedule = setBackupSchedule(patch, res.locals.session.sub);
+  applyBackupSchedule();
+  res.json(schedule);
+});
+
+dashboardRouter.get('/v1/dashboard/backup/history', canManageBackup, (_req, res) => {
+  res.json(getBackupHistory());
+});
+
+dashboardRouter.post('/v1/dashboard/backup/history', canManageBackup, (_req, res) => {
+  const entry = createBackupSnapshot('manual');
+  recordAudit(res.locals.session.sub, 'backup.create', entry.filename, '');
+  res.json(entry);
+});
+
+dashboardRouter.get('/v1/dashboard/backup/history/:id/download', canManageBackup, (req, res) => {
+  const filePath = getBackupSnapshotPath(req.params.id);
+  if (!filePath) {
+    res.status(404).json({ error: 'backup snapshot not found' });
+    return;
+  }
+  res.download(filePath, 'dkrypt-backup.json');
+});
+
+dashboardRouter.delete('/v1/dashboard/backup/history/:id', canManageBackup, (req, res) => {
+  const ok = deleteBackupSnapshot(req.params.id, res.locals.session.sub);
+  if (!ok) {
+    res.status(404).json({ error: 'backup snapshot not found' });
+    return;
+  }
+  res.json({ ok: true });
 });
 
 dashboardRouter.get('/v1/dashboard/me/prefs', (_req, res) => {

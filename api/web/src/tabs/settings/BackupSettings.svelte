@@ -1,10 +1,28 @@
 <script lang="ts">
-  import { Download, TriangleAlert, Upload } from 'lucide-svelte';
-  import { backupExportUrl, importBackup, previewBackup, type BackupPreviewSummary } from '../../lib/api';
+  import { Download, RefreshCw, Trash2, TriangleAlert, Upload } from 'lucide-svelte';
+  import { onMount } from 'svelte';
+  import EmptyState from '../../components/EmptyState.svelte';
+  import {
+    backupExportUrl,
+    backupSnapshotDownloadUrl,
+    createBackupSnapshot,
+    deleteBackupSnapshot,
+    fetchBackupHistory,
+    fetchBackupSchedule,
+    importBackup,
+    previewBackup,
+    updateBackupSchedule,
+    validateCron,
+    type BackupHistoryEntry,
+    type BackupPreviewSummary,
+    type BackupScheduleSettings,
+  } from '../../lib/api';
   import Button from '../../lib/components/ui/Button.svelte';
   import Card from '../../lib/components/ui/Card.svelte';
+  import Input from '../../lib/components/ui/Input.svelte';
+  import Switch from '../../lib/components/ui/Switch.svelte';
   import { buttonVariants } from '../../lib/components/ui/variants';
-  import { fmtTime } from '../../lib/format';
+  import { debounce, fmtRelative, fmtSize, fmtTime } from '../../lib/format';
   import { confirmDialog } from '../../lib/ui.svelte';
 
   let fileInput: HTMLInputElement | undefined = $state();
@@ -13,6 +31,80 @@
   let parsedPayload: unknown = null;
   let preview = $state<BackupPreviewSummary | null>(null);
   let previewError = $state('');
+
+  let schedule = $state<BackupScheduleSettings | null>(null);
+  let cronValid = $state<boolean | null>(null);
+  let savingSchedule = $state(false);
+  let history = $state<BackupHistoryEntry[]>([]);
+  let loadingHistory = $state(true);
+  let creatingSnapshot = $state(false);
+  let deletingId = $state<string | null>(null);
+
+  onMount(() => {
+    void fetchBackupSchedule().then((s) => (schedule = s));
+    void loadHistory();
+  });
+
+  async function loadHistory(): Promise<void> {
+    loadingHistory = true;
+    try {
+      history = await fetchBackupHistory();
+    } finally {
+      loadingHistory = false;
+    }
+  }
+
+  const checkCron = debounce(async (expr: string) => {
+    if (!expr) {
+      cronValid = null;
+      return;
+    }
+    const { valid } = await validateCron(expr);
+    cronValid = valid;
+  }, 400);
+
+  $effect(() => {
+    if (schedule) checkCron(schedule.cron);
+  });
+
+  async function saveSchedule(patch: Partial<BackupScheduleSettings>): Promise<void> {
+    if (!schedule) return;
+    if (patch.cron !== undefined && cronValid === false) {
+      return;
+    }
+    savingSchedule = true;
+    try {
+      const { ok, data } = await updateBackupSchedule(patch);
+      if (ok) schedule = data;
+    } finally {
+      savingSchedule = false;
+    }
+  }
+
+  async function runBackupNow(): Promise<void> {
+    creatingSnapshot = true;
+    try {
+      const { ok } = await createBackupSnapshot();
+      if (ok) await loadHistory();
+    } finally {
+      creatingSnapshot = false;
+    }
+  }
+
+  async function removeSnapshot(entry: BackupHistoryEntry): Promise<void> {
+    const confirmed = await confirmDialog(`Delete backup snapshot "${entry.filename}"? This can't be undone.`, {
+      confirmLabel: 'Delete',
+      variant: 'destructive',
+    });
+    if (!confirmed) return;
+    deletingId = entry.id;
+    try {
+      const { ok } = await deleteBackupSnapshot(entry.id);
+      if (ok) history = history.filter((h) => h.id !== entry.id);
+    } finally {
+      deletingId = null;
+    }
+  }
 
   async function onFileChange(): Promise<void> {
     selectedFile = fileInput?.files?.[0] ?? null;
@@ -72,6 +164,42 @@
     </a>
   </Card>
 
+  <Card title="Scheduled backups">
+    <div class="mb-3 text-sm text-muted">Automatically write a snapshot to disk on a schedule, kept as history below.</div>
+    {#if schedule}
+      <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
+        <div class="text-[13px] text-text">Enable scheduled backups</div>
+        <Switch checked={schedule.enabled} disabled={savingSchedule} onCheckedChange={(checked) => void saveSchedule({ enabled: checked })} />
+      </div>
+      <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label for="backup-cron" class="mb-1 block text-xs text-muted">Cron schedule</label>
+          <Input
+            id="backup-cron"
+            bind:value={schedule.cron}
+            onblur={() => void saveSchedule({ cron: schedule?.cron })}
+            disabled={savingSchedule}
+          />
+          {#if cronValid === false}
+            <div class="mt-1 text-xs text-err">Not a valid cron expression</div>
+          {/if}
+        </div>
+        <div>
+          <label for="backup-retention" class="mb-1 block text-xs text-muted">Keep this many snapshots</label>
+          <Input
+            id="backup-retention"
+            type="number"
+            min="1"
+            max="90"
+            bind:value={schedule.retentionCount}
+            onblur={() => void saveSchedule({ retentionCount: Number(schedule?.retentionCount) })}
+            disabled={savingSchedule}
+          />
+        </div>
+      </div>
+    {/if}
+  </Card>
+
   <Card title="Restore">
     <div class="mb-3 flex items-start gap-2.5 rounded-lg border border-warn/40 bg-warn/10 px-3.5 py-3 text-[13px] text-warn">
       <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
@@ -106,5 +234,39 @@
       </div>
     {/if}
     <Button class="mt-3" variant="destructive" disabled={!selectedFile || !preview} loading={restoring} onclick={restore}>Restore from backup</Button>
+  </Card>
+
+  <Card title="Backup history">
+    {#snippet headerExtra()}
+      <Button size="sm" variant="secondary" loading={creatingSnapshot} onclick={runBackupNow}>
+        <RefreshCw class="h-4 w-4" />
+        Back up now
+      </Button>
+    {/snippet}
+    {#if loadingHistory}
+      <div class="py-6 text-center text-sm text-muted">Loading...</div>
+    {:else if history.length === 0}
+      <EmptyState icon={Download} message="No backup snapshots yet - scheduled runs and manual backups will show up here." />
+    {:else}
+      <div class="divide-y divide-border border-y border-border">
+        {#each history as entry (entry.id)}
+          <div class="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[13px]">
+            <div class="min-w-0">
+              <div class="text-text">{fmtTime(entry.createdAt)} <span class="text-muted">({fmtRelative(entry.createdAt)})</span></div>
+              <div class="text-xs text-muted">{fmtSize(entry.sizeBytes)} · {entry.trigger === 'scheduled' ? 'Scheduled' : 'Manual'}</div>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <a href={backupSnapshotDownloadUrl(entry.id)} download class={buttonVariants('secondary', 'sm')}>
+                <Download class="h-3.5 w-3.5" />
+                Download
+              </a>
+              <Button size="sm" variant="destructive" loading={deletingId === entry.id} onclick={() => removeSnapshot(entry)}>
+                <Trash2 class="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </Card>
 </div>
