@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 import { scopedLogger } from './logger.js';
-import { getOrCreateVapidKeys, getPushSubscriptions, removePushSubscription } from './store/state.js';
+import { getOrCreateVapidKeys, getPushSubscriptions, getUserPrefs, getUsersWithPushSubscriptions, removePushSubscription } from './store/state.js';
 
 const log = scopedLogger('push');
 
@@ -55,4 +55,12 @@ export async function sendPushToUser(username: string, payload: PushPayload): Pr
   } catch (err) {
     log.warn('push send failed', { username, error: String(err) });
   }
+}
+
+// System/health alerts (device offline, battery, disk, Apple auth) aren't tied to whoever queued
+// a job - they matter to whoever's watching the deployment, so fan out to every subscribed user
+// who hasn't opted out, rather than the single-user targeting sendPushToUser does for job results.
+export async function sendPushToAllSubscribed(payload: PushPayload): Promise<void> {
+  const usernames = getUsersWithPushSubscriptions().filter((u) => getUserPrefs(u).pushOnAlerts ?? true);
+  await Promise.all(usernames.map((u) => sendPushToUser(u, payload)));
 }

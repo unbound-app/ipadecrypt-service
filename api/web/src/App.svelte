@@ -113,6 +113,7 @@
   let sendingTestPush = $state(false);
   let pushOnSuccess = $state(true);
   let pushOnFailure = $state(true);
+  let pushOnAlerts = $state(true);
 
   void registerServiceWorker();
 
@@ -122,6 +123,7 @@
       void fetchNotificationPrefs().then((prefs) => {
         pushOnSuccess = prefs.pushOnSuccess ?? true;
         pushOnFailure = prefs.pushOnFailure ?? true;
+        pushOnAlerts = prefs.pushOnAlerts ?? true;
       });
     }
   });
@@ -132,6 +134,10 @@
 
   async function togglePushOnFailure(): Promise<void> {
     await pushNotificationPrefs({ pushOnFailure });
+  }
+
+  async function togglePushOnAlerts(): Promise<void> {
+    await pushNotificationPrefs({ pushOnAlerts });
   }
 
   async function enableNotifications(): Promise<void> {
@@ -542,6 +548,10 @@
                     <label class="inline-flex items-center gap-1.5">
                       <input type="checkbox" bind:checked={pushOnFailure} onchange={togglePushOnFailure} />
                       Notify me on failed decrypts
+                    </label>
+                    <label class="inline-flex items-center gap-1.5">
+                      <input type="checkbox" bind:checked={pushOnAlerts} onchange={togglePushOnAlerts} />
+                      Notify me on device/system alerts (offline, battery, disk, Apple auth)
                     </label>
                   </div>
                 {/if}

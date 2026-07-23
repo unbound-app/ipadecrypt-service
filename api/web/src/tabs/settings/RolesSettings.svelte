@@ -26,6 +26,7 @@
   import Card from '../../lib/components/ui/Card.svelte';
   import Dialog from '../../lib/components/ui/Dialog.svelte';
   import Input from '../../lib/components/ui/Input.svelte';
+  import SearchSelect from '../../lib/components/ui/SearchSelect.svelte';
   import Select from '../../lib/components/ui/Select.svelte';
   import { parseBits, permissionLabels, PermissionFlag, serializeBits } from '../../lib/permissions';
   import { sessionHasPermission } from '../../lib/session.svelte';
@@ -170,7 +171,6 @@
   }
 
   const assignableRoles = $derived((roles ?? []).filter((r) => !r.isDefault));
-  const perkDiscordRoleOptions = $derived([{ value: '', label: 'Discord role…' }, ...(discordRoles ?? []).map((r) => ({ value: r.id, label: r.name }))]);
   const perkAppRoleOptions = $derived([{ value: '', label: 'Dashboard role…' }, ...assignableRoles.map((r) => ({ value: r.id, label: r.name }))]);
 
   function discordRoleName(id: string): string {
@@ -232,14 +232,16 @@
         {@const labels = permissionLabels(parseBits(r.permissions))}
         {@const ascendingIdx = displayRoles.length - 2 - i}
         <div class="border-border rounded-lg border p-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background-color: {r.color}"></span>
-            <span class="text-[13px] font-medium">{r.name}</span>
-            {#if labels[0] === 'Administrator'}
-              <Badge variant="destructive"><Shield class="mr-1 h-3 w-3" />Administrator</Badge>
-            {/if}
-            <span class="text-xs text-muted">{memberCount(r.id)} member{memberCount(r.id) === 1 ? '' : 's'}</span>
-            <div class="ml-auto flex flex-wrap items-center gap-1.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              <span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background-color: {r.color}"></span>
+              <span class="text-[13px] font-medium">{r.name}</span>
+              {#if labels[0] === 'Administrator'}
+                <Badge variant="destructive"><Shield class="mr-1 h-3 w-3" />Administrator</Badge>
+              {/if}
+              <span class="text-xs text-muted">{memberCount(r.id)} member{memberCount(r.id) === 1 ? '' : 's'}</span>
+            </div>
+            <div class="flex shrink-0 items-center gap-1.5">
               {#if canManageRoles && !r.isDefault}
                 <Button
                   size="icon"
@@ -301,12 +303,7 @@
         <EmptyState message="The bot isn't in any guild yet - invite it to your server first." />
       {:else}
         <div class="flex items-center gap-2">
-          <Select
-            items={[{ value: '', label: 'Pick a guild…' }, ...discordGuilds]}
-            value=""
-            onValueChange={(v) => v && void pickGuild(v)}
-            class="w-full"
-          />
+          <SearchSelect items={discordGuilds} value="" onValueChange={(v) => v && void pickGuild(v)} placeholder="Search guilds…" class="w-full" />
           {#if savingGuild}<span class="text-xs text-muted">Saving…</span>{/if}
         </div>
       {/if}
@@ -337,7 +334,7 @@
       </div>
       {#if discordRoles && discordRoles.length > 0 && assignableRoles.length > 0}
         <div class="flex flex-wrap items-center gap-1.5">
-          <Select items={perkDiscordRoleOptions} bind:value={perkDiscordRoleId} class="w-40" />
+          <SearchSelect items={discordRoles.map((r) => ({ value: r.id, label: r.name }))} bind:value={perkDiscordRoleId} placeholder="Search Discord roles…" class="w-48" />
           <span class="text-xs text-muted">grants</span>
           <Select items={perkAppRoleOptions} bind:value={perkAppRoleId} class="w-40" />
           <Button size="sm" loading={addingPerk} disabled={!perkDiscordRoleId || !perkAppRoleId} onclick={addPerk}>Add</Button>

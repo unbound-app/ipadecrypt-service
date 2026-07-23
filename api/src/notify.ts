@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { log } from './logger.js';
+import { sendPushToAllSubscribed } from './push.js';
 import { getEffectiveSettings, recordWebhookDelivery, type SchedulerSettings } from './store/state.js';
 import { postJsonWithRetry } from './util/webhookRetry.js';
 
@@ -129,11 +130,31 @@ async function postWebhook(
   return result;
 }
 
+// Health/alert events matter to whoever's watching the deployment, not just whoever queued a
+// job - these also fan out to push, unlike keyRequest/dispatch*/jobCompleted which stay scoped
+// to the webhook (or, for jobCompleted, the job's own owner via the direct sendPushToUser call
+// in jobs/store.ts).
+const PUSH_ELIGIBLE_EVENTS = new Set<NotifyEvent>([
+  'appleAuthAlert',
+  'keyExpiringSoon',
+  'deviceOffline',
+  'deviceBatteryHot',
+  'deviceBatteryLow',
+  'diskFull',
+  'deviceStorageLow',
+  'testFlightBridgeDown',
+]);
+
 export async function notify(event: NotifyEvent, embed: NotifyEmbed, webhookUrlOverride?: string): Promise<void> {
   const settings = getEffectiveSettings();
-  const url = webhookUrlOverride || settings.notifyWebhookUrl;
-  if (!url || !settings[EVENT_SETTING_KEY[event]]) return;
+  if (!settings[EVENT_SETTING_KEY[event]]) return;
 
+  if (PUSH_ELIGIBLE_EVENTS.has(event)) {
+    void sendPushToAllSubscribed({ title: embed.title, body: embed.description ?? embed.title });
+  }
+
+  const url = webhookUrlOverride || settings.notifyWebhookUrl;
+  if (!url) return;
   const result = await postWebhook(url, embed, settings.notifyFormat, event);
   if (!result.ok) log.warn('notify webhook failed', { event, status: result.status, error: result.error });
 }

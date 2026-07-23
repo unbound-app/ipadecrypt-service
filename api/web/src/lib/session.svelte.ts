@@ -101,6 +101,7 @@ async function syncThemeFromServer(): Promise<void> {
 export interface NotificationPrefs {
   pushOnSuccess?: boolean;
   pushOnFailure?: boolean;
+  pushOnAlerts?: boolean;
 }
 
 export async function fetchNotificationPrefs(): Promise<NotificationPrefs> {

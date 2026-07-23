@@ -219,6 +219,7 @@ export interface UserPrefs {
   accent?: string;
   pushOnSuccess?: boolean;
   pushOnFailure?: boolean;
+  pushOnAlerts?: boolean;
 }
 
 export type AuditAction =
@@ -2158,6 +2159,10 @@ export function removePushSubscription(username: string, endpoint: string): void
 
 export function getPushSubscriptions(username: string): PushSubscriptionRecord[] {
   return state.pushSubscriptions[username.toLowerCase()] ?? [];
+}
+
+export function getUsersWithPushSubscriptions(): string[] {
+  return Object.keys(state.pushSubscriptions).filter((username) => state.pushSubscriptions[username].length > 0);
 }
 
 // Tracks share links issued through the dashboard's own "Share" flow only - not the signed URLs

@@ -1452,12 +1452,14 @@ dashboardRouter.put('/v1/dashboard/me/prefs', (req, res) => {
     accent?: string;
     pushOnSuccess?: boolean;
     pushOnFailure?: boolean;
+    pushOnAlerts?: boolean;
   } = {};
   if (body.theme === 'dark' || body.theme === 'light' || body.theme === 'auto') patch.theme = body.theme;
   if (body.density === 'comfortable' || body.density === 'compact') patch.density = body.density;
   if (typeof body.accent === 'string' && /^[a-z-]{1,32}$/.test(body.accent)) patch.accent = body.accent;
   if (typeof body.pushOnSuccess === 'boolean') patch.pushOnSuccess = body.pushOnSuccess;
   if (typeof body.pushOnFailure === 'boolean') patch.pushOnFailure = body.pushOnFailure;
+  if (typeof body.pushOnAlerts === 'boolean') patch.pushOnAlerts = body.pushOnAlerts;
   res.json(updateUserPrefs(res.locals.session.sub, patch));
 });
 
