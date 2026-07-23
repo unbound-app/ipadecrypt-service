@@ -8,7 +8,10 @@
   import ConnectionBanner from './components/ConnectionBanner.svelte';
   import HeaderDeviceStatus from './components/HeaderDeviceStatus.svelte';
   import Login from './components/Login.svelte';
+  import LegalPage from './components/LegalPage.svelte';
   import NotificationBell from './components/NotificationBell.svelte';
+  import ContactPage from './components/ContactPage.svelte';
+  import PublicPricing from './components/PublicPricing.svelte';
   import SessionExpiryBanner from './components/SessionExpiryBanner.svelte';
   import SetupBanner from './components/SetupBanner.svelte';
   import ShortcutsHelp from './components/ShortcutsHelp.svelte';
@@ -76,6 +79,14 @@
   initDensity();
   initAccent();
   initUrlTabSync();
+
+  const publicPage = {
+    '/pricing': 'pricing',
+    '/terms': 'terms',
+    '/privacy': 'privacy',
+    '/refund-policy': 'refund',
+    '/contact': 'contact',
+  }[location.pathname] as 'pricing' | 'terms' | 'privacy' | 'refund' | 'contact' | undefined;
 
   let homeRef: Home | undefined = $state();
   let loggingOut = $state(false);
@@ -208,6 +219,17 @@
   const BASE_TITLE = 'dkrypt';
 
   $effect(() => {
+    if (publicPage) {
+      const title = {
+        pricing: 'Pricing',
+        terms: 'Terms of Service',
+        privacy: 'Privacy Notice',
+        refund: 'Refund Policy',
+        contact: 'Contact',
+      }[publicPage];
+      document.title = `${title} · ${BASE_TITLE}`;
+      return;
+    }
     if (!sessionState.loggedIn) {
       document.title = BASE_TITLE;
       return;
@@ -285,7 +307,17 @@
 
 <Toaster theme={themeState.value} richColors position="bottom-right" />
 
-{#if !sessionState.loggedIn}
+{#if publicPage === 'pricing'}
+  <PublicPricing />
+{:else if publicPage === 'terms'}
+  <LegalPage document="terms" />
+{:else if publicPage === 'privacy'}
+  <LegalPage document="privacy" />
+{:else if publicPage === 'refund'}
+  <LegalPage document="refund" />
+{:else if publicPage === 'contact'}
+  <ContactPage />
+{:else if !sessionState.loggedIn}
   <Login />
 {:else}
   <div class="min-h-screen">

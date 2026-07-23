@@ -5,6 +5,7 @@
   import Input from '../lib/components/ui/Input.svelte';
   import { loginRoot, sessionState } from '../lib/session.svelte';
   import { cn } from '../lib/utils';
+  import LegalLinks from './LegalLinks.svelte';
 
   let password = $state('');
   let loginError = $state('');
@@ -57,10 +58,36 @@
 </script>
 
 <div
-  class="flex min-h-screen items-center justify-center p-6"
+  class="flex min-h-screen flex-col items-center justify-center p-6"
   style="background: radial-gradient(circle at 50% 15%, color-mix(in srgb, var(--color-panel) 60%, var(--color-bg)) 0%, var(--color-bg) 60%);"
 >
-  <Card class="w-full max-w-[380px] px-8 py-9 text-center shadow-2xl">
+  <div class="mb-8 max-w-2xl text-center">
+    <div class="text-accent mb-3 text-sm font-semibold tracking-wide uppercase">Authorized app workflows</div>
+    <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Managed decrypt processing for teams and developers</h1>
+    <p class="mt-4 text-sm leading-6 text-muted">
+      Queue authorized iOS application decrypts, follow processing status, retrieve results, and integrate approved workflows through API access.
+    </p>
+  </div>
+
+  <div class="grid w-full max-w-[800px] items-stretch gap-4 md:grid-cols-[1fr_380px]">
+    <Card class="flex flex-col justify-between px-7 py-8 text-left">
+      <div>
+        <h2 class="text-lg font-semibold">Built for controlled access</h2>
+        <div class="mt-4 flex flex-col gap-3 text-sm leading-6 text-muted">
+          <p>Every new account starts in viewer mode with no decrypt or API access.</p>
+          <p>Monthly plans add standard or high-priority decrypt processing, with optional API key access.</p>
+          <p>Subscriptions are billed securely by Paddle in EUR and can be managed from your account.</p>
+        </div>
+      </div>
+      <a
+        href="/pricing"
+        class="border-border bg-panel-muted mt-7 rounded-md border px-4 py-2.5 text-center text-sm font-medium text-text no-underline hover:border-accent"
+      >
+        View plans and pricing
+      </a>
+    </Card>
+
+    <Card id="sign-in" class="w-full px-8 py-9 text-center shadow-2xl">
     <div class="bg-accent shadow-accent/35 mx-auto mb-5 flex h-[60px] w-[60px] items-center justify-center rounded-2xl shadow-xl">
       <Lock class="h-7 w-7 text-white" />
     </div>
@@ -142,5 +169,10 @@
         {/if}
       </div>
     </details>
-  </Card>
+    </Card>
+  </div>
+
+  <div class="mt-7">
+    <LegalLinks />
+  </div>
 </div>

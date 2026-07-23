@@ -5,6 +5,7 @@
   import Badge from '../lib/components/ui/Badge.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Card from '../lib/components/ui/Card.svelte';
+  import LegalLinks from '../components/LegalLinks.svelte';
   import { refreshSession, sessionState } from '../lib/session.svelte';
   import { showToast } from '../lib/ui.svelte';
 
@@ -275,5 +276,12 @@
     {:else if billing.entitlement.nextBilledAt}
       <div class="text-center text-xs text-muted">Next billing date: {formatDate(billing.entitlement.nextBilledAt)}</div>
     {/if}
+
+    <Card class="text-center text-xs leading-5 text-muted">
+      Plans renew monthly until canceled. Paddle is the merchant of record and calculates applicable tax at checkout.
+      <div class="mt-3">
+        <LegalLinks />
+      </div>
+    </Card>
   {/if}
 </div>

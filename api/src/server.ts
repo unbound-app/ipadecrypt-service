@@ -37,7 +37,7 @@ const ogImageVersion = createHash('sha256').update(readFileSync(path.join(public
 const indexHtml = readFileSync(path.join(publicDir, 'index.html'), 'utf8')
   .replaceAll('__PUBLIC_BASE_URL__', config.publicBaseUrl)
   .replaceAll('__OG_IMAGE_VERSION__', ogImageVersion);
-app.get('/', (_req, res) => res.type('html').send(indexHtml));
+app.get(['/', '/pricing', '/terms', '/privacy', '/refund-policy', '/contact'], (_req, res) => res.type('html').send(indexHtml));
 app.get('/favicon.svg', (_req, res) =>
   res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'favicon.svg')),
 );

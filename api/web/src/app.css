@@ -168,6 +168,34 @@
   background: linear-gradient(to left, var(--scroll-fade-bg, var(--color-panel)), transparent);
 }
 
+.legal-document h1 {
+  @apply text-3xl font-semibold tracking-tight sm:text-4xl;
+}
+
+.legal-document h2 {
+  @apply mt-9 mb-3 text-lg font-semibold;
+}
+
+.legal-document p {
+  @apply my-3 text-sm leading-7 text-muted;
+}
+
+.legal-document .document-date {
+  @apply mt-3 mb-8 text-xs text-muted;
+}
+
+.legal-document ul {
+  @apply my-3 list-disc space-y-2 pl-6 text-sm leading-7 text-muted;
+}
+
+.legal-document strong {
+  @apply font-semibold text-text;
+}
+
+.legal-document a {
+  @apply text-accent underline decoration-transparent underline-offset-2 hover:decoration-current;
+}
+
 /* Below `sm`, reflow a data table into a stack of labeled-field cards instead of forcing a
    horizontal-scroll table - each <td> needs a data-label attribute matching its column header,
    and group/section header rows should get the .table-row-header escape hatch below. */
