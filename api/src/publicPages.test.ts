@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { renderPublicPage } from './publicPages.js';
 
 const shell = '<html><body><div id="app-root"></div></body></html>';
+const browserShell = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 
 describe('renderPublicPage', () => {
   test.each([
@@ -18,5 +20,16 @@ describe('renderPublicPage', () => {
     expect(rendered).toContain(expected);
     expect(rendered).toContain('contact<span>@</span>dylib.dev');
     expect(rendered).not.toContain('<div id="app-root"></div>');
+  });
+
+  test('hides the fallback before the app module loads in JavaScript browsers', () => {
+    const rendered = renderPublicPage(browserShell, '/');
+    const activationIndex = rendered.indexOf("document.documentElement.classList.add('js')");
+    const fallbackIndex = rendered.indexOf('<div data-app-fallback');
+
+    expect(activationIndex).toBeGreaterThan(-1);
+    expect(rendered).toContain('html.js [data-app-fallback]');
+    expect(activationIndex).toBeLessThan(fallbackIndex);
+    expect(rendered).not.toContain('<div data-app-fallback hidden');
   });
 });
