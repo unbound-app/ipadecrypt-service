@@ -104,7 +104,6 @@ export interface SchedulerSettings {
   notifyOnKeyRequest: boolean;
   notifyOnDispatchSuccess: boolean;
   notifyOnDispatchFailure: boolean;
-  notifyOnAppleAuthAlert: boolean;
   notifyOnKeyExpiringSoon: boolean;
   notifyOnDeviceOffline: boolean;
   notifyOnDeviceBatteryHot: boolean;
@@ -149,12 +148,6 @@ export interface DeviceRecord {
   updatedAt: number;
 }
 
-export interface AppleAuthAlert {
-  suspected: boolean;
-  lastError?: string;
-  lastErrorAt?: number;
-}
-
 export type SchedulerRunStatus = 'dispatched' | 'succeeded' | 'failed' | 'timed_out';
 
 export interface SchedulerRunOutcome {
@@ -186,7 +179,6 @@ export interface OverviewPayload {
   settings: SchedulerSettings;
   watches: AppWatch[];
   devices: DeviceRecord[];
-  appleAuthAlert: AppleAuthAlert;
   lastSchedulerRunAt?: number;
   schedulerRunHistory: SchedulerRunEntry[];
   disk?: DiskUsage;
@@ -690,10 +682,6 @@ export function fetchJobTimeline(id: string): Promise<JobTimeline> {
   return apiJson(`/v1/dashboard/jobs/${encodeURIComponent(id)}/timeline`);
 }
 
-export function clearAuthAlert(): Promise<{ ok: boolean }> {
-  return apiAction('/v1/dashboard/auth-alert/clear', { method: 'POST' }, 'Alert dismissed').then((r) => r.data as { ok: boolean });
-}
-
 export function fetchMyKeys(): Promise<{ keys: ApiKeyRecord[] }> {
   return apiJson('/v1/dashboard/keys/mine');
 }
@@ -1016,25 +1004,6 @@ export function revokeOtherSessions(): Promise<{ ok: boolean; data: { revoked: n
   return apiAction('/v1/auth/sessions/revoke-others', { method: 'POST' }, 'Other sessions signed out');
 }
 
-export interface AppleAuthStatus {
-  running: boolean;
-  waitingForInput?: boolean;
-  success?: boolean;
-  log: string;
-}
-
-export function fetchAppleAuthStatus(): Promise<AppleAuthStatus> {
-  return apiJson('/v1/dashboard/apple-auth/status');
-}
-
-export function startAppleAuth(): Promise<{ ok: boolean; data: { error?: string } }> {
-  return apiAction('/v1/dashboard/apple-auth/start', { method: 'POST' });
-}
-
-export function cancelAppleAuth(): Promise<{ ok: boolean }> {
-  return apiAction('/v1/dashboard/apple-auth/cancel', { method: 'POST' });
-}
-
 export function fetchPushPublicKey(): Promise<{ publicKey: string }> {
   return apiJson('/v1/dashboard/push/public-key');
 }
@@ -1051,6 +1020,3 @@ export function testPush(): Promise<{ ok: boolean }> {
   return apiAction('/v1/dashboard/push/test', { method: 'POST' }, 'Test push sent').then((r) => ({ ok: r.ok }));
 }
 
-export function submitAppleInput(value: string): Promise<{ ok: boolean }> {
-  return apiAction('/v1/dashboard/apple-auth/input', { method: 'POST', body: JSON.stringify({ value }) });
-}

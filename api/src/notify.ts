@@ -8,7 +8,6 @@ export type NotifyEvent =
   | 'keyRequest'
   | 'dispatchSuccess'
   | 'dispatchFailure'
-  | 'appleAuthAlert'
   | 'keyExpiringSoon'
   | 'deviceOffline'
   | 'deviceBatteryHot'
@@ -22,7 +21,6 @@ const EVENT_SETTING_KEY: Record<NotifyEvent, keyof SchedulerSettings> = {
   keyRequest: 'notifyOnKeyRequest',
   dispatchSuccess: 'notifyOnDispatchSuccess',
   dispatchFailure: 'notifyOnDispatchFailure',
-  appleAuthAlert: 'notifyOnAppleAuthAlert',
   keyExpiringSoon: 'notifyOnKeyExpiringSoon',
   deviceOffline: 'notifyOnDeviceOffline',
   deviceBatteryHot: 'notifyOnDeviceBatteryHot',
@@ -135,7 +133,6 @@ async function postWebhook(
 // to the webhook (or, for jobCompleted, the job's own owner via the direct sendPushToUser call
 // in jobs/store.ts).
 const PUSH_ELIGIBLE_EVENTS = new Set<NotifyEvent>([
-  'appleAuthAlert',
   'keyExpiringSoon',
   'deviceOffline',
   'deviceBatteryHot',

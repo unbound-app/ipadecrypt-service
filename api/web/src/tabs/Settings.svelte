@@ -3,7 +3,6 @@
   import { PermissionFlag } from '../lib/permissions';
   import { sessionHasAnyPermission } from '../lib/session.svelte';
   import { setSettingsSubtab, tabState } from '../lib/ui.svelte';
-  import AppleAuthSettings from './settings/AppleAuthSettings.svelte';
   import BackupSettings from './settings/BackupSettings.svelte';
   import DevicesSettings from './settings/DevicesSettings.svelte';
   import RolesSettings from './settings/RolesSettings.svelte';
@@ -15,7 +14,6 @@
     { id: 'devices', label: 'Devices', requires: [PermissionFlag.viewDevices, PermissionFlag.manageDevices] },
     { id: 'users', label: 'Users', requires: [PermissionFlag.viewUsers, PermissionFlag.manageUsers] },
     { id: 'roles', label: 'Roles', requires: [PermissionFlag.viewRoles, PermissionFlag.manageRoles] },
-    { id: 'apple', label: 'Apple Auth', requires: [PermissionFlag.manageAppleAuth] },
     { id: 'backup', label: 'Backup', requires: [PermissionFlag.viewBackup, PermissionFlag.manageBackup] },
   ];
 
@@ -52,11 +50,6 @@
 {#if hasAccess([PermissionFlag.viewRoles, PermissionFlag.manageRoles])}
   <div class:hidden={tabState.settingsSubtab !== 'roles'}>
     <RolesSettings />
-  </div>
-{/if}
-{#if hasAccess([PermissionFlag.manageAppleAuth])}
-  <div class:hidden={tabState.settingsSubtab !== 'apple'}>
-    <AppleAuthSettings />
   </div>
 {/if}
 {#if hasAccess([PermissionFlag.viewBackup, PermissionFlag.manageBackup])}

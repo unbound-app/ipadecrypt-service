@@ -169,7 +169,6 @@ export interface SchedulerSettings {
   notifyOnKeyRequest: boolean;
   notifyOnDispatchSuccess: boolean;
   notifyOnDispatchFailure: boolean;
-  notifyOnAppleAuthAlert: boolean;
   notifyOnKeyExpiringSoon: boolean;
   notifyOnDeviceOffline: boolean;
   notifyOnDeviceBatteryHot: boolean;
@@ -249,12 +248,6 @@ export interface JobHistoryEntry {
   deviceId?: string;
   ipaMetadata?: IpaMetadata;
   ipaInfoPlist?: Record<string, unknown>;
-}
-
-interface AppleAuthAlert {
-  suspected: boolean;
-  lastError?: string;
-  lastErrorAt?: number;
 }
 
 export interface UserPrefs {
@@ -355,7 +348,6 @@ interface PersistedState {
   watches: AppWatch[];
   devices: DeviceRecord[];
   jobHistory: JobHistoryEntry[];
-  appleAuthAlert: AppleAuthAlert;
   lastSchedulerRunAt?: number;
   userPrefs: Record<string, UserPrefs>;
   auditLog: AuditLogEntry[];
@@ -395,7 +387,6 @@ function defaultState(): PersistedState {
     watches: [],
     devices: [],
     jobHistory: [],
-    appleAuthAlert: { suspected: false },
     userPrefs: {},
     auditLog: [],
     schedulerRunHistory: [],
@@ -423,7 +414,6 @@ interface LegacyPermissions {
   revokeApiKeys: boolean;
   manageScheduler: boolean;
   triggerDispatch: boolean;
-  manageAppleAuth: boolean;
   viewLogs: boolean;
   viewUsers: boolean;
   manageUsers: boolean;
@@ -436,7 +426,6 @@ const LEGACY_VIEWER_PERMISSIONS: LegacyPermissions = {
   revokeApiKeys: false,
   manageScheduler: false,
   triggerDispatch: false,
-  manageAppleAuth: false,
   viewLogs: false,
   viewUsers: false,
   manageUsers: false,
@@ -449,7 +438,6 @@ const LEGACY_ADMIN_PERMISSIONS: LegacyPermissions = {
   revokeApiKeys: true,
   manageScheduler: true,
   triggerDispatch: true,
-  manageAppleAuth: true,
   viewLogs: true,
   viewUsers: true,
   manageUsers: true,
@@ -485,7 +473,6 @@ function migratePermissionsV3(old: LegacyV3Permissions): LegacyPermissions {
     revokeApiKeys: old.manageKeys,
     manageScheduler: old.manageSettings,
     triggerDispatch: old.manageSettings,
-    manageAppleAuth: old.manageSettings && old.manageUsers,
     viewLogs: true,
     viewUsers: old.manageUsers,
     manageUsers: old.manageUsers,
@@ -498,7 +485,6 @@ interface LegacyV4Permissions {
   approveApiKeys: boolean;
   revokeApiKeys: boolean;
   manageScheduler: boolean;
-  manageAppleAuth: boolean;
   viewUsers: boolean;
   manageUsers: boolean;
 }
@@ -513,7 +499,6 @@ function migratePermissionsV4(old: LegacyV4Permissions): LegacyPermissions {
     revokeApiKeys: old.revokeApiKeys,
     manageScheduler: old.manageScheduler,
     triggerDispatch: old.manageScheduler,
-    manageAppleAuth: old.manageAppleAuth,
     viewLogs: true,
     viewUsers: old.viewUsers,
     manageUsers: old.manageUsers,
@@ -533,7 +518,6 @@ function legacyBooleansToBits(p: LegacyPermissions): bigint {
   if (p.revokeApiKeys) bits |= PermissionFlag.revokeApiKeys;
   if (p.manageScheduler) bits |= PermissionFlag.manageWatches | PermissionFlag.manageDevices | PermissionFlag.manageSchedulerSettings;
   if (p.triggerDispatch) bits |= PermissionFlag.triggerDispatch;
-  if (p.manageAppleAuth) bits |= PermissionFlag.manageAppleAuth;
   if (p.viewLogs) bits |= PermissionFlag.viewLogs;
   if (p.viewUsers) bits |= PermissionFlag.viewUsers;
   if (p.manageUsers) bits |= PermissionFlag.manageUsers | PermissionFlag.manageRoles | PermissionFlag.manageBackup;
@@ -557,7 +541,6 @@ const PRESET_ROLE_BITS: Record<string, bigint> = {
     PermissionFlag.manageDevices,
     PermissionFlag.manageSchedulerSettings,
     PermissionFlag.triggerDispatch,
-    PermissionFlag.manageAppleAuth,
   ]),
 };
 
@@ -769,7 +752,6 @@ function migrate(raw: Record<string, unknown>): PersistedState {
       })),
       settings: (raw.settings as Partial<SchedulerSettings>) ?? {},
       jobHistory: (raw.jobHistory as JobHistoryEntry[]) ?? [],
-      appleAuthAlert: (raw.appleAuthAlert as AppleAuthAlert) ?? { suspected: false },
     }),
   )));
 }
@@ -1640,7 +1622,6 @@ export function getEffectiveSettings(): SchedulerSettings {
     notifyOnKeyRequest: state.settings.notifyOnKeyRequest ?? true,
     notifyOnDispatchSuccess: state.settings.notifyOnDispatchSuccess ?? true,
     notifyOnDispatchFailure: state.settings.notifyOnDispatchFailure ?? true,
-    notifyOnAppleAuthAlert: state.settings.notifyOnAppleAuthAlert ?? true,
     notifyOnKeyExpiringSoon: state.settings.notifyOnKeyExpiringSoon ?? true,
     notifyOnDeviceOffline: state.settings.notifyOnDeviceOffline ?? true,
     notifyOnDeviceBatteryHot: state.settings.notifyOnDeviceBatteryHot ?? true,
@@ -2328,21 +2309,6 @@ export function getDeviceStorageHourlyBuckets(deviceId: string, hours = 24): Hou
   return buckets;
 }
 
-export function getAppleAuthAlert(): AppleAuthAlert {
-  return state.appleAuthAlert;
-}
-
-export function setAppleAuthAlert(error: string): void {
-  state.appleAuthAlert = { suspected: true, lastError: error, lastErrorAt: Date.now() };
-  persistNow();
-}
-
-export function clearAppleAuthAlert(): void {
-  if (!state.appleAuthAlert.suspected) return;
-  state.appleAuthAlert = { suspected: false };
-  persistNow();
-}
-
 // Generated once and persisted, same idea as the download signing secret - every subscribed
 // browser is registered against this keypair, so rotating it would silently break them all.
 export function getOrCreateVapidKeys(): VapidKeys {
@@ -2472,7 +2438,6 @@ export interface BackupPayload {
   watches: AppWatch[];
   devices: DeviceRecord[];
   jobHistory: JobHistoryEntry[];
-  appleAuthAlert: AppleAuthAlert;
   lastSchedulerRunAt?: number;
   userPrefs: Record<string, UserPrefs>;
   auditLog: AuditLogEntry[];
@@ -2498,7 +2463,6 @@ export function exportBackup(): BackupPayload {
     watches: getEffectiveWatches(),
     devices: getEffectiveDevices(),
     jobHistory: state.jobHistory,
-    appleAuthAlert: state.appleAuthAlert,
     lastSchedulerRunAt: state.lastSchedulerRunAt,
     userPrefs: state.userPrefs,
     auditLog: state.auditLog,
@@ -2654,7 +2618,6 @@ interface ValidatedBackupPayload {
   watches: AppWatch[];
   devices: DeviceRecord[];
   jobHistory: JobHistoryEntry[];
-  appleAuthAlert: AppleAuthAlert;
   lastSchedulerRunAt?: number;
   userPrefs: Record<string, UserPrefs>;
   auditLog: AuditLogEntry[];
@@ -2706,13 +2669,6 @@ function validateBackupPayload(raw: unknown): { ok: true; payload: ValidatedBack
   if (typeof b.apiKeyUsage !== 'object' || b.apiKeyUsage === null) {
     return { ok: false, error: 'apiKeyUsage is missing or malformed' };
   }
-  if (
-    typeof b.appleAuthAlert !== 'object' ||
-    b.appleAuthAlert === null ||
-    typeof (b.appleAuthAlert as Record<string, unknown>).suspected !== 'boolean'
-  ) {
-    return { ok: false, error: 'appleAuthAlert is missing or malformed' };
-  }
   if (typeof b.rootSessionVersion !== 'number') {
     return { ok: false, error: 'rootSessionVersion is missing or malformed' };
   }
@@ -2735,7 +2691,6 @@ function validateBackupPayload(raw: unknown): { ok: true; payload: ValidatedBack
       watches: b.watches as AppWatch[],
       devices: b.devices as DeviceRecord[],
       jobHistory: b.jobHistory as JobHistoryEntry[],
-      appleAuthAlert: b.appleAuthAlert as AppleAuthAlert,
       lastSchedulerRunAt: typeof b.lastSchedulerRunAt === 'number' ? b.lastSchedulerRunAt : undefined,
       userPrefs: b.userPrefs as Record<string, UserPrefs>,
       auditLog: b.auditLog as AuditLogEntry[],
@@ -2830,7 +2785,6 @@ export function importBackup(raw: unknown, actor: string): ImportBackupResult {
     .map((e) => ({ ...e, id: e.id ?? randomUUID() }));
   state.userPrefs = b.userPrefs;
   state.apiKeyUsage = b.apiKeyUsage;
-  state.appleAuthAlert = b.appleAuthAlert;
   state.rootSessionVersion = b.rootSessionVersion;
   if (b.lastSchedulerRunAt) state.lastSchedulerRunAt = b.lastSchedulerRunAt;
   state.apiKeyBundleUsage = b.apiKeyBundleUsage ?? {};

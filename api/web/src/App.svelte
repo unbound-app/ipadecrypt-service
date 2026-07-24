@@ -2,7 +2,6 @@
   import { DropdownMenu } from 'bits-ui';
   import { Download, LogOut, Monitor, Moon, Pencil, Rows2, Rows3, Sun, Volume2, VolumeX } from 'lucide-svelte';
   import { Toaster } from 'svelte-sonner';
-  import AlertBanner from './components/AlertBanner.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
   import ConfirmModal from './components/ConfirmModal.svelte';
   import ConnectionBanner from './components/ConnectionBanner.svelte';
@@ -609,7 +608,6 @@
       <SessionExpiryBanner />
       <ConnectionBanner />
       <UpdateAvailableBanner />
-      <AlertBanner />
       <SetupBanner />
       <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div class="min-w-0">

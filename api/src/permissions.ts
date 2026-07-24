@@ -12,7 +12,6 @@ export const PermissionFlag = {
   manageDevices: 1n << 7n,
   manageSchedulerSettings: 1n << 8n,
   triggerDispatch: 1n << 9n,
-  manageAppleAuth: 1n << 10n,
   viewLogs: 1n << 11n,
   viewUsers: 1n << 12n,
   manageUsers: 1n << 13n,

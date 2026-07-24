@@ -5,10 +5,8 @@ import { emitJobsChanged } from '../events.js';
 import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('jobs');
-import { EMBED_COLOR, notify } from '../notify.js';
 import { sendPushToUser } from '../push.js';
-import { clearAppleAuthAlert, getApiKeyById, getEffectiveDevices, getUserPrefs, recordJobHistory, setAppleAuthAlert, type DeviceRecord } from '../store/state.js';
-import { looksLikeAppleAuthFailure } from '../util/appleAuth.js';
+import { getApiKeyById, getEffectiveDevices, getUserPrefs, recordJobHistory, type DeviceRecord } from '../store/state.js';
 import { runDecrypt } from './runner.js';
 import type { Job, JobSource, TestFlightJobSource } from './types.js';
 
@@ -310,10 +308,9 @@ async function runOneJob(device: DeviceRecord, job: Job): Promise<void> {
     job.status = 'done';
     job.finishedAt = Date.now();
     log.info('job done', { jobId: job.id, bundleId: job.bundleId, deviceId: device.id, sizeBytes: job.fileSizeBytes });
-    clearAppleAuthAlert();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const canRetry = !job.cancelledBy && (job.retryCount ?? 0) === 0 && !looksLikeAppleAuthFailure(message);
+    const canRetry = !job.cancelledBy && (job.retryCount ?? 0) === 0;
     if (canRetry) {
       job.retryCount = (job.retryCount ?? 0) + 1;
       job.progress = 'retrying after a transient failure…';
@@ -337,16 +334,6 @@ async function runOneJob(device: DeviceRecord, job: Job): Promise<void> {
     job.finishedAt = Date.now();
     job.error = message;
     log.error('job failed', { jobId: job.id, bundleId: job.bundleId, deviceId: device.id, error: job.error, retried: (job.retryCount ?? 0) > 0 });
-
-    if (looksLikeAppleAuthFailure(job.error)) {
-      setAppleAuthAlert(job.error);
-      void notify('appleAuthAlert', {
-        title: 'Possible App Store auth issue',
-        description: `Decrypting **${job.bundleId}** failed with what looks like an authentication issue - it may need re-bootstrapping.`,
-        color: EMBED_COLOR.warn,
-        fields: [{ name: 'Error', value: `\`\`\`${job.error}\`\`\`` }],
-      });
-    }
   }
 
   recordJobHistory(toHistoryEntry(job));

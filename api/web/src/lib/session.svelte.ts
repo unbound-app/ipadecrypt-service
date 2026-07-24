@@ -58,7 +58,6 @@ export function sessionCanSeeSettings(): boolean {
     PermissionFlag.viewAutomation,
     PermissionFlag.manageDevices,
     PermissionFlag.manageAutomation,
-    PermissionFlag.manageAppleAuth,
     PermissionFlag.viewUsers,
     PermissionFlag.manageUsers,
     PermissionFlag.manageRoles,

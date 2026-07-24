@@ -1,15 +1,14 @@
-import type { AppleAuthStatus, JobHistoryEntry, LogEntry, OverviewPayload } from './api';
+import type { JobHistoryEntry, LogEntry, OverviewPayload } from './api';
 
 export const liveState = $state<{
   overview: OverviewPayload | null;
   logs: LogEntry[];
   historyAdditions: JobHistoryEntry[];
-  appleAuthStatus: AppleAuthStatus | null;
   onlineUsers: string[];
   connected: boolean;
   disconnectedAt: number | null;
   reconnectAttempts: number;
-}>({ overview: null, logs: [], historyAdditions: [], appleAuthStatus: null, onlineUsers: [], connected: false, disconnectedAt: null, reconnectAttempts: 0 });
+}>({ overview: null, logs: [], historyAdditions: [], onlineUsers: [], connected: false, disconnectedAt: null, reconnectAttempts: 0 });
 
 let source: EventSource | null = null;
 
@@ -41,10 +40,6 @@ export function connectLive(): void {
     liveState.historyAdditions = [entry, ...liveState.historyAdditions].slice(0, 200);
   });
 
-  source.addEventListener('appleAuth', (e) => {
-    liveState.appleAuthStatus = JSON.parse((e as MessageEvent).data) as AppleAuthStatus;
-  });
-
   source.addEventListener('presence', (e) => {
     liveState.onlineUsers = JSON.parse((e as MessageEvent).data) as string[];
   });
@@ -65,7 +60,6 @@ export function disconnectLive(): void {
   liveState.overview = null;
   liveState.logs = [];
   liveState.historyAdditions = [];
-  liveState.appleAuthStatus = null;
   liveState.onlineUsers = [];
   liveState.connected = false;
   liveState.disconnectedAt = null;

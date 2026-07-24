@@ -22,7 +22,6 @@ afterEach(() => {
     notifyOnKeyRequest: true,
     notifyOnDispatchSuccess: true,
     notifyOnDispatchFailure: true,
-    notifyOnAppleAuthAlert: true,
   });
 });
 
@@ -77,7 +76,7 @@ describe('notify', () => {
     });
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    await notify('appleAuthAlert', {
+    await notify('dispatchFailure', {
       title: 'x',
       color: 0,
       fields: [{ name: 'Error', value: 'a'.repeat(2000) }],
@@ -160,7 +159,7 @@ describe('sendTestNotification', () => {
   });
 
   test('ignores event toggles and always posts when a URL is given', async () => {
-    updateSettings({ notifyOnKeyRequest: false, notifyOnDispatchSuccess: false, notifyOnDispatchFailure: false, notifyOnAppleAuthAlert: false });
+    updateSettings({ notifyOnKeyRequest: false, notifyOnDispatchSuccess: false, notifyOnDispatchFailure: false });
     const fetchMock = mock(() => Promise.resolve(new Response('{}', { status: 200 })));
     global.fetch = fetchMock as unknown as typeof fetch;
 

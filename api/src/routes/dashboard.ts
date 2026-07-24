@@ -2,13 +2,6 @@ import { Router } from 'express';
 import { validate as validateCronExpr } from 'node-cron';
 import { config, discordBotEnabled } from '../config.js';
 import { fetchBotGuilds, fetchGuildRoles } from '../discord.js';
-import {
-  cancelAppleAuth,
-  getAppleAuthStatus,
-  isAppleAuthRunning,
-  sendAppleAuthInput,
-  startAppleReauth,
-} from '../appleAuthRunner.js';
 import { dashboardEvents, emitJobsChanged, getOnlineUsernames, registerPresence, unregisterPresence } from '../events.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
 import { cancelJob, enqueueDecryptJob, getActiveJobs, getJob, prioritizeQueuedJob } from '../jobs/store.js';
@@ -37,7 +30,6 @@ import {
   bulkApproveApiKeys,
   bulkExtendApiKeyExpiry,
   bulkSetApiKeyDailyLimit,
-  clearAppleAuthAlert,
   createApiKey,
   createBackupSnapshot,
   createDevice,
@@ -58,7 +50,6 @@ import {
   getApiKeyById,
   getApiKeyBundleUsage,
   getApiKeyUsage,
-  getAppleAuthAlert,
   getAuditLog,
   getAverageJobDurationMs,
   getBackupHistory,
@@ -152,7 +143,6 @@ const canManageSchedulerSettings = requirePermission(PermissionFlag.manageAutoma
 // pollCron lives on both watches and (legacy) scheduler settings, so either side can validate one.
 const canValidateCron = requirePermission(PermissionFlag.manageAutomation);
 const canTriggerDispatch = requirePermission(PermissionFlag.manageAutomation);
-const canManageAppleAuth = requirePermission(PermissionFlag.manageAppleAuth);
 const canViewLogs = requirePermission(PermissionFlag.viewLogs);
 const canViewUsers = requirePermission(PermissionFlag.viewUsers, PermissionFlag.manageUsers);
 const canViewRoles = requirePermission(PermissionFlag.viewRoles, PermissionFlag.manageRoles);
@@ -194,7 +184,6 @@ function buildOverview(permissions: bigint) {
     settings: canViewAutomation ? settings : { ...settings, notifyWebhookUrl: '' },
     watches,
     devices,
-    appleAuthAlert: hasPermission(permissions, PermissionFlag.manageAppleAuth) ? getAppleAuthAlert() : { suspected: false },
     lastSchedulerRunAt: canViewAutomation ? getLastSchedulerRunAt() : undefined,
     schedulerRunHistory: canViewAutomation ? getSchedulerRunHistory(10) : [],
     disk: getDiskUsage(config.outputDir),
@@ -239,17 +228,12 @@ dashboardRouter.get('/v1/dashboard/events', (req, res) => {
   const onJobsChanged = () => sendEvent('overview', buildOverview(res.locals.session.permissions));
   const onLogAdded = (entry: LogEntry) => sendEvent('log', entry);
   const onHistoryAdded = (entry: JobHistoryEntry) => sendEvent('history', entry);
-  const onAppleAuthChanged = () => sendEvent('appleAuth', getAppleAuthStatus());
   const onPresenceChanged = (usernames: string[]) => sendEvent('presence', usernames);
 
   dashboardEvents.on('jobsChanged', onJobsChanged);
   if (hasPermission(res.locals.session.permissions, PermissionFlag.viewLogs)) dashboardEvents.on('logAdded', onLogAdded);
   dashboardEvents.on('historyAdded', onHistoryAdded);
   dashboardEvents.on('presenceChanged', onPresenceChanged);
-  if (hasPermission(res.locals.session.permissions, PermissionFlag.manageAppleAuth)) {
-    sendEvent('appleAuth', getAppleAuthStatus());
-    dashboardEvents.on('appleAuthChanged', onAppleAuthChanged);
-  }
 
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
 
@@ -260,7 +244,6 @@ dashboardRouter.get('/v1/dashboard/events', (req, res) => {
     dashboardEvents.off('logAdded', onLogAdded);
     dashboardEvents.off('historyAdded', onHistoryAdded);
     dashboardEvents.off('presenceChanged', onPresenceChanged);
-    dashboardEvents.off('appleAuthChanged', onAppleAuthChanged);
   });
 });
 
@@ -1110,7 +1093,6 @@ const SETTINGS_BOOL_FIELDS = [
   'notifyOnKeyRequest',
   'notifyOnDispatchSuccess',
   'notifyOnDispatchFailure',
-  'notifyOnAppleAuthAlert',
   'notifyOnKeyExpiringSoon',
   'notifyOnDeviceOffline',
   'notifyOnDeviceBatteryHot',
@@ -1198,11 +1180,6 @@ dashboardRouter.post('/v1/dashboard/settings/test-webhook', canTriggerDispatch, 
   const url = typeof req.body?.url === 'string' && req.body.url.trim() ? req.body.url.trim() : undefined;
   const result = await sendTestNotification(url);
   res.status(result.ok ? 200 : 400).json(result);
-});
-
-dashboardRouter.post('/v1/dashboard/auth-alert/clear', canTriggerDispatch, (_req, res) => {
-  clearAppleAuthAlert();
-  res.json({ ok: true });
 });
 
 function parseRoleIds(body: unknown): string[] | undefined {
@@ -1623,34 +1600,3 @@ dashboardRouter.put('/v1/dashboard/me/prefs', (req, res) => {
   res.json(updateUserPrefs(res.locals.session.sub, patch));
 });
 
-dashboardRouter.get('/v1/dashboard/apple-auth/status', canManageAppleAuth, (_req, res) => {
-  res.json(getAppleAuthStatus());
-});
-
-dashboardRouter.post('/v1/dashboard/apple-auth/start', canManageAppleAuth, (_req, res) => {
-  if (isAppleAuthRunning()) {
-    res.status(409).json({ error: 'already running' });
-    return;
-  }
-  try {
-    startAppleReauth();
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
-});
-
-dashboardRouter.post('/v1/dashboard/apple-auth/input', canManageAppleAuth, (req, res) => {
-  const value = typeof req.body?.value === 'string' ? req.body.value : '';
-  try {
-    sendAppleAuthInput(value);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(409).json({ error: String(err) });
-  }
-});
-
-dashboardRouter.post('/v1/dashboard/apple-auth/cancel', canManageAppleAuth, (_req, res) => {
-  cancelAppleAuth();
-  res.json({ ok: true });
-});
