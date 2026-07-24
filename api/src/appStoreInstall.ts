@@ -23,19 +23,19 @@ function primaryRootDir(): string {
   return getPrimaryDevice().rootDir;
 }
 
-async function launchAppStore(conn: Client): Promise<void> {
+// Always (re)launch the App Store, even when the process is already alive: _performPurchases: only
+// presents its confirmation sheet when the App Store is FOREGROUND, and a process that's merely
+// running (e.g. backgrounded from an earlier install) makes the purchase silently no-op with no
+// sheet to confirm. SBSLaunchApplicationWithIdentifier foregrounds an already-running app too, so
+// a non-zero result is only fatal on a cold launch where there's nothing to fall back to.
+async function ensureAppStoreForeground(conn: Client): Promise<void> {
+  const wasRunning = await isAppStoreRunning(conn);
   const response = await sendSpringBoardBridgeRequest(conn, { action: 'launch_app', bundleId: 'com.apple.AppStore' });
-  if (response?.launchResult !== 0) {
+  if (!wasRunning && response?.launchResult !== 0) {
     throw new Error(`autoinstall SpringBoard launch_app (AppStore) failed: ${JSON.stringify(response)}`);
   }
-}
-
-async function ensureAppStoreRunning(conn: Client): Promise<void> {
-  if (await isAppStoreRunning(conn)) return;
-  await launchAppStore(conn);
-  // The App Store needs a moment to reach the foreground before the purchase pipeline will present
-  // its sheet - triggering the install too early silently no-ops.
-  await new Promise((r) => setTimeout(r, 8_000));
+  // A cold launch needs time to become interactive; foregrounding an already-warm app is quicker.
+  await new Promise((r) => setTimeout(r, wasRunning ? 4_000 : 8_000));
 }
 
 export interface AppStoreInstallOptions {
@@ -76,8 +76,8 @@ export async function installFromAppStore(bundleId: string, options: AppStoreIns
       }
     }
 
-    report('ensuring App Store is running');
-    await ensureAppStoreRunning(conn);
+    report('bringing the App Store to the foreground');
+    await ensureAppStoreForeground(conn);
 
     try {
       report('arming headless auto-confirm and sending install request');
