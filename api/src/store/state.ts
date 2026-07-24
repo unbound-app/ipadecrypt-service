@@ -1702,6 +1702,10 @@ export function listWatches(): AppWatch[] {
   return getEffectiveWatches();
 }
 
+export function isBundleWatched(bundleId: string): boolean {
+  return getEffectiveWatches().some((w) => w.bundleId === bundleId);
+}
+
 export function getWatch(id: string): AppWatch | undefined {
   return getEffectiveWatches().find((w) => w.id === id);
 }

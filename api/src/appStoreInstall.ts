@@ -6,6 +6,7 @@ import {
   isAppStoreRunning,
   sendAppStoreBridgeRequest,
   sendSpringBoardBridgeRequest,
+  uninstallInstalledApp,
   withSSH,
 } from './idevice.js';
 import { scopedLogger } from './logger.js';
@@ -36,6 +37,16 @@ async function ensureAppStoreForeground(conn: Client): Promise<void> {
   }
   // A cold launch needs time to become interactive; foregrounding an already-warm app is quicker.
   await new Promise((r) => setTimeout(r, wasRunning ? 4_000 : 8_000));
+}
+
+export async function uninstallFromPrimaryDevice(bundleId: string): Promise<boolean> {
+  if (!SAFE_BUNDLE_ID_RE.test(bundleId)) return false;
+  try {
+    return await withSSH(primaryRootDir(), (conn) => uninstallInstalledApp(conn, bundleId));
+  } catch (err) {
+    log.warn('device uninstall failed', { bundleId, error: err instanceof Error ? err.message : String(err) });
+    return false;
+  }
 }
 
 export interface AppStoreInstallOptions {

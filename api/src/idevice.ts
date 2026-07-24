@@ -154,6 +154,27 @@ export async function clearAppStoreAutoConfirm(conn: Client): Promise<void> {
 // bundleId AND which has a SC_Info/ directory (the FairPlay license/signature files). The SC_Info
 // check is what distinguishes a completed install from the transient placeholder bundle that exists
 // mid-download. bundleId must be shell-safe (validated by the caller).
+export async function uninstallInstalledApp(conn: Client, bundleId: string): Promise<boolean> {
+  if (!/^[A-Za-z0-9.-]{1,200}$/.test(bundleId)) return false;
+
+  const { stdout, code } = await execCommand(conn, `uicache -i "${bundleId}" 2>/dev/null`);
+  if (code !== 0) return false;
+
+  const foundId = stdout.match(/^Bundle Identifier:\s*(.+)$/m)?.[1]?.trim();
+  const appPath = stdout.match(/^Path:\s*(.+)$/m)?.[1]?.trim();
+  const removable = /^Removable:\s*true\s*$/m.test(stdout);
+
+  if (foundId !== bundleId || !appPath || !removable) return false;
+  if (!appPath.endsWith('.app') || !appPath.includes('/var/containers/Bundle/Application/')) return false;
+
+  const container = appPath.replace(/\/[^/]+\.app$/, '');
+  if (!/\/var\/containers\/Bundle\/Application\/[^/]+$/.test(container)) return false;
+
+  await execCommand(conn, `sudo /var/jb/usr/bin/uicache -u "${appPath}" 2>/dev/null; sudo rm -rf "${container}"`);
+  log.info('uninstalled app from device', { bundleId });
+  return true;
+}
+
 export async function findInstalledAppStoreBundle(conn: Client, bundleId: string): Promise<string | undefined> {
   const { stdout } = await execCommand(
     conn,

@@ -6,7 +6,8 @@ import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('jobs');
 import { sendPushToUser } from '../push.js';
-import { getApiKeyById, getEffectiveDevices, getUserPrefs, latestActiveShareLinkExpiry, recordJobHistory, type DeviceRecord } from '../store/state.js';
+import { getApiKeyById, getEffectiveDevices, getUserPrefs, isBundleWatched, latestActiveShareLinkExpiry, recordJobHistory, type DeviceRecord } from '../store/state.js';
+import { uninstallFromPrimaryDevice } from '../appStoreInstall.js';
 import { runDecrypt } from './runner.js';
 import type { Job, JobSource, TestFlightJobSource } from './types.js';
 
@@ -371,6 +372,16 @@ export async function reclaimJobFile(job: Job): Promise<void> {
   await cleanupJob(job);
 }
 
+async function reclaimAndMaybeUninstall(job: Job): Promise<void> {
+  const { bundleId, status } = job;
+  await cleanupJob(job);
+  if (status === 'done' && !isBundleWatched(bundleId)) {
+    await uninstallFromPrimaryDevice(bundleId).catch((err: unknown) => {
+      log.warn('device uninstall during sweep failed', { bundleId, error: String(err) });
+    });
+  }
+}
+
 export function startJobSweeper(): void {
   const intervalMs = 60_000;
   setInterval(() => {
@@ -385,13 +396,13 @@ export function startJobSweeper(): void {
 
       if (job.status === 'done' && job.finishedAt && !job.downloadedAt && now - job.finishedAt > fileTtlMs && now > shareLinkExpiry) {
         log.warn('reclaiming undownloaded job file', { jobId: job.id, bundleId: job.bundleId });
-        void cleanupJob(job);
+        void reclaimAndMaybeUninstall(job);
         continue;
       }
 
       const finishedAt = job.finishedAt ?? job.createdAt;
       if ((job.status === 'done' || job.status === 'failed') && now - finishedAt > retentionMs && now > shareLinkExpiry) {
-        void cleanupJob(job);
+        void reclaimAndMaybeUninstall(job);
       }
     }
   }, intervalMs).unref();
