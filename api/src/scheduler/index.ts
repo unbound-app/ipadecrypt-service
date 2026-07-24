@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { emitJobsChanged } from '../events.js';
 import type { Job } from '../jobs/types.js';
 import { enqueueDecryptJob, reclaimJobFile, waitForJob } from '../jobs/store.js';
+import { getMaintenanceStatus } from '../maintenance.js';
 import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('scheduler');
@@ -380,6 +381,11 @@ async function trackAndUpdate(
 const tickInProgress = new Set<string>();
 
 async function tick(watch: AppWatch): Promise<void> {
+  const maintenance = getMaintenanceStatus();
+  if (maintenance.active) {
+    log.info('skipping scheduler tick, maintenance mode active', { watchId: watch.id, reason: maintenance.reason });
+    return;
+  }
   if (tickInProgress.has(watch.id)) {
     log.info('scheduler tick already in progress for this watch, skipping', { watchId: watch.id });
     return;

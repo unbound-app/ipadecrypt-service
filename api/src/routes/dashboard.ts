@@ -4,6 +4,7 @@ import { config, discordBotEnabled } from '../config.js';
 import { fetchBotGuilds, fetchGuildRoles } from '../discord.js';
 import { dashboardEvents, emitJobsChanged, getOnlineUsernames, registerPresence, unregisterPresence } from '../events.js';
 import { getBillingEntitlements } from '../billing.js';
+import { blockDuringMaintenance, getMaintenanceStatus } from '../maintenance.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
 import { cancelJob, enqueueDecryptJob, getActiveJobs, getJob, prioritizeQueuedJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
@@ -190,6 +191,7 @@ function buildOverview(permissions: bigint, userId: string) {
     schedulerRunHistory: canViewAutomation ? getSchedulerRunHistory(10) : [],
     disk: getDiskUsage(config.outputDir),
     isPaidPlan: getBillingEntitlements(userId).planId !== 'viewer',
+    maintenance: getMaintenanceStatus(),
     activeJobs: getActiveJobs().map((j) => ({
       id: j.id,
       bundleId: j.bundleId,
@@ -397,7 +399,7 @@ dashboardRouter.get('/v1/dashboard/search', async (req, res) => {
 
 const EXTERNAL_VERSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-dashboardRouter.post('/v1/dashboard/decrypt', canDecrypt, (req, res) => {
+dashboardRouter.post('/v1/dashboard/decrypt', canDecrypt, blockDuringMaintenance, (req, res) => {
   const bundleId = typeof req.body?.bundleId === 'string' ? req.body.bundleId.trim() : '';
   if (!BUNDLE_ID_RE.test(bundleId)) {
     res.status(400).json({ error: 'bundleId is required and must look like a bundle identifier' });
@@ -699,7 +701,7 @@ dashboardRouter.get('/v1/dashboard/testflight/:appId/builds', deviceOrExternalRa
   }
 });
 
-dashboardRouter.post('/v1/dashboard/testflight/decrypt', canDecrypt, (req, res) => {
+dashboardRouter.post('/v1/dashboard/testflight/decrypt', canDecrypt, blockDuringMaintenance, (req, res) => {
   const bundleId = typeof req.body?.bundleId === 'string' ? req.body.bundleId.trim() : '';
   const appId = Number.parseInt(req.body?.appId, 10);
   const build = req.body?.build;
@@ -755,7 +757,7 @@ dashboardRouter.post('/v1/dashboard/jobs/:id/prioritize', canDecrypt, (req, res)
   res.json({ ok: true });
 });
 
-dashboardRouter.post('/v1/dashboard/jobs/:id/retry', canDecrypt, (req, res) => {
+dashboardRouter.post('/v1/dashboard/jobs/:id/retry', canDecrypt, blockDuringMaintenance, (req, res) => {
   const entry = getJobHistoryEntryById(req.params.id);
   if (!entry) {
     res.status(404).json({ error: 'job history entry not found' });
@@ -1111,6 +1113,7 @@ const SETTINGS_BOOL_FIELDS = [
   'notifyOnDeviceStorageLow',
   'notifyOnTestFlightBridgeDown',
   'notifyOnJobCompleted',
+  'maintenanceMode',
 ] as const;
 const MAX_SCHEDULER_RETRY_COUNT = 5;
 const MIN_DEVICE_OFFLINE_ALERT_MINUTES = 5;

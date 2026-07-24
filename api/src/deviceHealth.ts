@@ -259,6 +259,13 @@ function isPrimaryDeviceId(deviceId: string): boolean {
   return primary?.id === deviceId;
 }
 
+export function peekPrimaryDeviceHealth(): DeviceHealth | undefined {
+  const devices = getEffectiveDevices().filter((d) => d.enabled);
+  const primary = devices.find((d) => d.isPrimary) ?? devices[0];
+  if (!primary) return undefined;
+  return healthCache.get(primary.id)?.value;
+}
+
 export async function getDeviceHealth(deviceId: string, force = false): Promise<DeviceHealth> {
   const cached = healthCache.get(deviceId);
   if (!force && cached && Date.now() - cached.at < HEALTH_CACHE_TTL_MS) return cached.value;

@@ -120,6 +120,14 @@ export interface SchedulerSettings {
   deviceStorageAlertPercent: number;
   testFlightBridgeAlertMinutes: number;
   jobHistoryRetentionDays: number;
+  maintenanceMode: boolean;
+}
+
+export interface MaintenanceStatus {
+  active: boolean;
+  manual: boolean;
+  auto: boolean;
+  reason?: string;
 }
 
 export interface AppWatch {
@@ -183,6 +191,7 @@ export interface OverviewPayload {
   schedulerRunHistory: SchedulerRunEntry[];
   disk?: DiskUsage;
   isPaidPlan?: boolean;
+  maintenance?: MaintenanceStatus;
   activeJobs: ActiveJob[];
 }
 

@@ -2,6 +2,7 @@ import type { Response } from 'express';
 import { Router } from 'express';
 import { config } from '../config.js';
 import { requireApiKey, requireApiKeyOrSignedToken, requireTestFlightScope } from '../auth.js';
+import { blockDuringMaintenance } from '../maintenance.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
 import { enqueueDecryptJob, getJob, waitForJob } from '../jobs/store.js';
 import { recordApiKeyBundleUsage } from '../store/state.js';
@@ -17,7 +18,7 @@ function isBundleIdAllowed(res: Response, bundleId: string): boolean {
   return !scope || scope.length === 0 || scope.includes(bundleId);
 }
 
-decryptRouter.get('/v1/decrypt', requireApiKey, async (req, res) => {
+decryptRouter.get('/v1/decrypt', requireApiKey, blockDuringMaintenance, async (req, res) => {
   const bundleId = req.query.bundleId;
   if (typeof bundleId !== 'string' || !BUNDLE_ID_RE.test(bundleId)) {
     res.status(400).json({ error: 'query param bundleId is required and must look like a bundle identifier' });
@@ -125,7 +126,7 @@ decryptRouter.get('/v1/testflight/:appId/builds', requireApiKey, requireTestFlig
   }
 });
 
-decryptRouter.post('/v1/testflight/decrypt', requireApiKey, requireTestFlightScope, (req, res) => {
+decryptRouter.post('/v1/testflight/decrypt', requireApiKey, requireTestFlightScope, blockDuringMaintenance, (req, res) => {
   const bundleId = typeof req.body?.bundleId === 'string' ? req.body.bundleId.trim() : '';
   const appId = Number.parseInt(req.body?.appId, 10);
   const build = req.body?.build;

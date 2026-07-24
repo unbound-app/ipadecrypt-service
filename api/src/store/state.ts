@@ -185,6 +185,7 @@ export interface SchedulerSettings {
   deviceStorageAlertPercent: number;
   testFlightBridgeAlertMinutes: number;
   jobHistoryRetentionDays: number;
+  maintenanceMode: boolean;
 }
 
 export interface AppWatch {
@@ -1641,6 +1642,7 @@ export function getEffectiveSettings(): SchedulerSettings {
     deviceStorageAlertPercent: state.settings.deviceStorageAlertPercent ?? 90,
     testFlightBridgeAlertMinutes: state.settings.testFlightBridgeAlertMinutes ?? 15,
     jobHistoryRetentionDays: state.settings.jobHistoryRetentionDays ?? 0,
+    maintenanceMode: state.settings.maintenanceMode ?? false,
   };
 }
 

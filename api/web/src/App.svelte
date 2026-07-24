@@ -5,6 +5,7 @@
   import CommandPalette from './components/CommandPalette.svelte';
   import ConfirmModal from './components/ConfirmModal.svelte';
   import ConnectionBanner from './components/ConnectionBanner.svelte';
+  import MaintenanceBanner from './components/MaintenanceBanner.svelte';
   import UpdateAvailableBanner from './components/UpdateAvailableBanner.svelte';
   import HeaderOnlineUsers from './components/HeaderOnlineUsers.svelte';
   import Login from './components/Login.svelte';
@@ -608,6 +609,7 @@
       <SessionExpiryBanner />
       <ConnectionBanner />
       <UpdateAvailableBanner />
+      <MaintenanceBanner />
       <SetupBanner />
       <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div class="min-w-0">

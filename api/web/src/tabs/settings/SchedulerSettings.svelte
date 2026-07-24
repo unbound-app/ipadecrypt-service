@@ -282,6 +282,7 @@
     deviceStorageAlertPercent: 90,
     testFlightBridgeAlertMinutes: 15,
     jobHistoryRetentionDays: 0,
+    maintenanceMode: false,
   };
 
   let form = $state<SchedulerSettings>({ ...DEFAULT_FORM });
@@ -318,6 +319,16 @@
   });
 
   const enabledAlertCount = $derived(NOTIFY_EVENTS.filter((e) => savedForm[e.key]).length);
+
+  const maintenanceStatus = $derived(liveState.overview?.maintenance);
+
+  async function toggleMaintenance(): Promise<void> {
+    const { ok, data } = await saveSettings({ ...savedForm, maintenanceMode: !savedForm.maintenanceMode });
+    if (ok) {
+      form = { ...data };
+      savedForm = { ...data };
+    }
+  }
 
   async function save(): Promise<void> {
     if (repoErrors.notifyWebhookUrl) {
@@ -415,6 +426,19 @@
           </div>
         {/each}
       </div>
+    {/if}
+  </Card>
+
+  <Card title="Maintenance mode">
+    <div class="flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <div class="text-sm">Pause decrypts &amp; API</div>
+        <div class="text-xs text-muted">Blocks every decrypt request and API call. Also engages on its own when the iDevice isn't in a usable state.</div>
+      </div>
+      <Switch checked={savedForm.maintenanceMode} disabled={!canManageSchedulerSettings} onCheckedChange={() => void toggleMaintenance()} aria-label="Maintenance mode" />
+    </div>
+    {#if maintenanceStatus?.auto && !savedForm.maintenanceMode}
+      <div class="text-warn mt-2 text-xs">Auto-engaged: {maintenanceStatus.reason}.</div>
     {/if}
   </Card>
 
