@@ -1,7 +1,8 @@
 <script lang="ts">
   import CopyButton from './CopyButton.svelte';
   import RelativeTime from './RelativeTime.svelte';
-  import { fetchShareLinks, revokeAllShareLinks, revokeShareLink, shareJobFile, type ShareLinkRecord } from '../lib/api';
+  import { fetchJobStatus, fetchShareLinks, revokeAllShareLinks, revokeShareLink, shareJobFile, type ShareLinkRecord } from '../lib/api';
+  import { updateDecrypt } from '../lib/decrypts.svelte';
   import Badge from '../lib/components/ui/Badge.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Dialog from '../lib/components/ui/Dialog.svelte';
@@ -31,6 +32,16 @@
     links = (await fetchShareLinks(jobId)).links;
   }
 
+  // An active share link keeps the decrypted file alive until the link expires, so the file's
+  // "expires in" can move once links are created/revoked. MyRequestsPanel stops polling a job once
+  // it's done, so pull the fresh effective expiry from the server and update the tracked entry.
+  async function syncJobExpiry(): Promise<void> {
+    try {
+      const data = await fetchJobStatus(jobId);
+      updateDecrypt(jobId, { fileExpiresAt: data.fileExpiresAt });
+    } catch {}
+  }
+
   async function generate(): Promise<void> {
     loading = true;
     try {
@@ -40,6 +51,7 @@
       url = data.url;
       expiresAt = data.expiresAt;
       void loadLinks();
+      void syncJobExpiry();
     } finally {
       loading = false;
     }
@@ -50,6 +62,7 @@
     try {
       const { ok } = await revokeAllShareLinks(jobId);
       if (ok) void loadLinks();
+      if (ok) void syncJobExpiry();
     } finally {
       revokingAll = false;
     }
@@ -60,6 +73,7 @@
     try {
       const { ok } = await revokeShareLink(linkId);
       if (ok) void loadLinks();
+      if (ok) void syncJobExpiry();
     } finally {
       const next = new Set(revoking);
       next.delete(linkId);

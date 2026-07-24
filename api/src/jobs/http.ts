@@ -4,13 +4,17 @@ import { config } from '../config.js';
 import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('jobs');
+import { latestActiveShareLinkExpiry } from '../store/state.js';
 import { getQueueInfo, reclaimJobFile } from './store.js';
 import type { Job } from './types.js';
 
 export function jobSummary(job: Job) {
+  // The file lives until the later of its normal TTL and any active share link's expiry, so the
+  // dashboard shows how long the file will actually be around - not a fixed 15m that a longer-lived
+  // share link silently outlasts.
   const fileExpiresAt =
     job.status === 'done' && job.finishedAt && !job.downloadedAt
-      ? new Date(job.finishedAt + config.fileTtlMinutes * 60_000).toISOString()
+      ? new Date(Math.max(job.finishedAt + config.fileTtlMinutes * 60_000, latestActiveShareLinkExpiry(job.id) ?? 0)).toISOString()
       : undefined;
 
   return {

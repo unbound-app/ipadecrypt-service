@@ -2404,6 +2404,21 @@ export function isShareLinkRevoked(jobId: string, token: string): boolean {
   return state.shareLinks.some((l) => l.jobId === jobId && l.token === token && l.revoked);
 }
 
+// The furthest-out expiry among a job's still-active (not revoked, not yet expired) share links, or
+// undefined if it has none. A live share link has to keep the underlying decrypted file alive at
+// least as long as the link is valid - otherwise the link points at a file the sweeper already
+// reclaimed.
+export function latestActiveShareLinkExpiry(jobId: string): number | undefined {
+  const now = Date.now();
+  let latest: number | undefined;
+  for (const l of state.shareLinks) {
+    if (l.jobId === jobId && !l.revoked && l.expiresAt > now && (latest === undefined || l.expiresAt > latest)) {
+      latest = l.expiresAt;
+    }
+  }
+  return latest;
+}
+
 // Best-effort "someone downloaded this" signal for the issuer - recorded the moment a share-token
 // request passes auth, not after the stream finishes, so a client that aborts mid-download still
 // counts (closer to what an issuer actually wants to know: "was this link used").

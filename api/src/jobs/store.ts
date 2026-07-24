@@ -6,7 +6,7 @@ import { scopedLogger } from '../logger.js';
 
 const log = scopedLogger('jobs');
 import { sendPushToUser } from '../push.js';
-import { getApiKeyById, getEffectiveDevices, getUserPrefs, recordJobHistory, type DeviceRecord } from '../store/state.js';
+import { getApiKeyById, getEffectiveDevices, getUserPrefs, latestActiveShareLinkExpiry, recordJobHistory, type DeviceRecord } from '../store/state.js';
 import { runDecrypt } from './runner.js';
 import type { Job, JobSource, TestFlightJobSource } from './types.js';
 
@@ -379,14 +379,18 @@ export function startJobSweeper(): void {
     const retentionMs = config.jobRetentionMinutes * 60_000;
 
     for (const job of jobs.values()) {
-      if (job.status === 'done' && job.finishedAt && !job.downloadedAt && now - job.finishedAt > fileTtlMs) {
+      // An active share link keeps the file (and the job record) alive at least until the link
+      // expires, so a link the user set to last 24h isn't left pointing at a swept file.
+      const shareLinkExpiry = latestActiveShareLinkExpiry(job.id) ?? 0;
+
+      if (job.status === 'done' && job.finishedAt && !job.downloadedAt && now - job.finishedAt > fileTtlMs && now > shareLinkExpiry) {
         log.warn('reclaiming undownloaded job file', { jobId: job.id, bundleId: job.bundleId });
         void cleanupJob(job);
         continue;
       }
 
       const finishedAt = job.finishedAt ?? job.createdAt;
-      if ((job.status === 'done' || job.status === 'failed') && now - finishedAt > retentionMs) {
+      if ((job.status === 'done' || job.status === 'failed') && now - finishedAt > retentionMs && now > shareLinkExpiry) {
         void cleanupJob(job);
       }
     }
