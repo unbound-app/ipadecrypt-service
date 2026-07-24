@@ -33,11 +33,20 @@ export async function runDecrypt(job: Job, device: DeviceRecord): Promise<void> 
     const child = spawn(config.ipadecryptBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     job.childProcess = child;
 
+    // ipadecrypt can print an `[err] ...` line (e.g. a prepare/re-auth failure) and still exit 0,
+    // so a 0 exit code alone isn't proof of success - surface the real error instead of letting
+    // the run fall through to a misleading ENOENT from the missing output file.
+    let lastErrorLine: string | undefined;
+
     const onLine = (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim();
       if (!text) return;
-      const lastLine = text.split('\n').at(-1) ?? text;
+      const lines = text.split('\n');
+      const lastLine = lines.at(-1) ?? text;
       job.progress = lastLine;
+      for (const line of lines) {
+        if (line.trimStart().startsWith('[err]')) lastErrorLine = line.trim();
+      }
       log.info('ipadecrypt output', { jobId: job.id, bundleId: job.bundleId, deviceId: device.id, line: lastLine });
       emitJobsChanged();
     };
@@ -49,12 +58,12 @@ export async function runDecrypt(job: Job, device: DeviceRecord): Promise<void> 
 
     child.on('close', (code) => {
       job.childProcess = undefined;
-      if (code === 0) {
+      if (code === 0 && !lastErrorLine) {
         resolve();
       } else if (job.cancelledBy) {
         reject(new Error(`cancelled by ${job.cancelledBy}`));
       } else {
-        reject(new Error(`ipadecrypt exited with code ${code}: ${job.progress}`));
+        reject(new Error(lastErrorLine ?? `ipadecrypt exited with code ${code}: ${job.progress}`));
       }
     });
   });
