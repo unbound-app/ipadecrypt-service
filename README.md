@@ -2,10 +2,22 @@
 
 Docker Compose service that wraps [londek/ipadecrypt](https://github.com/londek/ipadecrypt)
 behind an authenticated HTTP API, run against one or more jailbroken iDevices
-reachable over SSH from the host. Two jobs:
+reachable over SSH from the host.
 
-1. **On-demand decrypt** - `GET /v1/decrypt?bundleId=...` decrypts and
-   returns any app by bundle ID.
+Every decrypt works by **installing the app on the device first, then dumping
+it with `ipadecrypt decrypt --use-installed`**. The install is driven by the
+companion [unbound-app/autoinstall](https://github.com/unbound-app/autoinstall)
+tweak, which uses the device's own already-signed-in App Store (and TestFlight)
+to acquire and install the app entirely headlessly - including auto-confirming
+the install sheet with the screen off. dkrypt therefore never uses ipadecrypt's
+own Apple ID login; there is no `ipadecrypt bootstrap` / re-authentication step
+anymore. See **Device setup** below.
+
+Two jobs:
+
+1. **On-demand decrypt** - `GET /v1/decrypt?bundleId=...` installs (if needed)
+   and decrypts any app by bundle ID, returning the IPA. `externalVersionId`
+   pins a specific historical App Store version (MuffinStore-style downgrade).
 2. **Automated release watch** - one or more *watches*, each on its own cron
    schedule, check whether the currently-live App Store version of a watched
    bundle ID already has a matching release in its app repo; if not, decrypt
@@ -20,23 +32,30 @@ reachable over SSH from the host. Two jobs:
    just sitting on "dispatched" until everything's done. See **Multiple
    watches** below for managing more than one.
 
+A **TestFlight builds** path lets you browse an app's beta trains and install
+a specific build the same way, via the autoinstall tweak's TestFlight
+installer - see **TestFlight builds** below.
+
 Both paths share one priority-ordered job queue per registered device (see
 **Multiple devices** below) - manually-queued jobs can carry a priority
 weight (see **Priority** below), scheduler jobs always jump straight to the
 front regardless. A single-device install (the default - nothing extra to
-configure) behaves exactly as before: one shared queue, one worker.
+configure) behaves exactly as before: one shared queue, one worker. All
+on-device installs run against the primary device, even in a multi-device
+pool.
 
-A third path, **TestFlight builds**, lets you browse an app's beta trains,
-install a specific build, and decrypt it (`ipadecrypt decrypt
---use-installed`) - see **TestFlight builds** below for the extra
-device-side setup this needs. TestFlight installs always run against the
-primary device, even in a multi-device pool - see **Multiple devices**.
+If the primary device isn't in a usable state (unreachable, no internet, or
+its autoinstall bridge is unresponsive) decrypts are paused automatically -
+see **Maintenance mode** in the dashboard, which also exposes a manual toggle.
 
 ## Setup
 
 1. Jailbroken iDevice on the same network as this host, with OpenSSH,
    AppSync Unified, and appinst installed (see the
-   [ipadecrypt README](https://github.com/londek/ipadecrypt#requirements)).
+   [ipadecrypt README](https://github.com/londek/ipadecrypt#requirements)),
+   the [autoinstall](https://github.com/unbound-app/autoinstall) tweak
+   installed, and the device signed into an Apple ID in the App Store app.
+   See **Device setup** below.
 2. Copy `.env.example` to `.env` and fill it in. Required: `API_KEY`,
    `DOWNLOAD_SIGNING_SECRET`, `PUBLIC_BASE_URL`, `ADMIN_PASSWORD`. Fill in
    the `WATCH_*` / `GH_*` vars too if you want the automated side (leave
@@ -49,12 +68,13 @@ primary device, even in a multi-device pool - see **Multiple devices**.
    docker compose build
    ```
 
-4. **Bootstrap ipadecrypt once, interactively** (App Store login + device
-   SSH details - persisted under `IPADECRYPT_ROOT_DIR`, default
-   `/root/.ipadecrypt`, itself inside the `appstore-config` volume). The
-   `api` service has a fixed `container_name`, so if it's already running,
-   `docker compose run` needs an explicit different name to avoid clashing
-   with it:
+4. **Write ipadecrypt's device config once** so dkrypt knows how to reach the
+   device over SSH. This is just the device connection block (host, port,
+   user, key path) persisted under `IPADECRYPT_ROOT_DIR` (default
+   `/root/.ipadecrypt`, inside the `appstore-config` volume) - no Apple ID
+   login is involved. The `api` service has a fixed `container_name`, so if
+   it's already running, `docker compose run` needs an explicit different
+   name to avoid clashing with it:
 
    ```sh
    docker compose run --rm -it --name dkrypt-bootstrap api ipadecrypt bootstrap
@@ -66,10 +86,28 @@ primary device, even in a multi-device pool - see **Multiple devices**.
    docker compose up -d
    ```
 
-To add a second (or third...) physical device later, bootstrap it the same
+To add a second (or third...) physical device later, configure it the same
 way against a distinct root dir (`ipadecrypt --root-dir /data/devices/b
-bootstrap`, run interactively, same as step 4) and register that root dir
-from **Settings → Devices** - see **Multiple devices** below.
+bootstrap`, same as step 4) and register that root dir from **Settings →
+Devices** - see **Multiple devices** below.
+
+## Device setup
+
+Each iDevice in the pool needs, in addition to the ipadecrypt requirements
+above:
+
+- The [autoinstall](https://github.com/unbound-app/autoinstall) tweak
+  (rootless, ElleKit). It drives the device's own App Store and TestFlight to
+  install apps headlessly and auto-confirms the install sheet - the thing
+  dkrypt's plain SSH access can't do. Without it, App Store and TestFlight
+  installs fail with a bridge error.
+- The device signed into an Apple ID in the App Store app. Installs go through
+  that account, so any app dkrypt decrypts must be free/obtainable on it. No
+  Apple credentials are ever handed to dkrypt or ipadecrypt.
+
+autoinstall reuses the exact SSH connection ipadecrypt is already configured
+with (host/port/key from step 4), so there's nothing extra to configure on
+dkrypt's side once the tweak is installed.
 
 ## SaaS authentication and billing
 
@@ -149,9 +187,12 @@ line reported by the `ipadecrypt` CLI.
 ### `GET /v1/jobs/:id/file`
 
 Streams the finished IPA. Accepts either the master `API_KEY` or a signed
-`?token=` (used internally for the GitHub Actions payload). The file is
-deleted from disk immediately after a successful download, or after
-`FILE_TTL_MINUTES` if nobody ever downloads it.
+`?token=` (a share link, or the internal GitHub Actions payload). Downloads
+are unrestricted until the file is reclaimed. The file lives for
+`FILE_TTL_MINUTES`, extended to cover any active share link's expiry (see
+**Share links** in the dashboard, where a link can also carry an optional
+download cap). Once reclaimed, if the bundle isn't a watch entry, the app is
+also uninstalled from the device to free space.
 
 ### `GET /v1/health`
 
@@ -203,13 +244,12 @@ others (checking a stronger switch auto-checks the weaker one it needs):
   repo, workflow file, poll cron), notification webhook URL.
 - **triggerDispatch** - *operate* the scheduler without being able to
   reconfigure it: manually trigger a check, preview the next dispatch,
-  send a test webhook notification, dismiss App Store auth-failure
-  alerts. Split from `manageScheduler` so an on-call operator can run
-  things without also being able to repoint what they run against.
-- **manageAppleAuth** - the Apple Auth sub-tab: runs the App Store
-  re-authentication flow, which puts real Apple ID credentials through the
-  pipeline. Its own dedicated permission rather than a side effect of
-  another grant.
+  send a test webhook notification. Split from `manageScheduler` so an
+  on-call operator can run things without also being able to repoint what
+  they run against.
+- **manageShareLinks** - the Share links sub-tab: view, copy, and revoke
+  every download share link issued by any user across all jobs. Its own
+  dedicated permission rather than a side effect of another grant.
 - **viewLogs** - the Logs tab: the live scheduler/job log feed.
 - **viewUsers** - see the allowlist and everyone's permissions, read-only
   (implied by `manageUsers`).
@@ -254,17 +294,17 @@ Tabs:
 
 - **Home** - search the App Store and queue a decrypt, your own
   queued/finished requests, scheduler on/off, active jobs, recent history
-  (searchable and exportable as CSV/JSON), the last 10 scheduler run
-  outcomes, and a banner if a decrypt failure looked like an App Store
-  auth issue.
+  (searchable and exportable as CSV/JSON), and the last 10 scheduler run
+  outcomes. Every status chip (scheduler, active jobs, iDevice, TestFlight,
+  battery, temperature, network) opens a popover with detail on click.
   Each free result has a clock-icon button that opens its App Store
   version history and lets you decrypt an older release instead of the
   current one (`ipadecrypt decrypt --external-version-id`) - see
   **Decrypting a specific version** below. A finished job's **Share**
-  button issues a one-time signed download link and also lists every link
-  issued for that job so far (who issued it, when it expires) with a
-  **Revoke** action to kill an active one early - revoking only affects
-  that specific link, not the job itself.
+  button issues a signed download link with a chosen expiry and an optional
+  download cap (unlimited by default), and lists every link issued for that
+  job - the creator can re-copy its URL and see its usage (download count,
+  last used), with a **Revoke** action to kill an active one early.
 - **API Keys** (needs `decrypt`, `viewApiKeys`, `approveApiKeys`, or
   `revokeApiKeys`) - request/reveal/regenerate/revoke your own keys, and
   optionally restrict a key to a comma-separated list of bundle IDs at
@@ -292,22 +332,23 @@ Tabs:
 - **Docs** - copy-pasteable curl examples for using an API key, filled in
   with this instance's actual `PUBLIC_BASE_URL`.
 - **Settings** (needs `manageScheduler`, `triggerDispatch`,
-  `manageAppleAuth`, `viewUsers`, or `manageUsers`) - sub-tabs shown
+  `manageShareLinks`, `viewUsers`, or `manageUsers`) - sub-tabs shown
   depend on which you have:
   - *Scheduler* (`manageScheduler` and/or `triggerDispatch`) - manage the
-    watch list (see **Multiple watches** below) in a compact card, and a
-    "Notifications & alerts" card summarizing the one webhook URL, which
-    events post to it (including "every decrypt finishes", not just
-    scheduled updates - one webhook, just more toggles, not a second URL to
-    configure), retry/retention settings, and alert thresholds, with an
-    **Edit** button opening the full form in a dialog - live, no restart
-    needed, if you have `manageScheduler` (read-only otherwise). The
-    per-watch preview/trigger actions and the test-webhook/dismiss-alert
-    actions need `triggerDispatch` instead - an operator can have one
-    without the other. `GH_TOKEN` and `API_KEY` stay env-only, not editable
-    here. A "Recent webhook deliveries" panel below shows the last 10
-    attempts with their event, target host, success/failure, and error if
-    any.
+    watch list (see **Multiple watches** below) in a compact card, a
+    **Maintenance mode** card with a manual toggle to pause all decrypts and
+    API usage (see **Maintenance mode** below), and a "Notifications &
+    alerts" card summarizing the one webhook URL, which events post to it
+    (including "every decrypt finishes", not just scheduled updates - one
+    webhook, just more toggles, not a second URL to configure),
+    retry/retention settings, and alert thresholds, with an **Edit** button
+    opening the full form in a dialog - live, no restart needed, if you have
+    `manageScheduler` (read-only otherwise). The per-watch preview/trigger
+    actions and the test-webhook action need `triggerDispatch` instead - an
+    operator can have one without the other. `GH_TOKEN` and `API_KEY` stay
+    env-only, not editable here. A "Recent webhook deliveries" panel below
+    shows the last 10 attempts with their event, target host,
+    success/failure, and error if any.
   - *Devices* (`manageScheduler`) - manage the device pool (see **Multiple
     devices** below).
   - *Users* (`viewUsers` or `manageUsers`) - OAuth accounts and manually-added users:
@@ -322,25 +363,16 @@ Tabs:
     `ADMIN_PASSWORD`. The allowlist table also supports selecting several
     users at once and applying a permission preset to all of them in one
     go.
-  - *Apple Auth* (`manageAppleAuth`) - re-runs just the App Store sign-in step of `ipadecrypt
-    bootstrap` (email/password, and a 2FA code if Apple asks for one) as
-    a piped child process, streaming its prompts to the page so you don't
-    need to SSH in for routine re-auth. It deliberately can't drive the
-    device-setup wizard's interactive arrow-key menu - only `device.*`
-    fields stay untouched (so that step is skipped entirely), never the
-    full wizard. See the note below on why a fully headless approach
-    isn't possible.
+  - *Share links* (`manageShareLinks`) - every download share link issued
+    across all jobs, with the full URL to copy and a revoke action, plus
+    each link's status, download count, and last-used time.
 
-**Auth-failure detection**: there's no headless way to proactively check
-whether the App Store session is still valid - `ipadecrypt versions` is an
-interactive TUI, not scriptable. Instead, any decrypt job failure is
-pattern-matched against common re-auth error text (`login failed`,
-`reauthenticate`, `invalid credentials`, etc.); a match sets a persistent
-alert (cleared automatically by the next successful decrypt or a
-successful Apple Auth re-run) and, if `NOTIFY_WEBHOOK_URL` is set, posts a
-Discord-webhook-shaped notification. If it turns out sessions expire
-more/less often than expected, this is the place to tighten the detection
-(`api/src/util/appleAuth.ts`).
+**Maintenance mode**: pauses every decrypt entry point (public API and the
+dashboard) and the scheduler. It's on whenever the manual toggle in Scheduler
+settings is set, and auto-engages when the primary iDevice isn't in a usable
+state - unreachable, no internet, or its autoinstall bridge unresponsive. A
+banner shows while it's active; blocked API calls get a `503` with a
+`maintenance: true` body.
 
 **Health monitoring & alerts**: the Status card tracks iDevice reachability,
 battery (percent/temperature/health), and iDevice storage over the last
@@ -349,9 +381,9 @@ battery (percent/temperature/health), and iDevice storage over the last
 battery hot/low, iDevice storage low, staging disk full) with hysteresis
 (a few percent/degrees of dead-band before it'll re-arm) so it fires once
 per incident instead of flapping. A separate alert
-(`notifyOnTestFlightBridgeDown`) covers the tfauto SpringBoard bridge -
+(`notifyOnTestFlightBridgeDown`) covers the autoinstall SpringBoard bridge -
 it only fires on a regression from a previously-confirmed-working state,
-never for a setup that's never had tfauto installed at all (see
+never for a setup that's never had autoinstall installed at all (see
 **TestFlight builds** below), so it stays silent for anyone not using
 that companion tweak.
 
@@ -411,7 +443,7 @@ it can be registered; the dashboard only consumes an already-bootstrapped
 root dir, it can't run the interactive App Store sign-in for you. App Store
 decrypt jobs distribute across every *enabled* device (first idle device
 takes the next queued job); TestFlight jobs always run on whichever device
-is flagged **primary**, since a TestFlight install and its tfauto bridge are
+is flagged **primary**, since a TestFlight install and its autoinstall bridge are
 tied to one specific physical device. Device health (reachability, battery,
 temperature, storage) is tracked and alerted on per device; the alert
 *thresholds* themselves (Settings → Scheduler) are global across the whole
@@ -421,22 +453,20 @@ materialized into a real entry the same way an implicit watch is.
 
 ## TestFlight builds
 
-Browsing/installing TestFlight builds needs a small companion tweak,
-[unbound-app/tfauto](https://github.com/unbound-app/tfauto), installed on
-the jailbroken device (rootless, ElleKit). It does two things dkrypt's own
-SSH access can't: drives TestFlight's own installer to actually install a
-chosen build, and launches TestFlight in the first place in a way that
-still works with the device's screen off (SpringBoard normally refuses a
-foreground launch to anything if the display isn't lit - see that repo's
-README for how tfauto works around it). Without it installed, the
-TestFlight picker in the dashboard and the scheduler's TestFlight watch
-will fail with a connection/bridge error - the rest of dkrypt works fine
-without it.
+Browsing/installing TestFlight builds uses the same
+[autoinstall](https://github.com/unbound-app/autoinstall) tweak that drives
+App Store installs (see **Device setup**). It does things dkrypt's own SSH
+access can't: drives TestFlight's own installer to actually install a chosen
+build, and launches TestFlight in a way that still works with the device's
+screen off (SpringBoard normally refuses a foreground launch to anything if
+the display isn't lit - see that repo's README for how it works around it).
+Without the tweak installed, the TestFlight picker in the dashboard and the
+scheduler's TestFlight watch fail with a connection/bridge error.
 
-Once installed, nothing else is needed on dkrypt's side - `api/src/
-testflight.ts` talks to it over the same SSH connection already configured
-for `ipadecrypt` (reads the device host/port/key straight out of
-`ipadecrypt`'s own config, no separate credentials).
+Nothing else is needed on dkrypt's side - `api/src/testflight.ts` talks to
+the tweak over the same SSH connection already configured for `ipadecrypt`
+(reads the device host/port/key straight out of `ipadecrypt`'s own config, no
+separate credentials).
 
 ## Notes / limitations
 
@@ -455,7 +485,7 @@ for `ipadecrypt` (reads the device host/port/key straight out of
   same iTunes lookup, no separate config), matching tags shaped
   `v{shortVersion}_{buildNumber}` (e.g. `v1.0.0_106191`) - a different,
   exact-string match against the *raw* tag name, not the normalized App
-  Store comparison above. Fails silently (logged, not fatal) if `tfauto`
+  Store comparison above. Fails silently (logged, not fatal) if `autoinstall`
   isn't installed on the device - see **TestFlight builds**.
 - Job history retention (Settings → Scheduler) defaults to keeping the most
   recent 100 entries indefinitely; setting a day count also purges anything
