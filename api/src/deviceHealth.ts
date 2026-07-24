@@ -28,6 +28,10 @@ export interface DeviceHealth {
   storageUsedBytes?: number;
   storageFreeBytes?: number;
   storageUsedPercent?: number;
+  networkConnected?: boolean;
+  internetAccess?: boolean;
+  networkIpAddress?: string;
+  networkInterface?: string;
   checkedAt: number;
 }
 
@@ -133,6 +137,61 @@ async function queryDeviceStorage(conn: Client): Promise<DeviceStorage | undefin
   return { totalBytes, usedBytes, freeBytes, usedPercent: usedBytes / totalBytes };
 }
 
+interface NetworkStatus {
+  networkConnected: boolean;
+  internetAccess?: boolean;
+  ipAddress?: string;
+  networkInterface?: string;
+}
+
+const IFCONFIG_CANDIDATES = ['ifconfig', '/sbin/ifconfig', '/var/jb/sbin/ifconfig', '/cores/binpack/sbin/ifconfig'];
+// Apple's captive-portal probe returns this exact tiny body only when traffic actually reaches the
+// internet - a plain TCP connect or a captive-portal redirect won't produce it, so it distinguishes
+// "on a network" from "on a network that actually has internet".
+const CAPTIVE_CHECK_URL = 'http://captive.apple.com/hotspot-detect.html';
+
+async function runIfconfig(conn: Client): Promise<string | undefined> {
+  for (const bin of IFCONFIG_CANDIDATES) {
+    const { stdout, code } = await execCommand(conn, `${bin} 2>/dev/null`);
+    if (code === 0 && stdout.includes('inet ')) return stdout;
+  }
+  return undefined;
+}
+
+// The first non-loopback, non-link-local IPv4 the device holds (typically en0 = Wi-Fi). Loopback and
+// 169.254.x self-assigned addresses don't count as being on a real network.
+function parsePrimaryIPv4(ifconfigOutput: string): { ipAddress: string; iface: string } | undefined {
+  let currentIface = '';
+  for (const line of ifconfigOutput.split('\n')) {
+    const ifaceMatch = line.match(/^([a-z0-9]+):\s/i);
+    if (ifaceMatch) {
+      currentIface = ifaceMatch[1];
+      continue;
+    }
+    const inetMatch = line.match(/^\s+inet (\d+\.\d+\.\d+\.\d+)/);
+    if (!inetMatch) continue;
+    const ip = inetMatch[1];
+    if (currentIface === 'lo0' || ip.startsWith('127.') || ip.startsWith('169.254.')) continue;
+    return { ipAddress: ip, iface: currentIface };
+  }
+  return undefined;
+}
+
+async function queryNetworkStatus(conn: Client): Promise<NetworkStatus | undefined> {
+  const ifconfigOutput = await runIfconfig(conn);
+  if (!ifconfigOutput) {
+    log.warn('ifconfig is not available on the device via any known path - network telemetry disabled');
+    return undefined;
+  }
+
+  const primary = parsePrimaryIPv4(ifconfigOutput);
+  if (!primary) return { networkConnected: false };
+
+  const { stdout, code } = await execCommand(conn, `curl -s --max-time 6 ${CAPTIVE_CHECK_URL} 2>/dev/null`);
+  const internetAccess = code === 0 && /Success/i.test(stdout);
+  return { networkConnected: true, internetAccess, ipAddress: primary.ipAddress, networkInterface: primary.iface };
+}
+
 const HEALTH_CACHE_TTL_MS = 20_000;
 const healthCache = new Map<string, { at: number; value: DeviceHealth }>();
 
@@ -143,7 +202,7 @@ const healthCache = new Map<string, { at: number; value: DeviceHealth }>();
 async function computeDeviceHealth(device: DeviceRecord, isPrimary: boolean): Promise<DeviceHealth> {
   try {
     return await withSSH(device.rootDir, async (conn) => {
-      const [tfRunning, sbStatusResult, battery, storage] = await Promise.all([
+      const [tfRunning, sbStatusResult, battery, storage, network] = await Promise.all([
         isTestFlightRunning(conn),
         isPrimary
           ? sendSpringBoardBridgeRequest(conn, { action: 'screen_status' }, 8_000)
@@ -156,6 +215,10 @@ async function computeDeviceHealth(device: DeviceRecord, isPrimary: boolean): Pr
         }),
         queryDeviceStorage(conn).catch((err: unknown) => {
           log.warn('storage query threw', { deviceId: device.id, error: String(err) });
+          return undefined;
+        }),
+        queryNetworkStatus(conn).catch((err: unknown) => {
+          log.warn('network query threw', { deviceId: device.id, error: String(err) });
           return undefined;
         }),
       ]);
@@ -178,6 +241,10 @@ async function computeDeviceHealth(device: DeviceRecord, isPrimary: boolean): Pr
         storageUsedBytes: storage?.usedBytes,
         storageFreeBytes: storage?.freeBytes,
         storageUsedPercent: storage?.usedPercent,
+        networkConnected: network?.networkConnected,
+        internetAccess: network?.internetAccess,
+        networkIpAddress: network?.ipAddress,
+        networkInterface: network?.networkInterface,
         checkedAt: Date.now(),
       };
     });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BatteryCharging, BatteryMedium, Circle, CircleCheck, LoaderCircle, RefreshCw, Thermometer, TriangleAlert, Zap } from 'lucide-svelte';
+  import { BatteryCharging, BatteryMedium, Circle, CircleCheck, Globe, LoaderCircle, RefreshCw, Thermometer, TriangleAlert, Wifi, WifiOff, Zap } from 'lucide-svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import Sparkline from '../../components/Sparkline.svelte';
   import {
@@ -233,6 +233,8 @@
     };
 
     if (!health.reachable) worsen('err', 'iDevice unreachable');
+    if (health.reachable && health.networkConnected === false) worsen('err', 'iDevice not on a network');
+    else if (health.reachable && health.networkConnected && health.internetAccess === false) worsen('warn', 'iDevice has no internet access');
     if (overview?.disk && overview.disk.usedPercent >= 0.9) worsen('err', 'Staging disk nearly full');
     else if (overview?.disk && overview.disk.usedPercent >= 0.75) worsen('warn', 'Staging disk filling up');
     if (health.storageUsedPercent !== undefined && health.storageUsedPercent >= 0.9) worsen('err', 'iDevice storage nearly full');
@@ -310,7 +312,7 @@
   </div>
   {#if health}
     {@const h = health}
-    {#if h.reachable && (h.batteryPercent !== undefined || h.batteryTemperatureC !== undefined)}
+    {#if h.reachable && (h.batteryPercent !== undefined || h.batteryTemperatureC !== undefined || h.networkConnected !== undefined)}
       <div class="mb-3.5 flex flex-wrap items-center gap-1.5">
         {#if h.batteryPercent !== undefined}
           <Popover>
@@ -345,6 +347,39 @@
               <Zap class="ml-1 inline h-3 w-3" />
             {/if}
           </Badge>
+        {/if}
+        {#if h.networkConnected !== undefined}
+          {#if !h.networkConnected}
+            <Badge variant="destructive">
+              <WifiOff class="mr-1 inline h-3 w-3" />
+              No network
+            </Badge>
+          {:else}
+            <Popover>
+              {#snippet trigger()}
+                <Badge variant={h.internetAccess ? 'success' : 'warning'}>
+                  {#if h.internetAccess}
+                    <Globe class="mr-1 inline h-3 w-3" />
+                    Internet
+                  {:else}
+                    <Wifi class="mr-1 inline h-3 w-3" />
+                    No internet
+                  {/if}
+                </Badge>
+              {/snippet}
+              <div class="flex flex-col gap-1 whitespace-nowrap">
+                {#if !h.internetAccess}
+                  <div>On a network but can't reach the internet.</div>
+                {/if}
+                {#if h.networkInterface}
+                  <div><span class="text-muted">Interface</span> · {h.networkInterface}</div>
+                {/if}
+                {#if h.networkIpAddress}
+                  <div><span class="text-muted">IP address</span> · {h.networkIpAddress}</div>
+                {/if}
+              </div>
+            </Popover>
+          {/if}
         {/if}
       </div>
     {/if}

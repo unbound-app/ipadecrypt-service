@@ -325,6 +325,10 @@ export interface DeviceHealth {
   storageUsedBytes?: number;
   storageFreeBytes?: number;
   storageUsedPercent?: number;
+  networkConnected?: boolean;
+  internetAccess?: boolean;
+  networkIpAddress?: string;
+  networkInterface?: string;
   checkedAt: number;
 }
 
