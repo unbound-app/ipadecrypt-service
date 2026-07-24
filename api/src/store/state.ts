@@ -336,7 +336,10 @@ export interface ShareLinkRecord {
   issuedAt: number;
   expiresAt: number;
   revoked: boolean;
+  maxDownloads?: number;
+  downloadCount: number;
   usedAt?: number;
+  lastUsedAt?: number;
 }
 
 interface PersistedState {
@@ -2346,17 +2349,41 @@ export function getUsersWithPushSubscriptions(): string[] {
 // Tracks share links issued through the dashboard's own "Share" flow only - not the signed URLs
 // the scheduler builds internally to hand a decrypted IPA to its own GitHub Actions workflow,
 // which aren't user-facing and shouldn't show up as something to review/revoke here.
-export function recordShareLink(jobId: string, bundleId: string, token: string, issuedBy: string, expiresAt: number): ShareLinkRecord {
-  const record: ShareLinkRecord = { id: randomUUID(), jobId, bundleId, token, issuedBy, issuedAt: Date.now(), expiresAt, revoked: false };
+export function recordShareLink(
+  jobId: string,
+  bundleId: string,
+  token: string,
+  issuedBy: string,
+  expiresAt: number,
+  maxDownloads?: number,
+): ShareLinkRecord {
+  const record: ShareLinkRecord = {
+    id: randomUUID(),
+    jobId,
+    bundleId,
+    token,
+    issuedBy,
+    issuedAt: Date.now(),
+    expiresAt,
+    revoked: false,
+    downloadCount: 0,
+    maxDownloads: maxDownloads && maxDownloads > 0 ? maxDownloads : undefined,
+  };
   state.shareLinks.push(record);
   if (state.shareLinks.length > MAX_SHARE_LINKS) state.shareLinks.shift();
   persistNow();
   return record;
 }
 
-// Never includes the raw token - it's a live bearer credential for the file download, not
-// something to hand back out over an endpoint that's just meant to list/audit issued links.
-function redactShareLink(l: ShareLinkRecord) {
+export function shareLinkDownloadUrl(l: ShareLinkRecord): string {
+  return `${config.publicBaseUrl}/v1/jobs/${l.jobId}/file?token=${l.token}`;
+}
+
+function shareLinkExhausted(l: ShareLinkRecord): boolean {
+  return l.maxDownloads !== undefined && (l.downloadCount ?? 0) >= l.maxDownloads;
+}
+
+function redactShareLink(l: ShareLinkRecord, viewerId: string) {
   return {
     id: l.id,
     jobId: l.jobId,
@@ -2365,15 +2392,19 @@ function redactShareLink(l: ShareLinkRecord) {
     issuedAt: l.issuedAt,
     expiresAt: l.expiresAt,
     revoked: l.revoked,
+    maxDownloads: l.maxDownloads,
+    downloadCount: l.downloadCount ?? 0,
     usedAt: l.usedAt,
+    lastUsedAt: l.lastUsedAt,
+    url: l.issuedBy === viewerId ? shareLinkDownloadUrl(l) : undefined,
   };
 }
 
-export function listShareLinksForJob(jobId: string): ReturnType<typeof redactShareLink>[] {
+export function listShareLinksForJob(jobId: string, viewerId: string): ReturnType<typeof redactShareLink>[] {
   return state.shareLinks
     .filter((l) => l.jobId === jobId)
     .sort((a, b) => b.issuedAt - a.issuedAt)
-    .map(redactShareLink);
+    .map((l) => redactShareLink(l, viewerId));
 }
 
 export function revokeShareLink(id: string): boolean {
@@ -2404,28 +2435,29 @@ export function isShareLinkRevoked(jobId: string, token: string): boolean {
   return state.shareLinks.some((l) => l.jobId === jobId && l.token === token && l.revoked);
 }
 
-// The furthest-out expiry among a job's still-active (not revoked, not yet expired) share links, or
-// undefined if it has none. A live share link has to keep the underlying decrypted file alive at
-// least as long as the link is valid - otherwise the link points at a file the sweeper already
-// reclaimed.
 export function latestActiveShareLinkExpiry(jobId: string): number | undefined {
   const now = Date.now();
   let latest: number | undefined;
   for (const l of state.shareLinks) {
-    if (l.jobId === jobId && !l.revoked && l.expiresAt > now && (latest === undefined || l.expiresAt > latest)) {
+    if (l.jobId === jobId && !l.revoked && l.expiresAt > now && !shareLinkExhausted(l) && (latest === undefined || l.expiresAt > latest)) {
       latest = l.expiresAt;
     }
   }
   return latest;
 }
 
-// Best-effort "someone downloaded this" signal for the issuer - recorded the moment a share-token
-// request passes auth, not after the stream finishes, so a client that aborts mid-download still
-// counts (closer to what an issuer actually wants to know: "was this link used").
-export function markShareLinkUsed(jobId: string, token: string): void {
+export function isShareLinkExhausted(jobId: string, token: string): boolean {
   const record = state.shareLinks.find((l) => l.jobId === jobId && l.token === token);
-  if (!record || record.usedAt) return;
-  record.usedAt = Date.now();
+  return record ? shareLinkExhausted(record) : false;
+}
+
+export function recordShareLinkDownload(jobId: string, token: string): void {
+  const record = state.shareLinks.find((l) => l.jobId === jobId && l.token === token);
+  if (!record) return;
+  const now = Date.now();
+  record.downloadCount = (record.downloadCount ?? 0) + 1;
+  if (!record.usedAt) record.usedAt = now;
+  record.lastUsedAt = now;
   persistNow();
 }
 

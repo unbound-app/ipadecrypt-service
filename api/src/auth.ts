@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { isShareLinkRevoked, markShareLinkUsed, verifyApiKey } from './store/state.js';
+import { isShareLinkExhausted, isShareLinkRevoked, recordShareLinkDownload, verifyApiKey } from './store/state.js';
 import { verifyDownloadToken } from './util/signedUrl.js';
 
 export function requireApiKey(req: Request, res: Response, next: NextFunction): void {
@@ -58,7 +58,11 @@ export function requireApiKeyOrSignedToken(req: Request, res: Response, next: Ne
       res.status(401).json({ error: 'this share link has been revoked' });
       return;
     }
-    markShareLinkUsed(jobId, queryToken);
+    if (isShareLinkExhausted(jobId, queryToken)) {
+      res.status(410).json({ error: 'this share link has reached its download limit' });
+      return;
+    }
+    recordShareLinkDownload(jobId, queryToken);
     next();
     return;
   }

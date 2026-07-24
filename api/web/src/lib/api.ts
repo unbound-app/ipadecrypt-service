@@ -486,8 +486,12 @@ export function fetchBundleStats(bundleId: string): Promise<BundleStats> {
   return apiJson(`/v1/dashboard/jobs/stats/${encodeURIComponent(bundleId)}`);
 }
 
-export function shareJobFile(id: string, ttlMinutes?: number): Promise<{ ok: boolean; data: { url: string; expiresAt: number } }> {
-  return apiAction(`/v1/dashboard/jobs/${id}/share`, { method: 'POST', body: JSON.stringify({ ttlMinutes }) });
+export function shareJobFile(
+  id: string,
+  ttlMinutes?: number,
+  maxDownloads?: number,
+): Promise<{ ok: boolean; data: { url: string; expiresAt: number; maxDownloads?: number } }> {
+  return apiAction(`/v1/dashboard/jobs/${id}/share`, { method: 'POST', body: JSON.stringify({ ttlMinutes, maxDownloads }) });
 }
 
 export interface ShareLinkRecord {
@@ -498,7 +502,11 @@ export interface ShareLinkRecord {
   issuedAt: number;
   expiresAt: number;
   revoked: boolean;
+  maxDownloads?: number;
+  downloadCount: number;
   usedAt?: number;
+  lastUsedAt?: number;
+  url?: string;
 }
 
 export function fetchShareLinks(jobId: string): Promise<{ links: ShareLinkRecord[] }> {

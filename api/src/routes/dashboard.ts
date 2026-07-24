@@ -823,13 +823,16 @@ dashboardRouter.post('/v1/dashboard/jobs/:id/share', (req, res) => {
   const requested = Number.parseInt(String(req.body?.ttlMinutes ?? config.fileTtlMinutes), 10);
   const ttlMinutes = Number.isFinite(requested) ? Math.min(Math.max(requested, SHARE_TTL_MIN), SHARE_TTL_MAX) : config.fileTtlMinutes;
 
+  const requestedMax = Number.parseInt(String(req.body?.maxDownloads ?? ''), 10);
+  const maxDownloads = Number.isFinite(requestedMax) && requestedMax > 0 ? requestedMax : undefined;
+
   const { url, token, expiresAtMs } = buildSignedFileUrlWithToken(job.id, ttlMinutes);
-  recordShareLink(job.id, job.bundleId, token, res.locals.session.sub, expiresAtMs);
-  res.json({ url, expiresAt: expiresAtMs });
+  recordShareLink(job.id, job.bundleId, token, res.locals.session.sub, expiresAtMs, maxDownloads);
+  res.json({ url, expiresAt: expiresAtMs, maxDownloads });
 });
 
 dashboardRouter.get('/v1/dashboard/jobs/:id/share', (req, res) => {
-  res.json({ links: listShareLinksForJob(req.params.id) });
+  res.json({ links: listShareLinksForJob(req.params.id, res.locals.session.sub) });
 });
 
 dashboardRouter.post('/v1/dashboard/jobs/share/:linkId/revoke', (req, res) => {

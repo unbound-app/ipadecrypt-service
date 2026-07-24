@@ -18,11 +18,18 @@
     { value: '360', label: '6 hours' },
     { value: '1440', label: '24 hours' },
   ];
+  const MAX_DOWNLOAD_OPTIONS = [
+    { value: '0', label: 'Unlimited' },
+    { value: '1', label: '1 download' },
+    { value: '3', label: '3 downloads' },
+    { value: '5', label: '5 downloads' },
+    { value: '10', label: '10 downloads' },
+  ];
   const LAST_TTL_KEY = 'shareLinkLastTtlMinutes';
+  const LAST_MAX_KEY = 'shareLinkLastMaxDownloads';
 
   let ttlMinutes = $state(localStorage.getItem(LAST_TTL_KEY) ?? '30');
-  let url = $state('');
-  let expiresAt = $state(0);
+  let maxDownloads = $state(localStorage.getItem(LAST_MAX_KEY) ?? '0');
   let loading = $state(false);
   let links = $state<ShareLinkRecord[] | null>(null);
   let revoking = $state<Set<string>>(new Set());
@@ -32,9 +39,6 @@
     links = (await fetchShareLinks(jobId)).links;
   }
 
-  // An active share link keeps the decrypted file alive until the link expires, so the file's
-  // "expires in" can move once links are created/revoked. MyRequestsPanel stops polling a job once
-  // it's done, so pull the fresh effective expiry from the server and update the tracked entry.
   async function syncJobExpiry(): Promise<void> {
     try {
       const data = await fetchJobStatus(jobId);
@@ -46,11 +50,10 @@
     loading = true;
     try {
       localStorage.setItem(LAST_TTL_KEY, ttlMinutes);
-      const { ok, data } = await shareJobFile(jobId, Number(ttlMinutes));
+      localStorage.setItem(LAST_MAX_KEY, maxDownloads);
+      const { ok } = await shareJobFile(jobId, Number(ttlMinutes), Number(maxDownloads));
       if (!ok) return;
-      url = data.url;
-      expiresAt = data.expiresAt;
-      void loadLinks();
+      await loadLinks();
       void syncJobExpiry();
     } finally {
       loading = false;
@@ -61,8 +64,10 @@
     revokingAll = true;
     try {
       const { ok } = await revokeAllShareLinks(jobId);
-      if (ok) void loadLinks();
-      if (ok) void syncJobExpiry();
+      if (ok) {
+        await loadLinks();
+        void syncJobExpiry();
+      }
     } finally {
       revokingAll = false;
     }
@@ -72,8 +77,10 @@
     revoking = new Set(revoking).add(linkId);
     try {
       const { ok } = await revokeShareLink(linkId);
-      if (ok) void loadLinks();
-      if (ok) void syncJobExpiry();
+      if (ok) {
+        await loadLinks();
+        void syncJobExpiry();
+      }
     } finally {
       const next = new Set(revoking);
       next.delete(linkId);
@@ -83,41 +90,47 @@
 
   $effect(() => {
     if (open) {
-      url = '';
       links = null;
-      void generate();
       void loadLinks();
     }
   });
 
-  function linkStatus(l: ShareLinkRecord): 'active' | 'revoked' | 'expired' {
+  function linkStatus(l: ShareLinkRecord): 'active' | 'revoked' | 'expired' | 'exhausted' {
     if (l.revoked) return 'revoked';
     if (l.expiresAt <= Date.now()) return 'expired';
+    if (l.maxDownloads !== undefined && l.downloadCount >= l.maxDownloads) return 'exhausted';
     return 'active';
+  }
+
+  function statusVariant(status: ReturnType<typeof linkStatus>): 'success' | 'destructive' | 'secondary' {
+    if (status === 'active') return 'success';
+    if (status === 'revoked') return 'destructive';
+    return 'secondary';
+  }
+
+  function downloadsLabel(l: ShareLinkRecord): string {
+    return l.maxDownloads !== undefined ? `${l.downloadCount}/${l.maxDownloads} downloads` : `${l.downloadCount} download${l.downloadCount === 1 ? '' : 's'}`;
   }
 
   const activeCount = $derived((links ?? []).filter((l) => linkStatus(l) === 'active').length);
 </script>
 
-<Dialog {open} {onOpenChange} class="max-w-sm">
+<Dialog {open} {onOpenChange} class="max-w-md">
   <div class="mb-1 text-sm font-medium">Share download link</div>
   <div class="mb-3 text-xs text-muted">
-    Anyone with this link can download once, no sign-in required.
+    Anyone with the link can download it, no sign-in required, until it expires or reaches its download limit.
   </div>
-  <label for="share-ttl" class="mb-1 block text-xs text-muted">Expires</label>
-  <Select id="share-ttl" items={TTL_OPTIONS} bind:value={ttlMinutes} class="w-full" onValueChange={generate} />
-  {#if loading}
-    <div class="mt-3 text-sm text-muted">Generating…</div>
-  {:else if url}
-    <div class="border-border bg-panel-muted mt-3 rounded-md border p-2.5 text-xs break-all">
-      <code>{url}</code>
-      <div class="mt-2 flex items-center justify-between gap-2">
-        <CopyButton text={url} label="Copy link" />
-        <span class="text-muted">expires in {fmtUntil(expiresAt)}</span>
-      </div>
+  <div class="flex gap-2">
+    <div class="flex-1">
+      <label for="share-ttl" class="mb-1 block text-xs text-muted">Expires</label>
+      <Select id="share-ttl" items={TTL_OPTIONS} bind:value={ttlMinutes} class="w-full" />
     </div>
-  {/if}
-  <Button variant="secondary" size="sm" class="mt-3 w-full" loading={loading} onclick={generate}>Regenerate</Button>
+    <div class="flex-1">
+      <label for="share-max" class="mb-1 block text-xs text-muted">Downloads</label>
+      <Select id="share-max" items={MAX_DOWNLOAD_OPTIONS} bind:value={maxDownloads} class="w-full" />
+    </div>
+  </div>
+  <Button size="sm" class="mt-3 w-full" loading={loading} onclick={generate}>Create link</Button>
 
   {#if links && links.length > 0}
     <div class="border-border mt-4 border-t pt-3">
@@ -130,21 +143,27 @@
       <div class="flex flex-col gap-1.5">
         {#each links as l (l.id)}
           {@const status = linkStatus(l)}
-          <div class="border-border flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs">
+          <div class="border-border flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs">
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5">
-                <Badge variant={status === 'active' ? 'success' : status === 'revoked' ? 'destructive' : 'secondary'}>{status}</Badge>
+              <div class="flex flex-wrap items-center gap-1.5">
+                <Badge variant={statusVariant(status)}>{status}</Badge>
+                <span class="text-muted">{downloadsLabel(l)}</span>
                 <span class="text-muted">by {l.issuedBy}</span>
-                {#if l.usedAt}
-                  <Badge variant="secondary" title="A download was attempted with this link">downloaded</Badge>
-                {/if}
               </div>
               <div class="text-muted mt-0.5">
                 <RelativeTime ms={l.issuedAt} /> · expires {fmtUntil(l.expiresAt)}
-                {#if l.usedAt}
-                  · downloaded <RelativeTime ms={l.usedAt} />
+                {#if l.lastUsedAt}
+                  · last used <RelativeTime ms={l.lastUsedAt} />
                 {/if}
               </div>
+              {#if l.url}
+                <div class="mt-1.5 flex items-center gap-2">
+                  <code class="min-w-0 flex-1 truncate rounded bg-panel-muted px-1.5 py-1" title={l.url}>{l.url}</code>
+                  {#if status === 'active'}
+                    <CopyButton text={l.url} label="Copy" />
+                  {/if}
+                </div>
+              {/if}
             </div>
             {#if status === 'active'}
               <Button size="sm" variant="destructive" loading={revoking.has(l.id)} onclick={() => revoke(l.id)}>Revoke</Button>
