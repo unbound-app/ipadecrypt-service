@@ -127,8 +127,7 @@
     username = '';
     newRoleIds = [];
     addOpen = true;
-    // Settings subtabs stay mounted (just hidden) once visited, so a role created while this tab
-    // wasn't showing wouldn't otherwise show up here until some other reload happened to fire.
+
     void load();
   }
 

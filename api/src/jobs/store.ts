@@ -40,8 +40,6 @@ function findActiveJobForBundle(
   return undefined;
 }
 
-// Manual jobs are ordered by priority (highest first), FIFO among equal priority - scheduler jobs
-// always jump straight to the front regardless, unchanged from before priority existed.
 function insertByPriority(id: string, priority: number): void {
   const idx = queue.findIndex((qid) => (jobs.get(qid)?.priority ?? 0) < priority);
   if (idx === -1) queue.push(id);
@@ -176,9 +174,7 @@ export function cancelQueuedJob(id: string, cancelledBy: string): boolean {
 
   recordJobHistory(toHistoryEntry(job));
   settle(job);
-  // Leave it in `jobs` as a normal failed entry (same as a real failure) rather than deleting it
-  // outright - a still-in-flight status poll for this id should see 'failed', not a bare 404, and
-  // the sweeper already reclaims failed jobs after the usual retention window.
+
   emitJobsChanged();
   return true;
 }
@@ -197,9 +193,6 @@ export function cancelJob(id: string, cancelledBy: string): boolean {
   return cancelQueuedJob(id, cancelledBy) || cancelRunningJob(id, cancelledBy);
 }
 
-// Called when a device goes unreachable so its pinned-but-not-yet-dispatched jobs don't sit
-// stalled waiting for a specific device that may be down for a while. TestFlight jobs stay
-// pinned - they can only ever run against the primary device, there's nowhere else to send them.
 export function releasePinnedJobsForDevice(deviceId: string): number {
   let released = 0;
   for (const id of queue) {
@@ -231,10 +224,6 @@ export function prioritizeQueuedJob(id: string): boolean {
   return true;
 }
 
-// TestFlight jobs are pinned to the primary device: installBuild() installs the app on one
-// specific physical device via the autoinstall bridge, so decrypting from a different device would
-// either fail outright or silently grab whatever unrelated app happens to be installed there.
-// App Store jobs have no such constraint and can go to any enabled device.
 function isDispatchable(job: Job, device: DeviceRecord, primary: DeviceRecord): boolean {
   if (job.preferredDeviceId && job.preferredDeviceId !== device.id) return false;
   if (job.testflight) return device.id === primary.id;
@@ -274,9 +263,6 @@ function takeNextDispatchableJobId(device: DeviceRecord, primary: DeviceRecord):
   return undefined;
 }
 
-// Fans queued jobs out across every enabled, currently-idle device. The whole dispatch pass is
-// synchronous (no `await` before each fire-and-forget runOneJob call), so Node's single-threaded
-// event loop can't interleave two dispatch passes mid-loop - no lock needed beyond busyDeviceIds.
 function pumpWorkers(): void {
   const devices = getEffectiveDevices().filter((d) => d.enabled);
   if (devices.length === 0) return;
@@ -390,8 +376,7 @@ export function startJobSweeper(): void {
     const retentionMs = config.jobRetentionMinutes * 60_000;
 
     for (const job of jobs.values()) {
-      // An active share link keeps the file (and the job record) alive at least until the link
-      // expires, so a link the user set to last 24h isn't left pointing at a swept file.
+
       const shareLinkExpiry = latestActiveShareLinkExpiry(job.id) ?? 0;
 
       if (job.status === 'done' && job.finishedAt && !job.downloadedAt && now - job.finishedAt > fileTtlMs && now > shareLinkExpiry) {

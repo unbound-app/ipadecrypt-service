@@ -3,9 +3,6 @@ export const pwaState = $state<{ updateAvailable: boolean; canInstall: boolean }
 let waitingWorker: ServiceWorker | null = null;
 let deferredInstallPrompt: { prompt: () => void; userChoice: Promise<unknown> } | null = null;
 
-// Detects a new service-worker version once it's installed-but-waiting (i.e. an update actually
-// shipped, not the very first install) and offers a manual reload instead of taking over silently
-// mid-session, which would otherwise interrupt whatever the user is doing.
 export function initPwaUpdateWatcher(registration: ServiceWorkerRegistration): void {
   if (registration.waiting && navigator.serviceWorker.controller) {
     waitingWorker = registration.waiting;

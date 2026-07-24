@@ -9,9 +9,6 @@ import {
 } from './idevice.js';
 import { getPrimaryDevice } from './store/state.js';
 
-// TestFlight installs go through the autoinstall SpringBoard bridge, which only ever targets one
-// physical device at a time - not fanned out across the device pool. It always resolves to
-// whichever device is currently flagged primary.
 function primaryRootDir(): string {
   return getPrimaryDevice().rootDir;
 }

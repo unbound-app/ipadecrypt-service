@@ -126,8 +126,6 @@
   const canManageSchedulerSettings = $derived(sessionHasPermission(PermissionFlag.manageAutomation));
   const canTriggerDispatch = $derived(sessionHasPermission(PermissionFlag.manageAutomation));
 
-  // --- Watches ---------------------------------------------------------------------------
-
   const DEFAULT_WATCH_FORM: WatchInput = {
     name: '',
     bundleId: '',
@@ -257,8 +255,6 @@
       triggeringWatch = next;
     }
   }
-
-  // --- Global settings ---------------------------------------------------------------------
 
   const DEFAULT_FORM: SchedulerSettings = {
     notifyWebhookUrl: '',

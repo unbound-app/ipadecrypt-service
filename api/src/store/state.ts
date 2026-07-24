@@ -27,12 +27,10 @@ export interface Role {
   id: string;
   name: string;
   color: string;
-  // Decimal-string-serialized bigint bitfield - bigint isn't JSON-safe, so it's parsed with
-  // parseBits() wherever it's read and serialized with serializeBits() wherever it's written.
+
   permissions: string;
   position: number;
-  // Exactly one role has this set - it's the "@everyone" equivalent, implicitly held by every
-  // allowed user without appearing in their roleIds, and it can't be deleted or unassigned.
+
   isDefault: boolean;
   createdAt: number;
   updatedAt: number;
@@ -44,8 +42,7 @@ const DEFAULT_ROLE_COLOR = '#99aab5';
 export const ROLE_COLOR_PRESETS = ['#99aab5', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#f1c40f', '#e67e22', '#e74c3c', '#5865f2', '#2ecc71'];
 
 function seedDefaultRole(now: number): Role {
-  // "Every added user starts with view-only access to non-sensitive stuff" - the live log feed
-  // is operational noise, not a secret, so it's the one thing @everyone can see out of the box.
+
   return {
     id: DEFAULT_ROLE_ID,
     name: '@everyone',
@@ -72,8 +69,7 @@ export interface AllowedUser {
   sessionVersion?: number;
   lastActiveAt?: number;
   priority?: number;
-  // Which of roleIds were granted by Discord role sync, tracked separately from manual/billing
-  // grants so a later sync can prune exactly what it previously added without touching the rest.
+
   discordPerkRoleIds?: string[];
 }
 
@@ -152,14 +148,14 @@ export interface ApiKeyRecord {
 }
 
 export interface ApiKeyAuthResult {
-  // undefined = unrestricted (root key, or a key created with no scope)
+
   allowedBundleIds?: string[];
-  // undefined for the root API_KEY, which isn't owned by any dashboard account.
+
   ownerId?: string;
   priority?: number;
-  // undefined for the root API_KEY, which has no stored record to attribute bundle usage to.
+
   keyId?: string;
-  // false only when a key was explicitly scoped away from TestFlight - undefined/true means allowed.
+
   allowTestFlight?: boolean;
 }
 
@@ -288,9 +284,6 @@ export interface AuditLogEntry {
   detail?: string;
 }
 
-// runStatus is only meaningful once a dispatch actually went out (ok && triggered) - it starts at
-// 'dispatched' the moment the repository_dispatch call succeeds and is patched in place once the
-// GitHub Actions run it kicked off actually finishes, instead of the caller blocking on that wait.
 export type SchedulerRunStatus = 'dispatched' | 'succeeded' | 'failed' | 'timed_out';
 
 export interface SchedulerRunOutcome {
@@ -376,7 +369,7 @@ const MAX_AUDIT_LOG = 200;
 const MAX_SCHEDULER_RUNS = 20;
 const MAX_SHARE_LINKS = 200;
 const MAX_USAGE_DAYS = 30;
-const MAX_DEVICE_HEALTH_CHECKS = 288; // 24h at a 5-minute poll interval, per device
+const MAX_DEVICE_HEALTH_CHECKS = 288;
 const MAX_WEBHOOK_LOG = 200;
 const statePath = path.join(config.stateDir, 'state.json');
 const backupsDir = path.join(config.stateDir, 'backups');
@@ -409,8 +402,6 @@ function defaultState(): PersistedState {
   };
 }
 
-// Shape of the boolean-flag Permissions object every version through v6 stored per user, kept
-// only so the migration chain below has something concrete to translate into role bitfields.
 interface LegacyPermissions {
   decrypt: boolean;
   viewApiKeys: boolean;
@@ -447,8 +438,6 @@ const LEGACY_ADMIN_PERMISSIONS: LegacyPermissions = {
   manageUsers: true,
 };
 
-// Legacy migrations (v1/v2 role strings, v3's 4 flags) always grant viewLogs - the Logs tab
-// was unconditionally visible to any authenticated user before it became its own permission.
 function legacyRoleToPermissions(role: string): LegacyPermissions {
   switch (role) {
     case 'admin':
@@ -493,8 +482,6 @@ interface LegacyV4Permissions {
   manageUsers: boolean;
 }
 
-// v4 -> v5 split manageScheduler into manageScheduler (config) + triggerDispatch (operate),
-// and added viewLogs as its own permission - preserve exactly what v4 already granted.
 function migratePermissionsV4(old: LegacyV4Permissions): LegacyPermissions {
   return {
     decrypt: old.decrypt,
@@ -509,10 +496,6 @@ function migratePermissionsV4(old: LegacyV4Permissions): LegacyPermissions {
   };
 }
 
-// Translates a v6-and-earlier boolean flag set into the new bitfield, preserving the exact same
-// effective grants a user had before - a flag that used to imply another (approveApiKeys implying
-// the ability to touch key limits, manageUsers implying role/backup management) carries both bits
-// across so nobody's access silently narrows just because the data model changed.
 function legacyBooleansToBits(p: LegacyPermissions): bigint {
   if (Object.values(p).every(Boolean)) return PermissionFlag.administrator;
   let bits = 0n;
@@ -553,11 +536,6 @@ function presetNameForBits(bits: bigint): string | undefined {
   return Object.entries(PRESET_ROLE_BITS).find(([, presetBits]) => presetBits === bits)?.[0];
 }
 
-// Every legacy branch below produces a v5-shaped object (as it always has); this hop carries any
-// of them the rest of the way to v6 so the multi-watch/multi-device/webhook-log additions only
-// need to be handled in one place. It's an intermediate shape, not the final persisted one - its
-// `allowedUsers` still carry the old boolean Permissions object, which migrateV6ToV8 below
-// translates into role bitfields.
 function migrateV5ToV6(v5: Record<string, unknown>): Record<string, unknown> {
   const legacyHealthHistory = v5.deviceHealthHistory;
   return {
@@ -574,9 +552,6 @@ function migrateV5ToV6(v5: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
-// Converts every allowedUsers[].permissions boolean flag set into a role assignment. Users with
-// an identical old flag set share a single generated role (named after the closest built-in
-// preset when one matches exactly) instead of getting one bespoke role each.
 function migrateV6ToV8(v6: Record<string, unknown>): Record<string, unknown> {
   const now = Date.now();
   const roles: Role[] = [seedDefaultRole(now)];
@@ -844,8 +819,6 @@ export function getSessionVersion(username: string): number {
   return state.allowedUsers.find((u) => u.username === username.toLowerCase())?.sessionVersion ?? 0;
 }
 
-// Bumping invalidates every cookie signed with the previous version, including the one making
-// this request - the caller is expected to also clear its own cookie so it doesn't just 401 on refresh.
 export function bumpSessionVersion(username: string): void {
   if (username === 'root') {
     state.rootSessionVersion += 1;
@@ -880,8 +853,6 @@ export function isSessionRecordActive(id: string): boolean {
   return state.activeSessions.some((s) => s.id === id);
 }
 
-// Lazily persisted (dirty flag, not persistNow) since this fires on nearly every dashboard
-// request - same rationale as recordUserActivity above.
 export function touchSessionRecord(id: string): void {
   const record = state.activeSessions.find((s) => s.id === id);
   if (!record) return;
@@ -922,8 +893,6 @@ export function startSessionSweeper(): void {
 
 const ACTIVITY_THROTTLE_MS = 60_000;
 
-// Lazily persisted (dirty flag, not persistNow) since this fires on nearly every dashboard
-// request - an immediate disk write per request would be needless I/O for a homelab-scale app.
 export function recordUserActivity(username: string): void {
   if (username === 'root') return;
   const user = state.allowedUsers.find((u) => u.username === username.toLowerCase());
@@ -934,10 +903,6 @@ export function recordUserActivity(username: string): void {
   dirty = true;
 }
 
-// True if applying this change would leave nobody on the allowlist able to grant access back
-// (root's ADMIN_PASSWORD still works, but GitHub-OAuth-only teams would be locked out of self-service).
-// Only blocks the change that actually removes the last holder - if this user never had the flag
-// to begin with, editing/removing them can't be what orphans it.
 export function wouldOrphanPermission(username: string, flag: bigint, hypotheticalRoleIds: string[] | null): boolean {
   const lower = username.toLowerCase();
   const currentBits = getUserEffectivePermissions(lower);
@@ -950,9 +915,6 @@ export function wouldOrphanPermission(username: string, flag: bigint, hypothetic
   return !hasPermission(newBits, flag);
 }
 
-// Same idea as wouldOrphanPermission, but for a role edit/delete rather than a single user's
-// assignment - simulates the role's bits changing (or vanishing, for delete) across every
-// holder at once, since one role can be the sole source of manageUsers for several people.
 function wouldOrphanManageUsersViaRole(roleId: string, newBits: bigint | null): boolean {
   const before = state.allowedUsers.some((u) => hasPermission(effectiveBitsForRoleIds(u.roleIds, state.roles), PermissionFlag.manageUsers));
   if (!before) return false;
@@ -981,8 +943,6 @@ export function getAuditLog(limit = 100): AuditLogEntry[] {
   return state.auditLog.slice(0, limit);
 }
 
-// Silently drops any id that isn't a real, non-default role - the default role is implicit and
-// never belongs in roleIds, and a stale/forged id shouldn't grant nothing-in-particular.
 function sanitizeRoleIds(roleIds: string[]): string[] {
   return [...new Set(roleIds)].filter((id) => state.roles.some((r) => r.id === id && !r.isDefault));
 }
@@ -1063,10 +1023,6 @@ export function deleteDiscordRolePerk(id: string, actor: string): boolean {
   return changed;
 }
 
-// Called on every Discord login with the user's current guild role ids (or undefined if they
-// couldn't be determined, e.g. bot/guild misconfigured) - grants app roles mapped from held
-// Discord roles and revokes ones from Discord roles no longer held, without touching roleIds a
-// human admin assigned directly (tracked separately via discordPerkRoleIds).
 export function syncDiscordPerkRoles(userId: string, memberships: DiscordGuildMembership[]): void {
   let user = state.allowedUsers.find((u) => u.username === userId.toLowerCase());
   if (!user) {
@@ -1221,8 +1177,6 @@ export function deleteRole(id: string, actor: string): { ok: boolean; error?: st
   return { ok: true };
 }
 
-// Only reassigns positions among non-default roles - the default role is always position 0 and
-// isn't draggable in the UI.
 export function reorderRoles(orderedIds: string[], actor: string): boolean {
   const nonDefaultIds = orderedIds.filter((id) => id !== DEFAULT_ROLE_ID);
   const nonDefaultRoles = state.roles.filter((r) => !r.isDefault);
@@ -1236,10 +1190,6 @@ export function reorderRoles(orderedIds: string[], actor: string): boolean {
   return true;
 }
 
-// Revokes the removed user's API keys outright rather than leaving them owned-but-inert - a key
-// authored by a since-removed user already fails auth (verifyApiKey checks the owner's current
-// permissions), but leaving the record around means it would silently reactivate if that same
-// username is ever re-added later.
 export function removeAllowedUser(username: string, actor: string): boolean {
   const lower = username.toLowerCase();
   const user = state.allowedUsers.find((u) => u.username === lower);
@@ -1360,9 +1310,6 @@ export function denyApiKey(id: string): boolean {
   return true;
 }
 
-// Keeps the outgoing secret valid for `graceMinutes` more so an in-flight deploy that still has
-// the old key baked in doesn't hard-fail the moment someone rotates it - 0 falls back to the old
-// instant-cutover behavior.
 export function regenerateApiKey(id: string, requesterId: string, graceMinutes = 0): boolean {
   const record = state.apiKeys.find((k) => k.id === id);
   if (!record || record.status !== 'approved' || record.ownerId !== requesterId) return false;
@@ -1429,8 +1376,6 @@ export function revokeApiKey(id: string, requesterId: string, requesterIsAdmin: 
   return true;
 }
 
-// Extends (or, for an already-expired/never-expiring key, sets) expiresAt by `days` from now -
-// same semantics as creating a key with expiresInDays, just applied to existing keys in bulk.
 export function bulkExtendApiKeyExpiry(ids: string[], days: number): string[] {
   const extended: string[] = [];
   const newExpiresAt = Date.now() + days * 86_400_000;
@@ -1523,10 +1468,6 @@ export function verifyApiKey(candidate: string, ip?: string): ApiKeyAuthResult |
 
 const MAX_TRACKED_BUNDLES_PER_KEY = 100;
 
-// Which bundle IDs a key was actually used to decrypt, not just a per-day request count - lets an
-// admin see what a key is for at a glance instead of just how often it's called. Only called from
-// the /v1/decrypt handler (the one endpoint where a bundleId is actually being requested), not
-// from every status/file poll that also counts against the daily rate limit above.
 export function recordApiKeyBundleUsage(id: string, bundleId: string): void {
   const perKey = state.apiKeyBundleUsage[id] ?? {};
   perKey[bundleId] = (perKey[bundleId] ?? 0) + 1;
@@ -1546,8 +1487,6 @@ export function getApiKeyBundleUsage(id: string, limit = 10): { bundleId: string
     .slice(0, limit);
 }
 
-// Priority for jobs queued from the dashboard itself (session-authenticated, not via an API key) -
-// root always sits at the neutral default since it isn't a row in allowedUsers.
 export function getUserPriority(username: string): number {
   if (username === 'root') return 0;
   const manualPriority = state.allowedUsers.find((u) => u.username === username.toLowerCase())?.priority ?? 0;
@@ -1663,10 +1602,6 @@ export function updateSettings(patch: Partial<SchedulerSettings>, actor?: string
   return after;
 }
 
-// --- App watches (multi-app scheduler) ---------------------------------------------------
-
-// Legacy single-watch env vars / pre-multi-watch settings fields, kept only as the fallback
-// source for the synthetic 'default' watch below - never written to directly anymore.
 interface LegacySingleWatchSettings {
   watchBundleId?: string;
   watchAppRepo?: string;
@@ -1681,17 +1616,13 @@ function getLegacySingleWatchFields(): Omit<AppWatch, 'id' | 'name' | 'enabled' 
   if (!bundleId) return undefined;
   return {
     bundleId,
-    // WATCH_APP_REPO and GH_DISPATCH_REPO used to be two separate fields (releases tracked
-    // here vs. owns the workflow) - in practice they're always the same repo, so watches now
-    // have just one. Prefer whichever legacy field is actually set.
+
     repo: legacy.watchAppRepo || legacy.ghDispatchRepo || config.watchAppRepo || config.ghDispatchRepo,
     ghWorkflowFile: legacy.ghWorkflowFile || config.ghWorkflowFile,
     pollCron: legacy.pollCron || config.pollCron,
   };
 }
 
-// Recomputed live (not baked into state.json at migration time) so an existing single-watch
-// install keeps tracking .env edits exactly like it does today via getEffectiveSettings().
 export function getEffectiveWatches(): AppWatch[] {
   if (state.watches.length > 0) return state.watches;
   const legacy = getLegacySingleWatchFields();
@@ -1714,9 +1645,6 @@ function hasEnabledWatchWithBundleId(bundleId: string, excludeId?: string): bool
   return getEffectiveWatches().some((w) => w.enabled && w.bundleId === bundleId && w.id !== excludeId);
 }
 
-// Turns the synthetic 'default' watch (env-var-backed, never actually stored) into a real
-// array entry on first edit, so "edit the existing single watch" transparently upgrades a
-// fresh install to explicit multi-watch state without the caller needing to know the difference.
 function materializeWatches(): void {
   if (state.watches.length > 0) return;
   const legacy = getLegacySingleWatchFields();
@@ -1788,8 +1716,6 @@ export function isWatchSchedulable(watch: AppWatch): boolean {
   return watch.enabled && watch.bundleId !== '' && watch.repo !== '' && config.ghToken !== '';
 }
 
-// Distinguishes "intentionally left blank" from a likely mistake: some but not all required
-// fields set, or all set but the env-only GH_TOKEN missing so the watch silently never runs.
 export function getWatchConfigIssues(watch: AppWatch): string[] {
   const fieldsSet = [watch.bundleId, watch.repo].filter(Boolean).length;
   const issues: string[] = [];
@@ -1806,8 +1732,6 @@ export function getWatchConfigIssues(watch: AppWatch): string[] {
   return issues;
 }
 
-// --- Device pool ---------------------------------------------------------------------------
-
 export function getEffectiveDevices(): DeviceRecord[] {
   if (state.devices.length > 0) return state.devices;
   return [{ id: 'default', name: 'default', rootDir: config.ipadecryptRootDir, enabled: true, isPrimary: true, createdAt: 0, updatedAt: 0 }];
@@ -1821,9 +1745,6 @@ export function getDevice(id: string): DeviceRecord | undefined {
   return getEffectiveDevices().find((d) => d.id === id);
 }
 
-// Falls back to the first enabled device if none is explicitly flagged primary (shouldn't
-// normally happen given updateDevice's invariant below, but keeps this total rather than
-// possibly-undefined for every single-device call site).
 export function getPrimaryDevice(): DeviceRecord {
   const devices = getEffectiveDevices().filter((d) => d.enabled);
   return devices.find((d) => d.isPrimary) ?? devices[0] ?? getEffectiveDevices()[0];
@@ -1873,7 +1794,7 @@ export function updateDevice(id: string, patch: Partial<CreateDeviceInput>, acto
   if (!device) return { ok: false, error: 'device not found' };
   Object.assign(device, patch, { updatedAt: Date.now() });
   if (patch.isPrimary) clearOtherPrimaries(device.id);
-  // Never leave zero primaries among enabled devices - promote the first remaining one.
+
   if (!state.devices.some((d) => d.enabled && d.isPrimary)) {
     const fallback = state.devices.find((d) => d.enabled);
     if (fallback) fallback.isPrimary = true;
@@ -1898,8 +1819,6 @@ export function deleteDevice(id: string, actor: string): boolean {
   }
   return changed;
 }
-
-// --- Webhook delivery log -------------------------------------------------------------------
 
 export function recordWebhookDelivery(entry: Omit<WebhookDeliveryEntry, 'id' | 'ts'>): void {
   state.webhookDeliveryLog.unshift({ id: randomUUID(), ts: Date.now(), ...entry });
@@ -2153,9 +2072,6 @@ export function recordSchedulerRunOutcome(outcome: Omit<SchedulerRunEntry, 'ts' 
   return id;
 }
 
-// Patches an already-recorded entry once its dispatched GitHub Actions run actually finishes -
-// the entry is created (with runStatus 'dispatched') as soon as the dispatch call itself
-// succeeds, so the caller isn't stuck waiting on a run that can take many minutes to complete.
 export function updateSchedulerRunOutcome(entryId: string, source: 'appStore' | 'testflight', patch: Partial<SchedulerRunOutcome>): void {
   const entry = state.schedulerRunHistory.find((e) => e.id === entryId);
   if (!entry) return;
@@ -2163,8 +2079,6 @@ export function updateSchedulerRunOutcome(entryId: string, source: 'appStore' | 
   persistNow();
 }
 
-// Backfills watchId/bundleId on entries recorded before multi-watch existed - they were always
-// about the single implicit watch, so this stays accurate as long as that watch still resolves.
 export function getSchedulerRunHistory(limit = 10, watchId?: string): SchedulerRunEntry[] {
   const legacyWatch = getEffectiveWatches()[0];
   const filled = state.schedulerRunHistory.map((e) =>
@@ -2186,9 +2100,6 @@ export interface WatchHealthSummary {
   historyCount: number;
 }
 
-// Only reflects what's still in the (shared, size-capped) scheduler run history - "no matches"
-// means none in that visible window, not literally never, and "repeated failures" is about the
-// most recent consecutive runs rather than a fixed lookback period.
 export function getWatchHealthRollup(): WatchHealthSummary[] {
   return getEffectiveWatches().map((watch) => {
     const entries = getSchedulerRunHistory(MAX_SCHEDULER_RUNS, watch.id);
@@ -2318,8 +2229,6 @@ export function getDeviceStorageHourlyBuckets(deviceId: string, hours = 24): Hou
   return buckets;
 }
 
-// Generated once and persisted, same idea as the download signing secret - every subscribed
-// browser is registered against this keypair, so rotating it would silently break them all.
 export function getOrCreateVapidKeys(): VapidKeys {
   if (!state.vapidKeys) {
     state.vapidKeys = generateVAPIDKeys();
@@ -2352,9 +2261,6 @@ export function getUsersWithPushSubscriptions(): string[] {
   return Object.keys(state.pushSubscriptions).filter((username) => state.pushSubscriptions[username].length > 0);
 }
 
-// Tracks share links issued through the dashboard's own "Share" flow only - not the signed URLs
-// the scheduler builds internally to hand a decrypted IPA to its own GitHub Actions workflow,
-// which aren't user-facing and shouldn't show up as something to review/revoke here.
 export function recordShareLink(
   jobId: string,
   bundleId: string,
@@ -2425,9 +2331,6 @@ export function revokeShareLink(id: string): boolean {
   return true;
 }
 
-// Used by "revoke all active links" on the share dialog - only touches links that are actually
-// still active, so it's safe to call repeatedly without re-recording an audit-log-worthy change
-// for links that were already revoked or expired.
 export function revokeAllShareLinksForJob(jobId: string): number {
   const now = Date.now();
   let revoked = 0;
@@ -2506,9 +2409,6 @@ export interface BackupPayload {
   identities: IdentitySnapshot;
 }
 
-// The API key `hash` is a one-way SHA-256, safe to carry in a backup (restoring it is what keeps
-// existing keys working) - only `pendingReveal`, an actual plaintext secret not yet shown to its
-// owner, gets stripped.
 export function exportBackup(): BackupPayload {
   return {
     backupVersion: BACKUP_VERSION,
@@ -2547,8 +2447,6 @@ export function getBackupHistory(): BackupHistoryEntry[] {
   return [...state.backupHistory].sort((a, b) => b.createdAt - a.createdAt);
 }
 
-// Writes a full exportBackup() snapshot to disk under backupsDir and records it in history,
-// pruning the oldest snapshots (files + entries) once history exceeds retentionCount.
 export function createBackupSnapshot(trigger: 'scheduled' | 'manual'): BackupHistoryEntry {
   mkdirSync(backupsDir, { recursive: true });
   const payload = exportBackup();
@@ -2821,8 +2719,6 @@ export interface ImportBackupResult {
   error?: string;
 }
 
-// All-or-nothing: a backup that's missing or has a malformed field is rejected outright rather
-// than partially applied, so a bad file can't leave the server in a half-restored state.
 export function importBackup(raw: unknown, actor: string): ImportBackupResult {
   const validated = validateBackupPayload(raw);
   if (!validated.ok) return { ok: false, error: validated.error };
@@ -2836,7 +2732,7 @@ export function importBackup(raw: unknown, actor: string): ImportBackupResult {
   state.devices = b.devices;
   state.jobHistory = b.jobHistory.slice(0, MAX_HISTORY);
   state.auditLog = b.auditLog.slice(0, MAX_AUDIT_LOG);
-  // Backfill ids for entries from a backup exported before SchedulerRunEntry had one.
+
   state.schedulerRunHistory = b.schedulerRunHistory
     .slice(0, MAX_SCHEDULER_RUNS)
     .map((e) => ({ ...e, id: e.id ?? randomUUID() }));

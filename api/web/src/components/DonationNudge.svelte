@@ -7,12 +7,9 @@
 
   let dismissed = $state(localStorage.getItem('donationNudgeDismissed') === 'true');
 
-  // Root is whoever's actually running this instance - they already know where the Ko-fi link is
-  // (it's in the header). The nudge is for everyone else who's just here to decrypt something.
   const isRoot = $derived(sessionState.sub === 'root');
   const hasSuccessfulDecrypt = $derived(myDecryptsState.items.some((d) => d.status === 'done'));
-  // Don't nudge paying customers for donations - "free and ad-free, support the maintainer" isn't
-  // the right message for someone already on a paid plan.
+
   const isPaidPlan = $derived(liveState.overview?.isPaidPlan ?? false);
   const show = $derived(!dismissed && !isRoot && !isPaidPlan && hasSuccessfulDecrypt);
 

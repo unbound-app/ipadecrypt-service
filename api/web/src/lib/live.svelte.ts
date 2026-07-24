@@ -44,9 +44,6 @@ export function connectLive(): void {
     liveState.onlineUsers = JSON.parse((e as MessageEvent).data) as string[];
   });
 
-  // The browser retries automatically on its own backoff - onerror fires once per failed attempt
-  // (the initial drop counts as the first), which is what lets the banner show how long it's been
-  // down and roughly how hard it's trying, instead of just a static "reconnecting…".
   source.onerror = () => {
     liveState.connected = false;
     if (liveState.disconnectedAt === null) liveState.disconnectedAt = Date.now();
@@ -66,8 +63,6 @@ export function disconnectLive(): void {
   liveState.reconnectAttempts = 0;
 }
 
-// Force a fresh connection attempt right now instead of waiting on the browser's own EventSource
-// retry backoff - keeps already-known state (overview/logs/history) intact while reconnecting.
 export function reconnectLive(): void {
   source?.close();
   source = null;

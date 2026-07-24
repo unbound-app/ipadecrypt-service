@@ -11,10 +11,6 @@ function fmtBytes(bytes: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
 }
 
-// historyAdded already fires exactly once per finished job (manual/scheduler/TestFlight,
-// done/failed, even cancellations) from recordJobHistory() - this just turns that into a normal
-// notify() event, reusing the one webhook URL/format every other notification already goes
-// through (and the delivery log postWebhook already records) instead of being its own thing.
 export function startJobWebhookDispatcher(): void {
   dashboardEvents.on('historyAdded', (entry: JobHistoryEntry) => {
     void notify('jobCompleted', {

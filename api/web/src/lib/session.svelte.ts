@@ -25,7 +25,7 @@ export interface SessionInfo {
   avatarUrl?: string;
   identities?: { provider: 'github' | 'discord'; username: string; displayName: string; avatarUrl?: string }[];
   linkedProviders?: ('github' | 'discord')[];
-  // Decimal-string-serialized bigint bitfield, as returned by the API - parse with sessionBits().
+
   permissions?: string;
   expiresAt?: number;
   githubOauthEnabled: boolean;
@@ -51,8 +51,6 @@ export function sessionPermissionLabels(): string[] {
   return permissionLabels(sessionBits());
 }
 
-// Any permission that unlocks something under the Settings tab - shared by the tab bar, the
-// Settings subtab list, and the command palette so "can they see Settings at all" is defined once.
 export function sessionCanSeeSettings(): boolean {
   return sessionHasAnyPermission([
     PermissionFlag.viewAutomation,

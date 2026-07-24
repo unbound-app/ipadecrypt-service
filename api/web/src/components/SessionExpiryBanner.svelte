@@ -18,7 +18,7 @@
   });
 
   $effect(() => {
-    // No need to tick every second until we're actually close to expiring.
+
     const interval = showWarning ? 1000 : 30_000;
     const timer = setInterval(() => {
       now = Date.now();

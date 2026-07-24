@@ -12,8 +12,6 @@ export interface WebhookPostResult {
   durationMs: number;
 }
 
-// Discord's 429 body includes a retry_after (seconds) that's usually far more accurate than a
-// blind fixed delay - fall back to the fixed delay for a non-Discord receiver or a malformed body.
 async function retryDelayMs(res: Response): Promise<number> {
   if (res.status !== 429) return RETRY_DELAY_MS;
   try {
@@ -23,9 +21,6 @@ async function retryDelayMs(res: Response): Promise<number> {
   return RETRY_DELAY_MS;
 }
 
-// One retry (2 attempts total) with a short fixed delay, honoring a Discord-style 429 retry_after
-// when present. Shared by the scheduler's Discord/Slack notification webhook and the generic
-// per-job-completion webhook - both just need "post this JSON body, retry once on failure."
 export async function postJsonWithRetry(url: string, body: unknown): Promise<WebhookPostResult> {
   const payload = JSON.stringify(body);
   const startedAt = Date.now();
@@ -48,6 +43,5 @@ export async function postJsonWithRetry(url: string, body: unknown): Promise<Web
     }
   }
 
-  // Unreachable - the loop always returns on its second (last) iteration.
   return { ok: false, durationMs: Date.now() - startedAt };
 }

@@ -44,7 +44,6 @@
   let users = $state<AllowedUser[] | null>(null);
   let reordering = $state(false);
 
-  // Highest position first, like Discord's role list - the default @everyone role always sorts last.
   const displayRoles = $derived.by(() => {
     if (!roles) return [];
     return [...roles].sort((a, b) => b.position - a.position);
@@ -120,7 +119,7 @@
 
   async function move(role: Role, direction: 'up' | 'down'): Promise<void> {
     if (!roles) return;
-    // Ascending by position (index 0 = lowest, excluding the default role which never reorders).
+
     const ascending = roles.filter((r) => !r.isDefault).sort((a, b) => a.position - b.position);
     const idx = ascending.findIndex((r) => r.id === role.id);
     const swapWith = direction === 'up' ? idx + 1 : idx - 1;
@@ -134,8 +133,6 @@
       reordering = false;
     }
   }
-
-  // --- Discord role perks ------------------------------------------------------------------
 
   let discordBotEnabled = $state(false);
   let discordGuilds = $state<DiscordGuildSummary[] | null>(null);

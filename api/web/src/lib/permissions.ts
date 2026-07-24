@@ -1,7 +1,3 @@
-// Mirrors api/src/permissions.ts - every capability is its own bit, roles are a name + color +
-// bitfield, and a member's effective permissions are the OR of every role they hold (plus the
-// implicit @everyone role). Kept as a separate copy from the backend rather than a shared package
-// since frontend and backend already don't share a build step in this repo.
 export const PermissionFlag = {
   administrator: 1n << 0n,
   requestDecrypt: 1n << 1n,
@@ -80,8 +76,6 @@ export interface PermissionMeta {
   group: PermissionGroup;
 }
 
-// Single source of truth for the role editor's copy/grouping. No implied-permission coupling
-// here - Administrator is the one bit that shortcuts every check, everything else is independent.
 export const PERMISSION_META: PermissionMeta[] = [
   { key: 'administrator', label: 'Administrator', description: 'Grants every current and future dashboard permission. This bypasses every individual permission check and should be limited to fully trusted operators.', group: 'General' },
   { key: 'requestDecrypt', label: 'Request and manage own decrypts', description: 'Submit manual and TestFlight decrypt requests, then cancel, prioritize, retry, download, and share only jobs owned by this account.', group: 'General' },

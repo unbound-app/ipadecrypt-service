@@ -145,9 +145,7 @@ interface NetworkStatus {
 }
 
 const IFCONFIG_CANDIDATES = ['ifconfig', '/sbin/ifconfig', '/var/jb/sbin/ifconfig', '/cores/binpack/sbin/ifconfig'];
-// Apple's captive-portal probe returns this exact tiny body only when traffic actually reaches the
-// internet - a plain TCP connect or a captive-portal redirect won't produce it, so it distinguishes
-// "on a network" from "on a network that actually has internet".
+
 const CAPTIVE_CHECK_URL = 'http://captive.apple.com/hotspot-detect.html';
 
 async function runIfconfig(conn: Client): Promise<string | undefined> {
@@ -158,8 +156,6 @@ async function runIfconfig(conn: Client): Promise<string | undefined> {
   return undefined;
 }
 
-// The first non-loopback, non-link-local IPv4 the device holds (typically en0 = Wi-Fi). Loopback and
-// 169.254.x self-assigned addresses don't count as being on a real network.
 function parsePrimaryIPv4(ifconfigOutput: string): { ipAddress: string; iface: string } | undefined {
   let currentIface = '';
   for (const line of ifconfigOutput.split('\n')) {
@@ -195,10 +191,6 @@ async function queryNetworkStatus(conn: Client): Promise<NetworkStatus | undefin
 const HEALTH_CACHE_TTL_MS = 20_000;
 const healthCache = new Map<string, { at: number; value: DeviceHealth }>();
 
-// The SpringBoard bridge (screen status, dark mode, TestFlight bridge reachability) is only
-// queried for the primary device - autoinstall only ever targets one physical device at a time, so
-// asking a non-primary device for bridge status would just measure whether autoinstall happens to
-// also be installed there, not anything meaningful about that device's own health.
 async function computeDeviceHealth(device: DeviceRecord, isPrimary: boolean): Promise<DeviceHealth> {
   try {
     return await withSSH(device.rootDir, async (conn) => {
@@ -384,9 +376,6 @@ async function checkDeviceStorageAlert(device: DeviceRecord, usedPercent: number
   });
 }
 
-// Watches the server's own staging disk (OUTPUT_DIR), not any particular iDevice's storage -
-// stays a single global check rather than one per device, since it has nothing to do with
-// which iDevice is being polled.
 let diskFullAlertSentAt: number | undefined;
 
 async function checkDiskFullAlert(): Promise<void> {

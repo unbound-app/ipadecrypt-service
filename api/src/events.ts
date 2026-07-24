@@ -17,9 +17,6 @@ export function emitHistoryAdded(entry: JobHistoryEntry): void {
   dashboardEvents.emit('historyAdded', entry);
 }
 
-// Tracks who currently has an open dashboard SSE connection (one browser tab can hold more than
-// one, hence a count rather than a boolean) - purely in-memory, resets on server restart, which
-// is fine since this only ever answers "who's online right now."
 const onlineConnectionCounts = new Map<string, number>();
 
 function onlineUsernames(): string[] {

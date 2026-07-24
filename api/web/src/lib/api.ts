@@ -1041,4 +1041,3 @@ export function unsubscribePush(endpoint: string): Promise<{ ok: boolean }> {
 export function testPush(): Promise<{ ok: boolean }> {
   return apiAction('/v1/dashboard/push/test', { method: 'POST' }, 'Test push sent').then((r) => ({ ok: r.ok }));
 }
-

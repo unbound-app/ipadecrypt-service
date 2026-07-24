@@ -24,7 +24,7 @@ const app = express();
 app.set('trust proxy', 'loopback');
 app.use('/v1/paddle/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(paddleWebhookRouter);
-// Default 100kb is too tight for a full-state backup restore once job history/audit log grow.
+
 app.use(express.json({ limit: '5mb' }));
 
 app.use('/assets', express.static(path.join(publicDir, 'assets'), { maxAge: '1y', immutable: true }));
@@ -47,8 +47,7 @@ app.get('/favicon.svg', (_req, res) =>
 app.get('/og-image.png', (_req, res) =>
   res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'og-image.png')),
 );
-// A rasterized copy of favicon.svg - Discord/Slack webhook embeds don't reliably render SVG for
-// author/footer icons, so notify.ts points there instead of the SVG or the (unrelated) og-image.
+
 app.get('/favicon.png', (_req, res) =>
   res.set('Cache-Control', 'public, max-age=86400').sendFile(path.join(publicDir, 'favicon.png')),
 );
@@ -60,8 +59,7 @@ app.get('/.well-known/apple-developer-merchantid-domain-association', (_req, res
     .type('text/plain')
     .sendFile(path.join(publicDir, '.well-known', 'apple-developer-merchantid-domain-association')),
 );
-// No long-lived cache header (the blanket no-store above already covers it) - a stale cached
-// service worker would keep old push-handling logic around instead of picking up updates.
+
 app.get('/sw.js', (_req, res) => res.type('application/javascript').sendFile(path.join(publicDir, 'sw.js')));
 
 app.use(healthRouter);

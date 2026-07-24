@@ -23,8 +23,7 @@
   let loadedFor = $state(0);
 
   let expandedTrain = $state('');
-  // Keyed by train version - re-expanding a train you've already opened shows the cached list
-  // instead of re-hitting the device's slow SSH-driven TestFlight bridge for the same data.
+
   let buildsCache = $state<Record<string, TFBuild[]>>({});
   let loadingTrain = $state('');
   let buildsError = $state('');
@@ -40,9 +39,6 @@
     newBuildIds = new Set(data.builds.filter((b) => !oldIds.has(b.id)).map((b) => b.id));
   }
 
-  // A plain refresh keeps whatever train you had open and its cached builds instead of wiping
-  // everything - only re-fetches that train's builds (to compute what's new) if its build count
-  // actually changed, rather than re-hitting the device's slow SSH bridge on every refresh.
   function load(id: number, force = false): void {
     loadedFor = id;
     error = '';

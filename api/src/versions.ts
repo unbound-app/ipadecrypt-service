@@ -8,8 +8,6 @@ import { getPrimaryDevice } from './store/state.js';
 
 const log = scopedLogger('versions');
 
-// Version browsing always runs against the primary device's ipadecrypt root - it's a metadata
-// lookup (App Store version history), not a decrypt, so it doesn't need per-job device routing.
 function versionsLogPath(): string {
   return path.join(getPrimaryDevice().rootDir, 'logs', 'versions.log');
 }

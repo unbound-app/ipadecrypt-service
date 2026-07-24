@@ -5,10 +5,6 @@ interface Bucket {
   windowStartedAt: number;
 }
 
-// Per-user (session sub), fixed-window limiter for dashboard endpoints that are cheap to call but
-// expensive to serve - each hit drives the shared physical device over SSH, or calls out to
-// iTunes/GitHub live. Session-cookie auth has no equivalent to an API key's daily limit, so a
-// signed-in low-priority user could otherwise hammer these for free.
 export function rateLimitPerUser(maxRequests: number, windowMs: number) {
   const buckets = new Map<string, Bucket>();
 

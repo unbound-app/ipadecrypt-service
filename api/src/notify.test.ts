@@ -6,7 +6,7 @@ const originalFetch = global.fetch;
 const originalSetTimeout = global.setTimeout;
 
 beforeEach(() => {
-  // The retry path sleeps for real between attempts - fire immediately so retry tests stay fast.
+
   global.setTimeout = ((fn: () => void) => {
     fn();
     return 0 as unknown as ReturnType<typeof setTimeout>;

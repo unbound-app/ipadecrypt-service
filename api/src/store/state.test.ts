@@ -216,7 +216,7 @@ describe('getWatchConfigIssues', () => {
   });
 
   test('flags a missing GH_TOKEN once the repo is set', () => {
-    // test/setup.ts never sets GH_TOKEN, so config.ghToken is '' here.
+
     const { watch } = createWatch({ bundleId: 'com.example.app2', repo: 'me/app', ghWorkflowFile: '', pollCron: '0 * * * *' }, 'tester');
     const issues = getWatchConfigIssues(watch!);
     expect(issues.some((i) => i.includes('GH_TOKEN'))).toBe(true);
@@ -232,7 +232,6 @@ describe('watch CRUD', () => {
     expect(second.ok).toBe(false);
     expect(second.error).toMatch(/already targets/);
 
-    // A disabled watch on the same bundle ID is fine - only *enabled* watches can't collide.
     const disabled = createWatch(
       { bundleId: 'com.example.collide', repo: 'me/app3', ghWorkflowFile: '', pollCron: '0 * * * *', enabled: false },
       'tester',
@@ -258,10 +257,7 @@ describe('watch CRUD', () => {
 
 describe('device CRUD primary invariant', () => {
   test('exactly one enabled device stays primary through add/update/delete', () => {
-    // getEffectiveDevices() always implies at least one device (env-var-backed 'default'), so the
-    // very first explicit createDevice() call materializes THAT as primary first, and the newly
-    // added device joins as non-primary - this is what keeps an existing single-device install's
-    // primary device stable the moment someone adds a second one, rather than silently reassigning it.
+
     const a = createDevice({ name: 'device-a', rootDir: '/tmp/device-a' }, 'tester');
     expect(a.isPrimary).toBeFalsy();
     expect(getEffectiveDevices().find((d) => d.id === 'default')?.isPrimary).toBe(true);
@@ -275,7 +271,6 @@ describe('device CRUD primary invariant', () => {
     expect(afterPromote.find((d) => d.id === a.id)?.isPrimary).toBeFalsy();
     expect(afterPromote.find((d) => d.id === b.id)?.isPrimary).toBe(true);
 
-    // Deleting the primary device promotes the next enabled one rather than leaving zero primaries.
     deleteDevice(b.id, 'tester');
     expect(getEffectiveDevices().some((d) => d.isPrimary)).toBe(true);
 
@@ -293,7 +288,6 @@ describe('job history retention', () => {
       const fresh = { id: randomUUID(), bundleId: 'com.example.fresh', status: 'done' as const, source: 'manual' as const, createdAt: Date.now(), finishedAt: Date.now() };
       recordJobHistory(fresh);
 
-      // The stale entry was purged by the write that added the fresh one, not just excluded from a query.
       const all = getAllJobHistory();
       expect(all.some((e) => e.id === old.id)).toBe(false);
       expect(all.some((e) => e.id === fresh.id)).toBe(true);
@@ -326,9 +320,6 @@ describe('device health history', () => {
     recordDeviceHealthCheck('device-a', true);
     recordDeviceHealthCheck('device-a', false);
 
-    // Which of the two hourly buckets the checks land in depends on where "now" falls relative to
-    // the hour boundary, so only assert the bucket structure here - getDeviceUptimePercent below
-    // filters by raw timestamp instead of a bucket index, which is what's actually load-bearing.
     const buckets = getDeviceHealthHourlyBuckets('device-a', 2);
     expect(buckets).toHaveLength(2);
     expect(buckets.some((b) => b.reachablePercent !== null)).toBe(true);

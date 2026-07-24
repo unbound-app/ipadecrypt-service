@@ -31,8 +31,6 @@ const EVENT_SETTING_KEY: Record<NotifyEvent, keyof SchedulerSettings> = {
   jobCompleted: 'notifyOnJobCompleted',
 };
 
-// Matches the dashboard's own CSS custom properties (--color-accent/ok/warn/err) so a notification
-// reads as the same "app" as the dashboard, just in Discord.
 export const EMBED_COLOR = {
   info: 0x5b8cff,
   ok: 0x3ecf8e,
@@ -58,14 +56,9 @@ function truncate(s: string, max: number): string {
 }
 
 const WEBHOOK_USERNAME = 'dkrypt';
-// A rasterized copy of the app's lock-icon favicon - Discord (and most webhook receivers) don't
-// reliably render SVG for author/avatar/footer images, so this points at favicon.png rather than
-// favicon.svg directly.
+
 const WEBHOOK_AVATAR_URL = `${config.publicBaseUrl}/favicon.png`;
 
-// A flat rendering of the embed as markdown-ish plain text - `content` is read by Discord (and
-// most generic JSON webhook loggers), `text` is what Slack's incoming-webhook format expects;
-// sending both in one body covers all three without needing the user to pick a specific target.
 function flattenEmbed(embed: NotifyEmbed): string {
   const lines = [`**${embed.title}**`];
   if (embed.description) lines.push(embed.description);
@@ -73,10 +66,6 @@ function flattenEmbed(embed: NotifyEmbed): string {
   return lines.join('\n');
 }
 
-// Discord embed limits: title 256, description 4096, field name 256, field value 1024, 25 fields max.
-// `username`/`avatar_url` (Discord) and `username`/`icon_url` (Slack's incoming-webhook equivalent)
-// override the webhook's default bot identity - sent on both branches so either receiver picks up
-// whichever pair of keys it actually reads.
 function buildPayload(embed: NotifyEmbed, format: SchedulerSettings['notifyFormat']): Record<string, unknown> {
   if (format === 'plain') {
     const text = truncate(flattenEmbed(embed), 2000);
@@ -128,10 +117,6 @@ async function postWebhook(
   return result;
 }
 
-// Health/alert events matter to whoever's watching the deployment, not just whoever queued a
-// job - these also fan out to push, unlike keyRequest/dispatch*/jobCompleted which stay scoped
-// to the webhook (or, for jobCompleted, the job's own owner via the direct sendPushToUser call
-// in jobs/store.ts).
 const PUSH_ELIGIBLE_EVENTS = new Set<NotifyEvent>([
   'keyExpiringSoon',
   'deviceOffline',
@@ -156,9 +141,6 @@ export async function notify(event: NotifyEvent, embed: NotifyEmbed, webhookUrlO
   if (!result.ok) log.warn('notify webhook failed', { event, status: result.status, error: result.error });
 }
 
-// Test sends bypass the event-toggle checks (and the delivery log, since it's not a "real"
-// notification) so the Settings "Test" button always reflects the URL currently typed in,
-// whether or not it's been saved yet.
 export async function sendTestNotification(urlOverride?: string): Promise<{ ok: boolean; error?: string }> {
   const settings = getEffectiveSettings();
   const url = urlOverride || settings.notifyWebhookUrl;

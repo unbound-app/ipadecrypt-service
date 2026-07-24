@@ -8,7 +8,6 @@ function getContext(): AudioContext | null {
   return ctx;
 }
 
-// A short two-tone chime built from plain oscillators - no binary asset to bundle/license.
 export function playChime(): void {
   const audioCtx = getContext();
   if (!audioCtx) return;

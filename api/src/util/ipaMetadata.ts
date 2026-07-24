@@ -18,8 +18,6 @@ function parsePlistBuffer(buf: Buffer): Record<string, unknown> {
   return parseXmlPlist(buf.toString('utf8')) as Record<string, unknown>;
 }
 
-// Only primitive-valued keys are kept - arrays, nested dicts, dates and binary Data entries
-// aren't diff-interesting for the version-diff feature and would bloat persisted job history.
 function sanitizeInfoPlist(raw: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
@@ -30,9 +28,6 @@ function sanitizeInfoPlist(raw: Record<string, unknown>): Record<string, unknown
   return out;
 }
 
-// Reads Payload/<App>.app/Info.plist directly out of a finished .ipa (a zip archive) without
-// shelling out to unzip - the file is only guaranteed to exist on disk for a short window
-// (until the TTL sweeper reclaims it), so this runs synchronously right after a decrypt finishes.
 export async function extractIpaMetadata(ipaPath: string): Promise<ExtractedIpaMetadata> {
   const zip = new AdmZip(ipaPath);
   const entry = zip.getEntries().find((e) => /^Payload\/[^/]+\.app\/Info\.plist$/.test(e.entryName));

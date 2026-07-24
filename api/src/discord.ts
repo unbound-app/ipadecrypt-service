@@ -22,8 +22,6 @@ export interface DiscordGuildSummary {
   icon: string | null;
 }
 
-// Guilds the bot itself is a member of - lets an admin pick the target guild from a dropdown in
-// Settings instead of hand-copying an id into an env var.
 export async function fetchBotGuilds(): Promise<DiscordGuildSummary[]> {
   if (!discordBotEnabled) return [];
   try {
@@ -56,8 +54,6 @@ export async function fetchGuildRoles(guildId: string): Promise<DiscordGuildRole
   }
 }
 
-// undefined means "couldn't determine" (not a member, guild/bot misconfigured, API error) - the
-// caller should leave existing perk-granted roles untouched rather than treat it as "holds none".
 export async function fetchMemberRoleIds(guildId: string, discordUserId: string): Promise<string[] | undefined> {
   if (!discordBotEnabled) return undefined;
   try {

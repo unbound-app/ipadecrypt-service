@@ -145,9 +145,6 @@
     }
   }
 
-  // Dismiss only ever touches local myDecryptsState (the job itself keeps running server-side
-  // either way, even for a still-in-flight one) - trivially and fully reversible, so an undo
-  // toast replaces what used to be a confirm-dialog gate for the still-running case.
   function dismiss(d: TrackedDecrypt): void {
     dismissDecrypt(d.id);
     showToast('Dismissed', 'success', { action: { label: 'Undo', onClick: () => addDecrypt(d) } });

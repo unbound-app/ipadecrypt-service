@@ -143,7 +143,7 @@ const canViewDevices = requirePermission(PermissionFlag.viewDevices, PermissionF
 const canManageWatches = requirePermission(PermissionFlag.manageAutomation);
 const canManageDevices = requirePermission(PermissionFlag.manageDevices);
 const canManageSchedulerSettings = requirePermission(PermissionFlag.manageAutomation);
-// pollCron lives on both watches and (legacy) scheduler settings, so either side can validate one.
+
 const canValidateCron = requirePermission(PermissionFlag.manageAutomation);
 const canTriggerDispatch = requirePermission(PermissionFlag.manageAutomation);
 const canViewLogs = requirePermission(PermissionFlag.viewLogs);
@@ -165,9 +165,6 @@ dashboardRouter.use((_req, res, next) => {
   next();
 });
 
-// Cheap to call, expensive to serve: each hit drives the shared physical device over SSH or
-// calls out to iTunes/GitHub live, and session-cookie auth has no equivalent to an API key's
-// daily request limit.
 const deviceOrExternalRateLimit = rateLimitPerUser(10, 60_000);
 const jobDiffRateLimit = rateLimitPerUser(30, 60_000);
 
@@ -338,8 +335,6 @@ dashboardRouter.get('/v1/dashboard/jobs/volume', (req, res) => {
   res.json({ days: getDailyVolume(days) });
 });
 
-// Shallow key-by-key diff of two historical decrypts of the same bundle - built from the
-// Info.plist fields captured at decrypt time (Part 7), so no re-download/re-parse needed here.
 dashboardRouter.get('/v1/dashboard/jobs/diff', jobDiffRateLimit, (req, res) => {
   const bundleId = typeof req.query.bundleId === 'string' ? req.query.bundleId : '';
   const aId = typeof req.query.a === 'string' ? req.query.a : '';
@@ -1200,10 +1195,6 @@ function parseRoleIds(body: unknown): string[] | undefined {
   return body as string[];
 }
 
-// A role can only be handed to a user, or created/edited to grant a given bit, by someone who
-// either already holds manageRoles (the "I define what roles can do" permission) or already has
-// every bit involved themselves - otherwise a manageUsers-only admin could bootstrap their way to
-// Administrator by creating or assigning a role more powerful than their own access.
 function canGrantBits(actorBits: bigint, targetBits: bigint): boolean {
   return hasPermission(actorBits, PermissionFlag.manageRoles) || isSubsetPermission(targetBits, actorBits);
 }
@@ -1612,4 +1603,3 @@ dashboardRouter.put('/v1/dashboard/me/prefs', (req, res) => {
   if (typeof body.pushOnAlerts === 'boolean') patch.pushOnAlerts = body.pushOnAlerts;
   res.json(updateUserPrefs(res.locals.session.sub, patch));
 });
-

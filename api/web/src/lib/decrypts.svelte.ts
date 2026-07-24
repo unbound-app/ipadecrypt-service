@@ -35,7 +35,6 @@ function persistDecrypts(): void {
   }
 }
 
-// Bound growth without hiding anything still in flight - drop the oldest finished entries first.
 function trimToMax(items: TrackedDecrypt[]): TrackedDecrypt[] {
   if (items.length <= MAX_TRACKED) return items;
   const active = items.filter((d) => d.status !== 'done' && d.status !== 'failed');
@@ -45,8 +44,6 @@ function trimToMax(items: TrackedDecrypt[]): TrackedDecrypt[] {
   return items.filter((d) => d.status !== 'done' && d.status !== 'failed' ? true : keptFinished.has(d.id));
 }
 
-// Set by addDecrypt so MyRequestsPanel can scroll to and briefly highlight a just-queued row
-// instead of leaving the user to hunt for it below the fold.
 export const highlightJobIdState = $state<{ id: string | null }>({ id: null });
 
 export function addDecrypt(entry: Omit<TrackedDecrypt, 'createdAt'> & { createdAt?: number }): void {
@@ -87,10 +84,6 @@ export function removeRecentBundleId(bundleId: string): void {
   localStorage.setItem('recentBundleIds', JSON.stringify(items));
 }
 
-// Stores the full search result, not just the bundle ID - that's what lets a starred chip show
-// the app's real name and jump straight to a decrypt-ready row instead of re-running a search.
-// Uses a new key (not the old bare-string-array 'starredBundleIds') since the shape changed; any
-// old-format entries just silently fail the type guard below and are dropped.
 function loadStarredApps(): AppStoreSearchResult[] {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem('starredApps') ?? '[]');
@@ -115,8 +108,6 @@ export function toggleStarredApp(app: AppStoreSearchResult): void {
   localStorage.setItem('starredApps', JSON.stringify(items));
 }
 
-// Keep tabs in sync - without this, two open dashboard tabs drift apart as each queues/dismisses
-// decrypts independently, and only the tab that made the last write wins on next reload.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
     if (e.key === 'myDecrypts') myDecryptsState.items = loadDecrypts();

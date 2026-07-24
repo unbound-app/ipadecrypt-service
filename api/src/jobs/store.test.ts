@@ -29,9 +29,7 @@ describe('enqueueDecryptJob', () => {
 
 describe('cancelQueuedJob', () => {
   test('removes a queued job from the queue and marks it failed, but not a running one', () => {
-    // The single worker is permanently stuck on 'com.test.running' from the earlier test (its
-    // mocked runDecrypt never resolves) - re-enqueuing the same bundle dedupes to that same,
-    // genuinely-running job rather than creating a new one.
+
     const running = enqueueDecryptJob('com.test.running', 'manual');
     expect(running.status).toBe('running');
     const queued = enqueueDecryptJob('com.test.cancel-queued', 'manual');

@@ -114,16 +114,13 @@
             etaByBundle[j.bundleId] = r.avgMs;
           })
           .catch(() => {
-            // Allow a retry on the next effect run instead of silently giving up on this bundle forever.
+
             fetchedBundles.delete(j.bundleId);
           });
       }
     }
   });
 
-  // Rough "queue clears in ~X" estimate: sum each active job's own average duration. There's no
-  // per-job elapsed time available here to net out of a running job's remaining time, so this
-  // slightly overestimates while something is already partway through - good enough for a glance.
   const queueEtaMs = $derived.by(() => {
     let total = 0;
     let known = false;

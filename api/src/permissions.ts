@@ -1,6 +1,3 @@
-// Discord-style permission bitfield: every capability is an independent bit, roles are just a
-// name + color + bitfield, and a member's effective permissions are the OR of every role they
-// hold. `administrator` is the one bit that shortcuts every check, same as Discord's Administrator.
 export const PermissionFlag = {
   administrator: 1n << 0n,
   requestDecrypt: 1n << 1n,
@@ -52,8 +49,6 @@ export function hasAnyPermission(bits: bigint, flags: bigint[]): boolean {
   return flags.some((flag) => hasPermission(bits, flag));
 }
 
-// Whether every bit set in `subset` is also set in `bits` - used to stop someone handing out a
-// role that grants more than they themselves have.
 export function isSubsetPermission(subset: bigint, bits: bigint): boolean {
   if ((bits & PermissionFlag.administrator) !== 0n) return true;
   return (subset & bits) === subset;
@@ -67,8 +62,6 @@ export function serializeBits(bits: bigint): string {
   return bits.toString();
 }
 
-// Always masked to known flags - a stale/forged cookie or role record can't smuggle in bits that
-// don't correspond to anything this build understands.
 export function parseBits(value: unknown): bigint {
   if (typeof value !== 'string' && typeof value !== 'number') return 0n;
   try {

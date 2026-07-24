@@ -1,7 +1,3 @@
-// Small helper for keeping a handful of query params in sync with reactive state, so tabs and
-// filters become bookmarkable/shareable links. Always uses replaceState (never pushState) - the
-// actual ask is shareable URLs, not browser-back stepping through every tab click/keystroke, and
-// replaceState avoids spamming history for that.
 export function setQueryParams(patch: Record<string, string | undefined>): void {
   const url = new URL(window.location.href);
   for (const [key, value] of Object.entries(patch)) {

@@ -23,11 +23,6 @@ export async function runDecrypt(job: Job, device: DeviceRecord): Promise<void> 
     emitJobsChanged();
   };
 
-  // Both TestFlight and App Store apps are now installed on-device first (App Store via the
-  // autoinstall purchase-sheet automation), then decrypted with --use-installed - so ipadecrypt's
-  // fragile Apple ID login (--from-appstore) is no longer used. For App Store apps, a numeric
-  // externalVersionId pins the install to that historical version (MuffinStore-style), and
-  // --use-installed then decrypts exactly what was installed.
   if (job.testflight) {
     await installBuild(job.testflight.appId, job.testflight.build, report);
   } else {
@@ -40,9 +35,6 @@ export async function runDecrypt(job: Job, device: DeviceRecord): Promise<void> 
     const child = spawn(config.ipadecryptBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     job.childProcess = child;
 
-    // ipadecrypt can print an `[err] ...` line (e.g. a prepare/re-auth failure) and still exit 0,
-    // so a 0 exit code alone isn't proof of success - surface the real error instead of letting
-    // the run fall through to a misleading ENOENT from the missing output file.
     let lastErrorLine: string | undefined;
 
     const onLine = (chunk: Buffer) => {

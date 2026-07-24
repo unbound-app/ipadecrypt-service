@@ -29,8 +29,6 @@ interface RawIpadecryptConfig {
   };
 }
 
-// Keyed by device root dir (the ipadecrypt --root-dir a device was bootstrapped against) so
-// each registered device's connection info is cached and invalidated independently.
 const authCache = new Map<string, DeviceAuth>();
 
 async function loadDeviceAuth(rootDir: string): Promise<DeviceAuth> {
@@ -47,8 +45,6 @@ async function loadDeviceAuth(rootDir: string): Promise<DeviceAuth> {
   return auth;
 }
 
-// Throws if the given root dir's config.json can't be read or is missing device connection
-// info - used to validate a device's root dir before it's accepted into the dashboard.
 export async function validateDeviceRootDir(rootDir: string): Promise<void> {
   authCache.delete(rootDir);
   await loadDeviceAuth(rootDir);
@@ -138,10 +134,6 @@ export async function isAppStoreRunning(conn: Client): Promise<boolean> {
   return stdout.trim().length > 0;
 }
 
-// Arm/disarm the autoinstall tweak's headless purchase-sheet confirmation. The flag's contents are
-// the accessibility label of the sheet's primary button ("Install" covers free apps: first-time GET,
-// re-download, and update). MUST be cleared after an install or every future App Store sheet would be
-// auto-confirmed.
 export function armAppStoreAutoConfirm(conn: Client, label = 'Install'): Promise<void> {
   return writeRemoteFile(conn, AUTOCONFIRM_FLAG_PATH, label);
 }
@@ -150,10 +142,6 @@ export async function clearAppStoreAutoConfirm(conn: Client): Promise<void> {
   await execCommand(conn, `rm -f ${AUTOCONFIRM_FLAG_PATH}`);
 }
 
-// A fully-installed App Store app is a .app (at container depth 2) whose Info.plist carries the
-// bundleId AND which has a SC_Info/ directory (the FairPlay license/signature files). The SC_Info
-// check is what distinguishes a completed install from the transient placeholder bundle that exists
-// mid-download. bundleId must be shell-safe (validated by the caller).
 export async function uninstallInstalledApp(conn: Client, bundleId: string): Promise<boolean> {
   if (!/^[A-Za-z0-9.-]{1,200}$/.test(bundleId)) return false;
 

@@ -182,8 +182,6 @@
     if (autoScroll && stickToTop && listEl) listEl.scrollTop = 0;
   });
 
-  // Tracks the newest entry the user has actually seen at the top of the list - used to show a
-  // "jump to latest" pill when they're scrolled away (or auto-scroll is off) and more arrive.
   let pinnedTopKey = $state<string | undefined>(undefined);
 
   $effect(() => {

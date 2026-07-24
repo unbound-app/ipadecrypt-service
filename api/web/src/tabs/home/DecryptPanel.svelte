@@ -66,7 +66,7 @@
       highlighted = -1;
     } catch (err) {
       if (token !== searchToken) return;
-      // 'network error' and 'unauthorized' are already surfaced by the fetch layer itself.
+
       const alreadyHandled = err instanceof Error && (err.message === 'network error' || err.message === 'unauthorized');
       if (!alreadyHandled) showToast('App Store search failed - try again', 'error');
       results = [];
@@ -190,8 +190,6 @@
     showToast('Removed from recents', 'success', { action: { label: 'Undo', onClick: () => pushRecentBundleId(bundleId) } });
   }
 
-  // Starred apps already carry the full search result - no need to re-run a live search, just
-  // show that one row directly so Decrypt/Version/TestFlight are immediately clickable.
   function showStarredApp(app: AppStoreSearchResult): void {
     searchToken++;
     debouncedSearch.cancel();

@@ -192,10 +192,6 @@ async function pollRunToCompletion(dispatchRepo: string, workflowFile: string, d
   return run;
 }
 
-// What decryptAndDispatch hands back once it knows whether the dispatch itself succeeded -
-// separate from trackCompletion, the optional background continuation that watches the
-// dispatched workflow run through to completion (which can take many minutes) without the
-// scheduler tick blocking on it.
 interface DispatchResult {
   outcome: SchedulerRunOutcome;
   trackCompletion?: () => Promise<Partial<SchedulerRunOutcome>>;
@@ -236,8 +232,7 @@ function trackRunCompletion(
         reason: `Dispatched ${versionLabel} - workflow ${succeeded ? 'succeeded' : `failed (${run.conclusion})`}`,
       };
     } finally {
-      // Only safe to reclaim now - the file has to stay on disk until the dispatched workflow has
-      // had its chance to actually download it via the signed URL.
+
       await reclaimJobFile(finished);
     }
   };
@@ -326,9 +321,6 @@ async function tickTestFlight(watch: AppWatch): Promise<DispatchResult> {
 
 const RETRY_BASE_DELAY_MS = 30_000;
 
-// Rate-limit errors carry a "retry after Ns" hint (from describeHttpError) - honor it instead of
-// the fixed exponential schedule when it asks for longer, since retrying a rate limit before the
-// window resets just burns another attempt for nothing.
 function retryAfterMsFromReason(reason: string): number | undefined {
   const match = /retry after (\d+)s/.exec(reason);
   return match ? Number(match[1]) * 1000 : undefined;
@@ -360,9 +352,6 @@ async function tickWithRetry(
   return result;
 }
 
-// Awaits a dispatched run's completion in the background (this can take many minutes) and patches
-// the already-recorded history entry with the final status instead of leaving it stuck on
-// "dispatched" - then pushes a fresh overview so any connected dashboard picks it up live.
 async function trackAndUpdate(
   entryId: string,
   source: 'appStore' | 'testflight',
@@ -409,9 +398,7 @@ async function tick(watch: AppWatch): Promise<void> {
     if (testflight.trackCompletion) void trackAndUpdate(entryId, 'testflight', testflight.trackCompletion);
   } finally {
     tickInProgress.delete(watch.id);
-    // Push a fresh overview to every connected dashboard even when nothing got dispatched -
-    // otherwise nextSchedulerRunAt (computed at push time) only ever refreshes on an actual job
-    // change, and drifts into showing a past/"expired" time until the next real decrypt happens.
+
     emitJobsChanged();
   }
 }
@@ -435,10 +422,6 @@ export async function triggerTickNow(watchId: string): Promise<{ ok: boolean; er
 
 const scheduledTasks = new Map<string, { task: cron.ScheduledTask; cronExpr: string }>();
 
-// Reconciles the live cron schedule against getEffectiveWatches(): schedules/reschedules every
-// enabled+schedulable watch whose cron changed or isn't yet scheduled, and stops any watch that's
-// no longer eligible. Each watch ticks entirely independently (its own tickInProgress entry, its
-// own cron.ScheduledTask), so two watches never block or interleave with each other's timing.
 export function applyWatchSchedules(): void {
   const watches = getEffectiveWatches();
   const eligibleIds = new Set(watches.filter(isWatchSchedulable).map((w) => w.id));
@@ -458,8 +441,7 @@ export function applyWatchSchedules(): void {
 
     if (existing) existing.task.stop();
     const task = cron.schedule(watch.pollCron, () => {
-      // Jittered so watches sharing a cron expression (or two expressions that just happen to
-      // land on the same second) don't all hit the App Store/GitHub API in the same instant.
+
       const jitterMs = Math.random() * CRON_JITTER_MAX_MS;
       setTimeout(() => {
         void tick(watch).catch((err) => log.error('scheduler tick threw', { watchId: watch.id, error: String(err) }));
@@ -477,8 +459,6 @@ export function applyWatchSchedules(): void {
 let backupTask: cron.ScheduledTask | undefined;
 let backupTaskCron: string | undefined;
 
-// Re-reads the persisted backup schedule and (re)starts its own independent cron task, entirely
-// separate from watch scheduling - called on boot and again whenever the schedule settings change.
 export function applyBackupSchedule(): void {
   const schedule = getBackupSchedule();
 

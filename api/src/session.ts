@@ -57,10 +57,9 @@ function deserialize(cookieValue: string): Session | undefined {
     if (!isSessionPayload(parsed)) return undefined;
     if (Date.now() > parsed.exp) return undefined;
     const sub = parsed.sub === 'root' ? parsed.sub : resolveAuthUserId(parsed.sub);
-    // A version mismatch means "log out everywhere" fired since this cookie was issued.
+
     if ((parsed.ver ?? 0) !== getSessionVersion(sub)) return undefined;
-    // Individually revoked from the active-sessions list (see session.ts UI), separate from the
-    // version-bump "everywhere" case above.
+
     if (!isSessionRecordActive(parsed.sid)) return undefined;
     return { sub, permissions: parseBits(parsed.permissions), exp: parsed.exp, ver: parsed.ver ?? 0, sid: parsed.sid };
   } catch {
@@ -90,8 +89,7 @@ export function checkRootPassword(candidate: string): boolean {
 }
 
 interface SessionCookieOpts {
-  // Pass the existing sid when re-issuing a cookie for an already-established session (e.g. token
-  // refresh) so it's recognized as the same entry in the active-sessions list rather than a new one.
+
   sid?: string;
   userAgent?: string;
   ip?: string;

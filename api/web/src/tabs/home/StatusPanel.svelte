@@ -39,7 +39,7 @@
       case 'timed_out':
         return 'timedOut';
       default:
-        // Recorded before runStatus existed - dispatch confirmed, no further detail available.
+
         return 'succeeded';
     }
   }
@@ -53,15 +53,12 @@
     checkFailed: 'Check failed',
   };
 
-  // Neither the disk gauge nor the "next run in" label update on their own between overview
-  // pushes (the server only sends one on job/history changes) - this tick forces a re-render.
   let now = $state(Date.now());
   $effect(() => {
     const interval = setInterval(() => (now = Date.now()), 30_000);
     return () => clearInterval(interval);
   });
-  // Soonest next run across every schedulable watch, not just one - a single-watch install sees
-  // exactly the same "next run" label it always did, multi-watch installs see the closest one.
+
   const nextRunAt = $derived.by(() => {
     const times = (overview?.watches ?? []).map((w) => w.nextRunAt).filter((t): t is number => t !== undefined);
     return times.length > 0 ? Math.min(...times) : undefined;
@@ -70,8 +67,7 @@
   const nextRunLabel = $derived.by(() => {
     void now;
     if (!nextRunAt) return undefined;
-    // A brief "in the past" window is expected right as a tick fires and before the resulting
-    // overview refresh arrives - "expired" reads like something is broken, so soften it.
+
     if (nextRunAt <= Date.now()) return 'due any moment';
     return fmtUntil(nextRunAt);
   });
