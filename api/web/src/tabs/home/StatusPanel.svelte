@@ -261,6 +261,7 @@
     unknown: 'Checking…',
   };
   const activeJobs = $derived(overview?.activeJobs.length ?? 0);
+  const schedulableWatchCount = $derived(overview?.watches.filter((w) => w.schedulable).length ?? 0);
 </script>
 
 <Card title="Status">
@@ -290,24 +291,75 @@
   {/snippet}
   <div class="mb-1.5 flex flex-wrap items-center gap-1.5">
     {#if overview}
-      <Badge variant={overview.schedulerEnabled ? 'success' : 'secondary'}>Scheduler {overview.schedulerEnabled ? 'on' : 'off'}</Badge>
+      <Popover>
+        {#snippet trigger()}
+          <Badge variant={overview.schedulerEnabled ? 'success' : 'secondary'}>Scheduler {overview.schedulerEnabled ? 'on' : 'off'}</Badge>
+        {/snippet}
+        <div class="flex flex-col gap-1 whitespace-nowrap">
+          <div><span class="text-muted">Watching</span> · {schedulableWatchCount} app{schedulableWatchCount === 1 ? '' : 's'}</div>
+          {#if nextRunLabel}
+            <div><span class="text-muted">Next run</span> · {nextRunLabel === 'due any moment' ? nextRunLabel : `in ${nextRunLabel}`}</div>
+          {:else}
+            <div class="text-muted">No runs scheduled.</div>
+          {/if}
+        </div>
+      </Popover>
     {/if}
-    <Badge variant={activeJobs > 0 ? 'default' : 'secondary'}>{activeJobs} active job{activeJobs === 1 ? '' : 's'}</Badge>
+    <Popover>
+      {#snippet trigger()}
+        <Badge variant={activeJobs > 0 ? 'default' : 'secondary'}>{activeJobs} active job{activeJobs === 1 ? '' : 's'}</Badge>
+      {/snippet}
+      <div class="flex max-w-xs flex-col gap-1">
+        {#if activeJobs === 0}
+          <div class="text-muted whitespace-nowrap">Nothing running or queued.</div>
+        {:else}
+          {#each overview?.activeJobs ?? [] as j (j.id)}
+            <div class="truncate"><span class="text-muted">{j.status}</span> · {j.bundleId}</div>
+          {/each}
+        {/if}
+      </div>
+    </Popover>
   </div>
   <div class="mb-1.5 flex flex-wrap items-center gap-1.5">
     {#if health}
       {@const h = health}
-      <Badge variant={h.reachable ? 'success' : 'destructive'} title={h.error ?? undefined}>
-        iDevice {h.reachable ? 'online' : 'unreachable'}
-      </Badge>
+      <Popover>
+        {#snippet trigger()}
+          <Badge variant={h.reachable ? 'success' : 'destructive'}>iDevice {h.reachable ? 'online' : 'unreachable'}</Badge>
+        {/snippet}
+        <div class="flex flex-col gap-1 whitespace-nowrap">
+          {#if !h.reachable}
+            <div class="text-err max-w-xs whitespace-normal">{h.error ?? 'unreachable'}</div>
+          {:else}
+            {#if h.storageFreeBytes !== undefined && h.storageTotalBytes !== undefined}
+              <div><span class="text-muted">Storage free</span> · {fmtBytesGB(h.storageFreeBytes)} / {fmtBytesGB(h.storageTotalBytes)}</div>
+            {/if}
+            {#if h.screenIsOn !== undefined}
+              <div><span class="text-muted">Screen</span> · {h.darkEnabled ? 'dark (awake)' : h.screenIsOn ? 'on' : 'off'}</div>
+            {/if}
+          {/if}
+          <div><span class="text-muted">Checked</span> · <RelativeTime ms={h.checkedAt} /></div>
+        </div>
+      </Popover>
       {#if h.reachable}
-        <Badge variant={h.testFlightRunning ? 'default' : 'secondary'}>TestFlight {h.testFlightRunning ? 'running' : 'idle'}</Badge>
+        <Popover>
+          {#snippet trigger()}
+            <Badge variant={h.testFlightRunning ? 'default' : 'secondary'}>TestFlight {h.testFlightRunning ? 'running' : 'idle'}</Badge>
+          {/snippet}
+          <div class="flex flex-col gap-1 whitespace-nowrap">
+            <div><span class="text-muted">Process</span> · {h.testFlightRunning ? 'running' : 'not running'}</div>
+            {#if h.testFlightBridgeReachable !== undefined}
+              <div><span class="text-muted">Bridge</span> · {h.testFlightBridgeReachable ? 'reachable' : 'unreachable'}</div>
+            {/if}
+            <div class="text-muted">Drives TestFlight & App Store installs.</div>
+          </div>
+        </Popover>
       {/if}
     {:else}
       <Badge variant="secondary">iDevice …</Badge>
     {/if}
     {#each otherDevices as d (d.id)}
-      <Badge variant={d.enabled ? 'secondary' : 'secondary'} title="{d.name} - {d.enabled ? 'enabled' : 'disabled'}">{d.name}</Badge>
+      <Badge variant="secondary" title="{d.name} - {d.enabled ? 'enabled' : 'disabled'}">{d.name}</Badge>
     {/each}
   </div>
   {#if health}
@@ -340,13 +392,23 @@
           </Popover>
         {/if}
         {#if h.batteryTemperatureC !== undefined}
-          <Badge variant={thermalBadgeVariant(h.batteryTemperatureC)}>
-            <Thermometer class="mr-1 inline h-3 w-3" />
-            {h.batteryTemperatureC.toFixed(1)}°C
-            {#if h.batteryCharging}
-              <Zap class="ml-1 inline h-3 w-3" />
-            {/if}
-          </Badge>
+          {@const temp = h.batteryTemperatureC}
+          <Popover>
+            {#snippet trigger()}
+              <Badge variant={thermalBadgeVariant(temp)}>
+                <Thermometer class="mr-1 inline h-3 w-3" />
+                {temp.toFixed(1)}°C
+                {#if h.batteryCharging}
+                  <Zap class="ml-1 inline h-3 w-3" />
+                {/if}
+              </Badge>
+            {/snippet}
+            <div class="flex flex-col gap-1 whitespace-nowrap">
+              <div><span class="text-muted">State</span> · {temp >= 42 ? 'hot' : temp >= 37 ? 'warm' : 'normal'}</div>
+              <div><span class="text-muted">Charging</span> · {h.batteryCharging ? 'yes' : 'no'}</div>
+              <div class="text-muted">Warm ≥ 37°C · Hot ≥ 42°C</div>
+            </div>
+          </Popover>
         {/if}
         {#if h.networkConnected !== undefined}
           {#if !h.networkConnected}
