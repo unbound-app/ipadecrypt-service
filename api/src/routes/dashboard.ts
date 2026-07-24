@@ -3,6 +3,7 @@ import { validate as validateCronExpr } from 'node-cron';
 import { config, discordBotEnabled } from '../config.js';
 import { fetchBotGuilds, fetchGuildRoles } from '../discord.js';
 import { dashboardEvents, emitJobsChanged, getOnlineUsernames, registerPresence, unregisterPresence } from '../events.js';
+import { getBillingEntitlements } from '../billing.js';
 import { jobSummary, streamJobFile } from '../jobs/http.js';
 import { cancelJob, enqueueDecryptJob, getActiveJobs, getJob, prioritizeQueuedJob } from '../jobs/store.js';
 import type { LogEntry } from '../logger.js';
@@ -168,7 +169,7 @@ dashboardRouter.use((_req, res, next) => {
 const deviceOrExternalRateLimit = rateLimitPerUser(10, 60_000);
 const jobDiffRateLimit = rateLimitPerUser(30, 60_000);
 
-function buildOverview(permissions: bigint) {
+function buildOverview(permissions: bigint, userId: string) {
   const canViewAutomation = hasPermission(permissions, PermissionFlag.viewAutomation) || hasPermission(permissions, PermissionFlag.manageAutomation);
   const canViewDeviceData = hasPermission(permissions, PermissionFlag.viewDevices) || hasPermission(permissions, PermissionFlag.manageDevices);
   const watches = canViewAutomation ? getEffectiveWatches().map((w) => ({
@@ -187,6 +188,7 @@ function buildOverview(permissions: bigint) {
     lastSchedulerRunAt: canViewAutomation ? getLastSchedulerRunAt() : undefined,
     schedulerRunHistory: canViewAutomation ? getSchedulerRunHistory(10) : [],
     disk: getDiskUsage(config.outputDir),
+    isPaidPlan: getBillingEntitlements(userId).planId !== 'viewer',
     activeJobs: getActiveJobs().map((j) => ({
       id: j.id,
       bundleId: j.bundleId,
@@ -206,7 +208,7 @@ function buildOverview(permissions: bigint) {
 }
 
 dashboardRouter.get('/v1/dashboard/overview', (_req, res) => {
-  res.json(buildOverview(res.locals.session.permissions));
+  res.json(buildOverview(res.locals.session.permissions, res.locals.session.sub));
 });
 
 dashboardRouter.get('/v1/dashboard/events', (req, res) => {
@@ -219,13 +221,13 @@ dashboardRouter.get('/v1/dashboard/events', (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
-  sendEvent('overview', buildOverview(res.locals.session.permissions));
+  sendEvent('overview', buildOverview(res.locals.session.permissions, res.locals.session.sub));
 
   const { sub } = res.locals.session;
   registerPresence(sub);
   sendEvent('presence', getOnlineUsernames());
 
-  const onJobsChanged = () => sendEvent('overview', buildOverview(res.locals.session.permissions));
+  const onJobsChanged = () => sendEvent('overview', buildOverview(res.locals.session.permissions, res.locals.session.sub));
   const onLogAdded = (entry: LogEntry) => sendEvent('log', entry);
   const onHistoryAdded = (entry: JobHistoryEntry) => sendEvent('history', entry);
   const onPresenceChanged = (usernames: string[]) => sendEvent('presence', usernames);

@@ -182,6 +182,7 @@ export interface OverviewPayload {
   lastSchedulerRunAt?: number;
   schedulerRunHistory: SchedulerRunEntry[];
   disk?: DiskUsage;
+  isPaidPlan?: boolean;
   activeJobs: ActiveJob[];
 }
 

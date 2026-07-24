@@ -2,6 +2,7 @@
   import { Coffee, X } from 'lucide-svelte';
   import { KOFI_URL } from '../lib/constants';
   import { myDecryptsState } from '../lib/decrypts.svelte';
+  import { liveState } from '../lib/live.svelte';
   import { sessionState } from '../lib/session.svelte';
 
   let dismissed = $state(localStorage.getItem('donationNudgeDismissed') === 'true');
@@ -10,7 +11,10 @@
   // (it's in the header). The nudge is for everyone else who's just here to decrypt something.
   const isRoot = $derived(sessionState.sub === 'root');
   const hasSuccessfulDecrypt = $derived(myDecryptsState.items.some((d) => d.status === 'done'));
-  const show = $derived(!dismissed && !isRoot && hasSuccessfulDecrypt);
+  // Don't nudge paying customers for donations - "free and ad-free, support the maintainer" isn't
+  // the right message for someone already on a paid plan.
+  const isPaidPlan = $derived(liveState.overview?.isPaidPlan ?? false);
+  const show = $derived(!dismissed && !isRoot && !isPaidPlan && hasSuccessfulDecrypt);
 
   function dismiss(): void {
     dismissed = true;
