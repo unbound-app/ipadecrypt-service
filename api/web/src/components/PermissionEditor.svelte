@@ -8,7 +8,7 @@
 
   let { value = $bindable() }: Props = $props();
 
-  const GROUP_ORDER: PermissionGroup[] = ['General', 'API Keys', 'Automation & Devices', 'Apple Authentication', 'Members & Roles', 'Backups'];
+  const GROUP_ORDER: PermissionGroup[] = ['General', 'API Keys', 'Automation & Devices', 'Members & Roles', 'Backups'];
 
   const groups = GROUP_ORDER.map((title) => ({ title, fields: PERMISSION_META.filter((f) => f.group === title) })).filter(
     (g) => g.fields.length > 0,

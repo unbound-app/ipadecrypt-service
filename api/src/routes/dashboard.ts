@@ -89,6 +89,7 @@ import {
   listApiKeysForOwner,
   listPendingApiKeys,
   listRoles,
+  listAllShareLinks,
   listShareLinksForJob,
   previewBackup,
   recordAudit,
@@ -829,6 +830,10 @@ dashboardRouter.post('/v1/dashboard/jobs/:id/share', (req, res) => {
   const { url, token, expiresAtMs } = buildSignedFileUrlWithToken(job.id, ttlMinutes);
   recordShareLink(job.id, job.bundleId, token, res.locals.session.sub, expiresAtMs, maxDownloads);
   res.json({ url, expiresAt: expiresAtMs, maxDownloads });
+});
+
+dashboardRouter.get('/v1/dashboard/share-links', requirePermission(PermissionFlag.manageShareLinks), (_req, res) => {
+  res.json({ links: listAllShareLinks() });
 });
 
 dashboardRouter.get('/v1/dashboard/jobs/:id/share', (req, res) => {

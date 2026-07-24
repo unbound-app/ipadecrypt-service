@@ -2383,7 +2383,7 @@ function shareLinkExhausted(l: ShareLinkRecord): boolean {
   return l.maxDownloads !== undefined && (l.downloadCount ?? 0) >= l.maxDownloads;
 }
 
-function redactShareLink(l: ShareLinkRecord, viewerId: string) {
+function redactShareLink(l: ShareLinkRecord, revealUrl: boolean) {
   return {
     id: l.id,
     jobId: l.jobId,
@@ -2396,7 +2396,7 @@ function redactShareLink(l: ShareLinkRecord, viewerId: string) {
     downloadCount: l.downloadCount ?? 0,
     usedAt: l.usedAt,
     lastUsedAt: l.lastUsedAt,
-    url: l.issuedBy === viewerId ? shareLinkDownloadUrl(l) : undefined,
+    url: revealUrl ? shareLinkDownloadUrl(l) : undefined,
   };
 }
 
@@ -2404,7 +2404,11 @@ export function listShareLinksForJob(jobId: string, viewerId: string): ReturnTyp
   return state.shareLinks
     .filter((l) => l.jobId === jobId)
     .sort((a, b) => b.issuedAt - a.issuedAt)
-    .map((l) => redactShareLink(l, viewerId));
+    .map((l) => redactShareLink(l, l.issuedBy === viewerId));
+}
+
+export function listAllShareLinks(): ReturnType<typeof redactShareLink>[] {
+  return [...state.shareLinks].sort((a, b) => b.issuedAt - a.issuedAt).map((l) => redactShareLink(l, true));
 }
 
 export function revokeShareLink(id: string): boolean {

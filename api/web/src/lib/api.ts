@@ -513,6 +513,10 @@ export function fetchShareLinks(jobId: string): Promise<{ links: ShareLinkRecord
   return apiJson(`/v1/dashboard/jobs/${jobId}/share`);
 }
 
+export function fetchAllShareLinks(): Promise<{ links: ShareLinkRecord[] }> {
+  return apiJson('/v1/dashboard/share-links');
+}
+
 export function revokeShareLink(linkId: string): Promise<{ ok: boolean }> {
   return apiAction(`/v1/dashboard/jobs/share/${linkId}/revoke`, { method: 'POST' }, 'Link revoked').then((r) => ({ ok: r.ok }));
 }

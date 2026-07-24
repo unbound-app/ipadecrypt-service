@@ -13,6 +13,7 @@ export const PermissionFlag = {
   manageDevices: 1n << 7n,
   manageSchedulerSettings: 1n << 8n,
   triggerDispatch: 1n << 9n,
+  manageShareLinks: 1n << 10n,
   viewLogs: 1n << 11n,
   viewUsers: 1n << 12n,
   manageUsers: 1n << 13n,
@@ -70,7 +71,7 @@ export function parseBits(value: string | undefined | null): bigint {
   }
 }
 
-export type PermissionGroup = 'General' | 'API Keys' | 'Automation & Devices' | 'Apple Authentication' | 'Members & Roles' | 'Backups';
+export type PermissionGroup = 'General' | 'API Keys' | 'Automation & Devices' | 'Members & Roles' | 'Backups';
 
 export interface PermissionMeta {
   key: PermissionFlagKey;
@@ -85,6 +86,7 @@ export const PERMISSION_META: PermissionMeta[] = [
   { key: 'administrator', label: 'Administrator', description: 'Grants every current and future dashboard permission. This bypasses every individual permission check and should be limited to fully trusted operators.', group: 'General' },
   { key: 'requestDecrypt', label: 'Request and manage own decrypts', description: 'Submit manual and TestFlight decrypt requests, then cancel, prioritize, retry, download, and share only jobs owned by this account.', group: 'General' },
   { key: 'viewLogs', label: 'View operational logs', description: 'Read the live scheduler and job log stream plus webhook delivery records. This does not grant permission to change automation or webhook settings.', group: 'General' },
+  { key: 'manageShareLinks', label: 'Manage all share links', description: 'View, copy, and revoke every download share link issued by any user across all jobs, including their usage and download counts.', group: 'General' },
   { key: 'requestApiKeys', label: 'Request API keys', description: 'Submit a personal API-key request for approval. Requested keys remain unusable until someone with Manage API keys approves them.', group: 'API Keys' },
   { key: 'createApiKeys', label: 'Create API keys', description: 'Create, reveal, regenerate, revoke, and use personal API keys immediately. This bypasses the approval queue only for the account’s own keys.', group: 'API Keys' },
   { key: 'viewApiKeys', label: 'View API keys', description: 'Read every API key, including its owner, status, usage, and configuration. Key secrets are never exposed by this permission.', group: 'API Keys' },
